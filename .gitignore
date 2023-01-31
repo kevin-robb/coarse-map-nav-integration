@@ -1,3 +1,10 @@
+# python class files
+*.pyc
+
+# VS Code trash
+.vscode/
+
+# vvvvv Standard ROS .gitignore template vvvvvv
 devel/
 logs/
 build/
