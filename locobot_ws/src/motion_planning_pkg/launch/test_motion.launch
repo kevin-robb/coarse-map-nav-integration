@@ -1,0 +1,4 @@
+<launch>
+    <!-- motion planning & control node -->
+    <node pkg="motion_planning_pkg" type="motion_planning_node.py" name="motion_planning_node" output="screen" />
+</launch>
