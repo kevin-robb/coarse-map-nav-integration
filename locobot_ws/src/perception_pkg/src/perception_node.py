@@ -9,12 +9,15 @@ import numpy as np
 from math import sin, cos, remainder, tau, atan2
 from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import Vector3
+from sensor_msgs.msg import Image
 
 
 ############ GLOBAL VARIABLES ###################
 observation_pub = None
-# Most recent measurements.
-lm_meas_queue = []
+# Most recent measurement.
+meas_img = None
+meas_img_height = 0
+meas_img_width = 0
 # current timestep number.
 timestep = 0
 #################################################
@@ -30,16 +33,18 @@ def send_state():
 
 # get measurement from RealSense.
 def get_RS_image(msg):
-    # format: [id1,range1,bearing1,...idN,rN,bN]
-    global lm_meas_queue
-    lm_meas_queue.append(msg.data)
+    global meas_img, meas_img_height, meas_img_width
+    meas_img_height = msg.height
+    meas_img_width = msg.width
+    meas_img = msg.data
 
 def main():
     global observation_pub
     rospy.init_node('perception_node')
 
-    # TODO subscribe to sensor images from RealSense.
-    rospy.Subscriber("/realsense", Float32MultiArray, get_RS_image, queue_size=1)
+    # Subscribe to sensor images from RealSense.
+    # TODO may want to check /locobot/camera/color/camera_info
+    rospy.Subscriber("/locobot/camera/color/image_raw", Image, get_RS_image, queue_size=1)
 
     # TODO publish refined "observation".
     observation_pub = rospy.Publisher("/observation", Vector3, queue_size=1)
