@@ -6,7 +6,7 @@ Node to handle ROS interface for getting localization estimate, global map, and 
 
 import rospy
 import numpy as np
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, Vector3
 from random import random
 from math import pi
 
@@ -22,6 +22,12 @@ test_ang_range = (-pi/2, pi/2)
 # TODO do navigation & obstacle avoidance.
 # TODO create control commands & pub them.
 
+def get_localization_est(msg):
+    """
+    Get localization estimate from the particle filter.
+    """
+    print("Got localization estimate")
+
 def generate_test_command(_msg):
     """
     Send a simple twist command to test communication between the ros nodes.
@@ -36,7 +42,8 @@ def main():
     global cmd_pub
     rospy.init_node('motion_planning_node')
 
-    # TODO subscribe to localization est.
+    # Subscribe to localization est.
+    rospy.Subscriber("/state/particle_filter", Vector3, get_localization_est, queue_size=1)
     # TODO subscribe to or just read the map from file.
 
     # Publish control commands.

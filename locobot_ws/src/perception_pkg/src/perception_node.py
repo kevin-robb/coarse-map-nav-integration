@@ -6,9 +6,6 @@ Node to handle ROS interface for ML model that does the actual observation gener
 
 import rospy
 import numpy as np
-from math import sin, cos, remainder, tau, atan2
-from std_msgs.msg import Float32MultiArray
-from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import Image
 
 
@@ -26,8 +23,7 @@ timestep = 0
 
 # create a message and publish it.
 def send_state():
-    msg = Vector3()
-    msg.x = 1
+    msg = Image()
     # publish it.
     observation_pub.publish(msg)
 
@@ -46,8 +42,8 @@ def main():
     # TODO may want to check /locobot/camera/color/camera_info
     rospy.Subscriber("/locobot/camera/color/image_raw", Image, get_RS_image, queue_size=1)
 
-    # TODO publish refined "observation".
-    observation_pub = rospy.Publisher("/observation", Vector3, queue_size=1)
+    # Publish refined "observation".
+    observation_pub = rospy.Publisher("/observation", Image, queue_size=1)
 
     rospy.spin()
 

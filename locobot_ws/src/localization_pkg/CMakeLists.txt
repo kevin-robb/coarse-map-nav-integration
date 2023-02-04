@@ -123,7 +123,7 @@ include_directories(
 )
 
 
-set(SOURCES src/ekf.cpp src/localization_node.cpp)
+set(SOURCES src/particle_filter.cpp src/localization_node.cpp)
 add_executable(localization_node ${SOURCES})
 target_link_libraries(localization_node ${catkin_LIBRARIES})
 
