@@ -15,21 +15,25 @@ ros::Publisher statePub;
 ParticleFilter pf;
 ////////////////////////////////
 
-float readParams() {
+void readParams() {
     ///\todo: read config parameters from yaml file.
-    return 0.1;
+    ///\todo: read in map.
 }
 
 void commandCallback(const geometry_msgs::Vector3::ConstPtr& msg) {
     ///\todo: rather than using commanded vel, actually figure out how much the robot moved between last observation and this new one. maybe use odom instead of commands.
-    // Get a commanded motion, and use it to propagate all particles forward.
+    // Get the robot motion since last iteration, and run the predict step of the pf.
     pf.propagateParticles(msg);
 }
 
 void observationCallback(const sensor_msgs::Image::ConstPtr& msg) {
     // Get an "observation" from the perception node's processing of sensor data.
-    ///\todo: Run the measurement likelihood for the particle filter.
-    ///\todo: Perform an iteration of the filter for this timestep and publish the localization estimate.
+    // Run the particle filter's update set.
+    ///\todo: change input type from msg pointer to an actual matrix type.
+    pf.updateWithObservation(msg);
+    ///\todo: Get the best particle estimate from the filter.
+    geometry_msgs::Vector3 pose_estimate;
+    statePub.publish(pose_estimate);
 }
 
 int main(int argc, char **argv) {
@@ -37,7 +41,7 @@ int main(int argc, char **argv) {
     ros::NodeHandle node("~");
 
     // read config parameters.
-    float DT = readParams();
+    readParams();
 
     // subscribe to filter inputs.
     ros::Subscriber commandSub = node.subscribe("/command", 100, commandCallback);
