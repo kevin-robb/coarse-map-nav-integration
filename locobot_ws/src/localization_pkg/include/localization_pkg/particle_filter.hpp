@@ -2,6 +2,7 @@
 #define PARTICLE_FILTER_H
 
 #include <ros/ros.h>
+#include "geometry_msgs/Vector3.h"
 #include <eigen3/Eigen/Dense>
 #include <vector>
 #include <cmath>
@@ -16,6 +17,7 @@ class ParticleFilter {
     Eigen::MatrixXf particle_set;
 
     ParticleFilter();
+    void propagateParticles(const geometry_msgs::Vector3::ConstPtr& msg);
 };
 
 #endif // PARTICLE_FILTER_H

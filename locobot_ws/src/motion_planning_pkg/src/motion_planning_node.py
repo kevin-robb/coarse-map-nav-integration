@@ -28,6 +28,7 @@ def get_localization_est(msg):
     """
     print("Got localization estimate")
 
+
 def generate_test_command(_msg):
     """
     Send a simple twist command to test communication between the ros nodes.

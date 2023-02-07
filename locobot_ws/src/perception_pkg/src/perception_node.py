@@ -15,8 +15,6 @@ observation_pub = None
 meas_img = None
 meas_img_height = 0
 meas_img_width = 0
-# current timestep number.
-timestep = 0
 #################################################
 
 # TODO make way to interface with the ML model, which will be in a separate file.
