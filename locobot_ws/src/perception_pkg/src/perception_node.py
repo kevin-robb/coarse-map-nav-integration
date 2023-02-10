@@ -5,13 +5,11 @@ Node to handle ROS interface for ML model that does the actual observation gener
 """
 
 import rospy
-import numpy as np
 from sensor_msgs.msg import Image
+import rospkg, yaml
+import numpy as np
 import cv2
 from cv_bridge import CvBridge
-
-print("perception node got called")
-
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
@@ -19,22 +17,48 @@ observation_pub = None
 occ_map_pub = None
 raw_map_pub = None
 most_recent_measurement = None
-# Config parameters. TODO read from a yaml.
-cfg_debug_mode = True
-cfg_map_filepath = "/home/kevin-robb/dev/coarse-map-turtlebot/locobot_ws/src/perception_pkg/config/maps/igvc1.png"
-cfg_obstacle_balloon_radius_px = 2
 #################################################
 
 
-def get_observation_from_model():
+def read_params():
+    """
+    Read configuration params from the yaml.
+    """
+    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, topic_measurements, topic_observations, topic_occ_map, topic_raw_map
+    # Determine filepath.
+    rospack = rospkg.RosPack()
+    pkg_path = rospack.get_path('perception_pkg')
+    # Open the yaml and get the relevant params.
+    with open(pkg_path+'/config/config.yaml', 'r') as file:
+        config = yaml.safe_load(file)
+        cfg_debug_mode = config["test"]["run_debug_mode"]
+        cfg_map_filepath = pkg_path + "/config/maps/" + config["map"]["fname"]
+        cfg_obstacle_balloon_radius_px = config["map"]["obstacle_balloon_radius"]
+        cfg_dt = config["perception_node_dt"]
+        # Rostopics:
+        topic_measurements = config["topics"]["measurements"]
+        topic_observations = config["topics"]["observations"]
+        topic_occ_map = config["topics"]["occ_map"]
+        topic_raw_map = config["topics"]["raw_map"]
+
+
+def get_observation_from_model(event):
     """
     Pass the most recent measurement into the ML model, and get back a resulting observation.
     Publish the observation to be used for localization.
     """
+    global most_recent_measurement
+    if most_recent_measurement is None:
+        return
+    # Pull most recent measurement, and clear it so we'll be able to tell next iteration if there's nothing new.
+    meas = most_recent_measurement
+    most_recent_measurement = None
+
     # TODO make way to interface with the ML model, which will be in a separate file.
-    msg = Image()
-    # publish it.
-    observation_pub.publish(msg)
+    observation = None # ml_model(meas)
+
+    # Convert to ROS image and publish it.
+    observation_pub.publish(bridge.cv2_to_imgmsg(observation, encoding="passthrough"))
 
 
 def get_RS_image(msg):
@@ -118,17 +142,22 @@ def main():
     global observation_pub, occ_map_pub, raw_map_pub
     rospy.init_node('perception_node')
 
+    read_params()
+
     # Subscribe to sensor images from RealSense.
     # TODO may want to check /locobot/camera/color/camera_info
-    rospy.Subscriber("/locobot/camera/color/image_raw", Image, get_RS_image, queue_size=1)
+    rospy.Subscriber(topic_measurements, Image, get_RS_image, queue_size=1)
 
     # Publish refined "observation".
-    observation_pub = rospy.Publisher("/observation", Image, queue_size=1)
+    observation_pub = rospy.Publisher(topic_observations, Image, queue_size=1)
 
     # Publish the coarse map for other nodes to use.
-    occ_map_pub = rospy.Publisher("/map/occ", Image, queue_size=1)
-    raw_map_pub = rospy.Publisher("/map/raw", Image, queue_size=1)
+    occ_map_pub = rospy.Publisher(topic_occ_map, Image, queue_size=1)
+    raw_map_pub = rospy.Publisher(topic_raw_map, Image, queue_size=1)
     read_coarse_map()
+
+    # Main update loop will be a timer that checks for a new measurement, and attempts to generate an observation.
+    rospy.Timer(rospy.Duration(cfg_dt), get_observation_from_model)
 
     rospy.spin()
 

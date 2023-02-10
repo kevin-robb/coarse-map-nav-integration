@@ -1,8 +1,0 @@
-# Parameters for the particle filter.
-
-particle_filter:
-  num_particles: 1000 # number of particles to track.
-  state_size: 3 # number of variables in the state. (i.e., (x,y,yaw)).
-
-map:
-  filepath: "localization_pkg/config/map.png" # path to the map we want to localize on.
