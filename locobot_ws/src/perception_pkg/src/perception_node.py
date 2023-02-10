@@ -21,7 +21,7 @@ raw_map_pub = None
 most_recent_measurement = None
 # Config parameters. TODO read from a yaml.
 cfg_debug_mode = True
-cfg_map_filepath = "/home/kevin-robb/dev/coarse-map-turtlebot/locobot_ws/src/perception_pkg/config/maps/building2.png"
+cfg_map_filepath = "/home/kevin-robb/dev/coarse-map-turtlebot/locobot_ws/src/perception_pkg/config/maps/igvc1.png"
 cfg_obstacle_balloon_radius_px = 2
 #################################################
 
@@ -61,6 +61,7 @@ def read_coarse_map():
         img = cv2.add(cv2.merge([a1,a1,a1,a1]), img) # add up values (with clipping)
         img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB) # strip alpha channels
     if cfg_debug_mode:
+        print("map has shape {:}".format(img.shape))
         cv2.imshow('initial map', img); cv2.waitKey(0); cv2.destroyAllWindows()
 
     # convert from BGR to RGB and save the color map for any viz.
@@ -71,6 +72,7 @@ def read_coarse_map():
     # normalize to range [0,1].
     occ_map_img = np.divide(occ_map_img, 255)
     if cfg_debug_mode:
+        print("map has shape {:}".format(occ_map_img.shape))
         cv2.imshow("Thresholded Map", occ_map_img); cv2.waitKey(0); cv2.destroyAllWindows()
     
     # consider anything not completely white (1) as occluded (0).
@@ -92,6 +94,7 @@ def read_coarse_map():
                     occ_map[max(0, min(i+chg[0], occ_map.shape[0]-1))][max(0, min(j+chg[1], occ_map.shape[1]-1))] = 0
     occ_map = np.float32(np.array(occ_map))
     if cfg_debug_mode:
+        print("map has shape {:}".format(occ_map.shape))
         cv2.imshow("Ballooned Occ Map", occ_map); cv2.waitKey(0); cv2.destroyAllWindows()
 
     if cfg_debug_mode:

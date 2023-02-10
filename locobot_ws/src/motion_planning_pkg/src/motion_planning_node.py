@@ -17,7 +17,7 @@ from math import pi
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
-map = None # raw global occupancy grid map
+occ_map = None # raw global occupancy grid map
 cmd_pub = None
 test_spd_range = (-1, 1)
 test_ang_range = (-pi/2, pi/2)
@@ -50,12 +50,12 @@ def get_map(msg):
     """
     Get the global occupancy map to use for path planning.
     """
-    global map
+    global occ_map
     # Convert from ROS Image message to an OpenCV image.
     occ_map = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-    # Threshold it to get a binary occupancy grid.
-    # TODO not sure if this is necessary, since it was already an occupancy grid before being sent.
+    # NOTE Map was already processed into an occupancy grid before being sent.
     if cfg_debug_mode:
+        print("map has shape {:}".format(occ_map.shape))
         cv2.imshow("Motion planning node received map", occ_map); cv2.waitKey(0); cv2.destroyAllWindows()
 
 def main():
