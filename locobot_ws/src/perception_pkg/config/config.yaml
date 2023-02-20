@@ -10,7 +10,8 @@ topics:
   commands: "/locobot/mobile_base/commands/velocity"
 
 map:
-  fname: "building2.png" # Name of the map image file to use. Image should be in perception_pkg/config/maps/ directory.
+  fname: "igvc1.png" # Name of the map image file to use. Image should be in perception_pkg/config/maps/ directory.
+  resolution: 0.01 # Assumed map resolution, in meters/pixel. This will later be estimated as part of the filter to allow a map with unknown scale to be used.
   occ_thresh: 200 # Integer in range [0,255]. All cells with grayscale value < this will be considered occupied.
   obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
 
@@ -22,4 +23,4 @@ particle_filter:
 
 test:
   run_debug_mode: true # Run the test mode, which will display images and print text that are normally skipped.
-  
+  save_data_for_training: false # Save measurements, true odom pose on map, and "observation" pulled from the map, all with timestamps & frame numbers to associate them. This data can be used to retrain the ML model, and also allows re-running the project to evaluate the model & localization to compare to ground truth. May also need to save commands or relative motions depending on how the localization is implemented. NOTE could use rosbags for the replaying aspect, but for training the model we still need a way to get associated measurements + "observations".
