@@ -12,10 +12,12 @@ import numpy as np
 import cv2
 from cv_bridge import CvBridge
 
+from particle_filter import ParticleFilter
+
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
 localization_pub = None
-pf = None
+pf = ParticleFilter()
 #################################################
 
 
@@ -41,7 +43,7 @@ def get_observation(msg):
     """
     Get an observation Image from the ML model's output.
     """
-    # TODO pf.update_with_observation(msg.data)
+    pf.update_with_observation(msg.data)
     # TODO Get the best particle estimate from the filter, and publish it.
 
 
@@ -51,7 +53,8 @@ def get_occ_map(msg):
     """
     # Convert from ROS Image message to an OpenCV image.
     occ_map = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-    # TODO pf.set_map(occ_map)
+    # Save the map in the particle filter for it to use later.
+    pf.set_map(occ_map)
 
 
 def main():
