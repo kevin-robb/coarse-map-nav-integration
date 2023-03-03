@@ -26,16 +26,19 @@ class ParticleFilter:
         pass
     
 
-    def set_params(self):
+    def set_params(self, config):
         """
         Set particle filter parameters from the yaml.
+        @param config, a dictionary of the "particle filter" section from config.yaml.
         """
-        pass
+        self.num_particles = int(config["num_particles"])
+        self.state_size = int(config["state_size"])
     
 
     def set_map(self, map):
         """
         Get the occupancy grid map, and save it to use each iteration.
+        @param map, a 2D array containing the processed occupancy grid map.
         """
         self.occ_map = map
 
@@ -43,6 +46,7 @@ class ParticleFilter:
     def propagate_particles(self, motion):
         """
         Given a relative motion since last iteration, apply this to all particles.
+        @param motion
         """
         pass
 
@@ -50,10 +54,14 @@ class ParticleFilter:
     def update_with_observation(self, observation):
         """
         Use an observation to evaluate the likelihood of all particles.
+        @param observation
+        @return 3x1 numpy vector of best particle estimate (x,y,yaw).
         """
-        pass
         # TODO loop through all particles.
         # self.particle_weights[i] = self.compute_measurement_likelihood(i)
+
+        # TODO update best_estimate based on the weights.
+        return self.best_estimate
 
 
     def compute_measurement_likelihood(self, particle_index:int):
@@ -61,6 +69,7 @@ class ParticleFilter:
         Determine the likelihood of a specific particle using the observation.
         """
         pass
+        # NOTE the observation model gives an expected BEV of the environment. This is not limited to the robot's line-of-sight. As such, we will not use raycasting for particle evaluation, but rather a similarity check of the observation overlaid on the environment.
 
 
     def resample(self):

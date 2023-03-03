@@ -15,7 +15,16 @@ map:
   occ_thresh: 200 # Integer in range [0,255]. All cells with grayscale value < this will be considered occupied.
   obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
 
-perception_node_dt: 0.1 # timer period of perception_node's main update loop (seconds).
+# Config params defining how the observation output from the perception model relates to the robot.
+# These should be known, since they are determined by the observation "ground truth" outputs used to train the model in the first place.
+observation:
+  resolution: 0.01 # Image resolution, in meters/pixel.
+  # Coordinates on the observation image frame where we're saying the vehicle is.
+  veh_x: 0.0 # meters. 
+  veh_y: 0.0 # meters.
+  veh_yaw: 0.0 # radians. 0 = facing right, increases CCW. 
+
+perception_node_dt: 0.1 # timer period of perception_node's main update loop (seconds). NOTE later we can characterize the runtime of the model to optimize this value.
 
 particle_filter:
   num_particles: 1000 # Number of particles to track.

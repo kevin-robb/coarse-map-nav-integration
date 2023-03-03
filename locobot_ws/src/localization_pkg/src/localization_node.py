@@ -37,14 +37,22 @@ def read_params():
         topic_observations = config["topics"]["observations"]
         topic_occ_map = config["topics"]["occ_map"]
         topic_localization = config["topics"]["localization"]
+        # Set particle filter params.
+        pf.set_params(config["particle_filter"])
 
 
 def get_observation(msg):
     """
     Get an observation Image from the ML model's output.
+    Use this to update the particle filter.
+    Publish the best estimate from the pf as our localization result.
     """
-    pf.update_with_observation(msg.data)
-    # TODO Get the best particle estimate from the filter, and publish it.
+    # Update the particle filter.
+    pf_estimate = pf.update_with_observation(msg.data)
+    pf.resample()
+    # Convert pf estimate into a message and publish it.
+    loc_est = Vector3(pf_estimate[0], pf_estimate[1], pf_estimate[2])
+    localization_pub.publish(loc_est)
 
 
 def get_occ_map(msg):
