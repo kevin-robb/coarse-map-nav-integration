@@ -76,7 +76,9 @@ def main():
     rospy.Subscriber(topic_occ_map, Image, get_occ_map, queue_size=1)
     # Subscribe to observations.
     rospy.Subscriber(topic_observations, Image, get_observation, queue_size=1)
-    # TODO Subscribe to commands or odometry. Needed to propagate particles between iterations.
+    # Subscribe to commands or odometry. Needed to propagate particles between iterations.
+    # TODO may want to instead subscribe to odometry to get relative motion since last iteration.
+    # rospy.Subscriber(topic_commands, type??, get_command, queue_size=1)
 
     # Publish localization estimate.
     localization_pub = rospy.Publisher(topic_localization, Vector3, queue_size=1)
