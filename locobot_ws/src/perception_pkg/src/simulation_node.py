@@ -9,10 +9,12 @@ Node for extremely basic testing of localization node in best-case-scenario:
 
 import rospy
 from sensor_msgs.msg import Image
+from geometry_msgs.msg import Vector3
 import rospkg, yaml
 import numpy as np
 import cv2
 from cv_bridge import CvBridge
+from math import remainder, tau
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
@@ -25,7 +27,7 @@ most_recent_measurement = None
 occ_map_true = None # Occupancy grid of ground-truth map.
 veh_pose_true = np.array([0.0, 0.0, 0.0]) # Ground-truth vehicle pose (x,y,yaw) in map coordinates.
 #################################################
-
+# use bilinear interpolation on map to query expected value at certain pt.
 
 ######### TRANSFORMS ############
 def transform_map_px_to_m(row:int, col:int):
@@ -81,6 +83,16 @@ def get_occ_map(msg):
     occ_map_true = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
 
+def get_command(msg:Vector3):
+    """
+    Receive a commanded motion, which will move the robot accordingly.
+    """
+    global veh_pose_true
+    # TODO perturb with some noise.
+    veh_pose_true[0] += msg.x
+    veh_pose_true[1] += msg.y
+    # keep yaw normalized to (-pi, pi)
+    veh_pose_true[2] = remainder(veh_pose_true[2] + msg.z, tau)
 
 
 def main():
@@ -91,8 +103,8 @@ def main():
 
     # Subscribe to occupancy grid map to use as ground-truth.
     rospy.Subscriber(topic_occ_map, Image, get_occ_map, queue_size=1)
-    # SUbscribe to commanded motion.
-    rospy.Subscriber(topic_commands, Image, get_command, queue_size=1)
+    # Subscribe to commanded motion.
+    rospy.Subscriber(topic_commands, Vector3, get_command, queue_size=1)
 
     # Publish ground-truth observation
     observation_pub = rospy.Publisher(topic_observations + "/true", Image, queue_size=1)

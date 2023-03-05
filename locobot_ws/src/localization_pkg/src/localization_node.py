@@ -25,7 +25,7 @@ def read_params():
     """
     Read configuration params from the yaml.
     """
-    global cfg_debug_mode, topic_observations, topic_occ_map, topic_localization
+    global cfg_debug_mode, topic_observations, topic_occ_map, topic_localization, topic_commands
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('perception_pkg')
@@ -37,6 +37,7 @@ def read_params():
         topic_observations = config["topics"]["observations"]
         topic_occ_map = config["topics"]["occ_map"]
         topic_localization = config["topics"]["localization"]
+        topic_commands = config["topics"]["commands"]
         # Set particle filter params.
         pf.set_params(config["particle_filter"])
 
@@ -65,6 +66,13 @@ def get_occ_map(msg):
     pf.set_map(occ_map)
 
 
+def get_command(msg:Vector3):
+    """
+    Receive a commanded motion, and propagate all particles.
+    """
+    pf.propagate_particles(msg.x, msg.y, msg.z)
+
+
 def main():
     global localization_pub
     rospy.init_node('localization_node')
@@ -76,9 +84,8 @@ def main():
     rospy.Subscriber(topic_occ_map, Image, get_occ_map, queue_size=1)
     # Subscribe to observations.
     rospy.Subscriber(topic_observations, Image, get_observation, queue_size=1)
-    # Subscribe to commands or odometry. Needed to propagate particles between iterations.
-    # TODO may want to instead subscribe to odometry to get relative motion since last iteration.
-    # rospy.Subscriber(topic_commands, type??, get_command, queue_size=1)
+    # Subscribe to commanded motion. Needed to propagate particles between iterations.
+    rospy.Subscriber(topic_commands, Vector3, get_command, queue_size=1)
 
     # Publish localization estimate.
     localization_pub = rospy.Publisher(topic_localization, Vector3, queue_size=1)

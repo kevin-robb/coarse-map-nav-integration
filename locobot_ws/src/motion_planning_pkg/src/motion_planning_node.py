@@ -60,10 +60,14 @@ def generate_test_command(event):
     """
     Send a simple twist command to test communication between the ros nodes.
     """
-    msg = Twist()
-    msg.linear.x = random() * (cfg_test_spd_range[1] - cfg_test_spd_range[0]) + cfg_test_spd_range[0]
-    msg.angular.z = random() * (cfg_test_ang_range[1] - cfg_test_ang_range[0]) + cfg_test_ang_range[0]
-    print("Commanding linear: " + str(msg.linear.x) + ", angular: " + str(msg.angular.z))
+    # msg = Twist()
+    # msg.linear.x = random() * (cfg_test_spd_range[1] - cfg_test_spd_range[0]) + cfg_test_spd_range[0]
+    # msg.angular.z = random() * (cfg_test_ang_range[1] - cfg_test_ang_range[0]) + cfg_test_ang_range[0]
+    # print("Commanding linear: " + str(msg.linear.x) + ", angular: " + str(msg.angular.z))
+    msg = Vector3()
+    msg.x = 1
+    msg.y = 0
+    msg.z = pi/2
     cmd_pub.publish(msg)
 
 
@@ -92,7 +96,9 @@ def main():
     rospy.Subscriber(topic_occ_map, Image, get_map, queue_size=1)
 
     # Publish control commands.
-    cmd_pub = rospy.Publisher(topic_commands, Twist, queue_size=1)
+    cmd_pub = rospy.Publisher(topic_commands, Vector3, queue_size=1)
+    # there is a way to command a relative position/yaw motion:
+    # python navigation/base_position_control.py --base_planner none --base_controller ilqr --smooth --close_loop --relative_position 1.,1.,1.57 --botname locobot
 
     if cfg_debug_mode:
         # Create a timer to send test commands every dt seconds.

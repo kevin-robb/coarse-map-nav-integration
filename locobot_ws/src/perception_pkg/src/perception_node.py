@@ -157,6 +157,7 @@ def main():
     read_coarse_map()
 
     # Main update loop will be a timer that checks for a new measurement, and attempts to generate an observation.
+    # TODO find a way to just wait until the commanded motion has completed, and then generate an observation.
     rospy.Timer(rospy.Duration(cfg_dt), get_observation_from_model)
 
     rospy.spin()

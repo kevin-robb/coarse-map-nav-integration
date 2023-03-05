@@ -43,11 +43,15 @@ class ParticleFilter:
         self.occ_map = map
 
 
-    def propagate_particles(self, motion):
+    def propagate_particles(self, dx, dy, dtheta):
         """
         Given a relative motion since last iteration, apply this to all particles.
-        @param motion
+        @param dx, commanded change in x.
+        @param dy, commanded change in y.
+        @param dtheta, commanded change in yaw.
         """
+        # Compute coordinate-free representation of this motion.
+        # TODO test on robot after finding exact topic. these might already be like  "x = forward motion from current position"
         pass
 
 
