@@ -54,6 +54,12 @@ def get_localization_est(msg):
     """
     # TODO process it and associate with a particular cell/orientation on the map.
     print("Got localization estimate {:}".format(msg))
+    # DEBUG send a simple motion command.
+    msg = Vector3()
+    msg.x = 0.1 # forward, meters
+    msg.y = 0 # lateral, meters (should = 0 for differential drive)
+    msg.z = pi/10 # CCW angle, radians
+    cmd_pub.publish(msg)
 
 
 def generate_test_command(event):

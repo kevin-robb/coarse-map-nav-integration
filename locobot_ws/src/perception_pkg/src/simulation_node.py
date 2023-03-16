@@ -21,41 +21,74 @@ from math import remainder, tau, sin, cos, pi
 from rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
 
 ############ GLOBAL VARIABLES ###################
+# ROS stuff.
 bridge = CvBridge()
 observation_pub = None
 occ_map_pub = None
 raw_map_pub = None
 most_recent_measurement = None
-
-
+# Ground truth.
 occ_map_true = None # Occupancy grid of ground-truth map.
-veh_pose_true = np.array([0.0, 0.0, 0.0]) # Ground-truth vehicle pose (x,y,yaw) in map coordinates.
-veh_pose_true_px = np.array([0, 0, 0]) # Ground-truth vehicle pose (col,row,yaw) in pixel map coordinates.
+veh_pose_true = np.array([0.0, 0.0, 0.0]) # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
+# Plotting.
+plots = {}
 #################################################
 # use bilinear interpolation on map to query expected value at certain pt.
 
-######### TRANSFORMS ############
+########################### UTILITY/HELPER FUNCTIONS ###############################
+def remove_plot(name):
+    """
+    Remove the plot if it already exists.
+    """
+    if name in plots.keys():
+        plots[name].remove()
+        del plots[name]
+
+def clamp(val:float, min_val:float, max_val:float):
+    """
+    Clamp the value val in the range [min_val, max_val].
+    @return float, the clamped value.
+    """
+    return min(max(min_val, val), max_val)
+
 def transform_map_px_to_m(row:int, col:int):
     """
     Given coordinates of a cell on the ground-truth map, compute the equivalent position in meters.
+    Origin (0,0) in meters corresponds to center of map.
+    Origin in pixels is top left, and coords are strictly nonnegative.
+    @return tuple of floats (x, y)
     """
-    # TODO
-    pass
+    # Get pixel difference from map center.
+    row_offset = row - occ_map_true.shape[0] // 2
+    col_offset = col - occ_map_true.shape[1] // 2
+    # Convert from pixels to meters.
+    x = cfg_map_resolution * col_offset
+    y = cfg_map_resolution * -row_offset
+    return x, y
 
-def transform_map_m_to_px(x:int, y:int):
+def transform_map_m_to_px(x:float, y:float):
     """
     Given coordinates of a vehicle pose in meters, compute the equivalent cell in pixels.
+    Origin (0,0) in meters corresponds to center of map.
+    Origin in pixels is top left, and coords are strictly nonnegative.
+    @return tuple of ints (row, col)
     """
-    # TODO
-    pass
+    # Convert from meters to pixels.
+    col_offset = x / cfg_map_resolution
+    row_offset = -y / cfg_map_resolution
+    # Shift origin from center to corner.
+    row = row_offset + occ_map_true.shape[0] // 2
+    col = col_offset + occ_map_true.shape[1] // 2
+    # Clamp within legal range of values.
+    row = int(clamp(row, 0, occ_map_true.shape[0]-1))
+    col = int(clamp(col, 0, occ_map_true.shape[1]-1))
+    return row, col
 
-
-######### SETUP ############
 def read_params():
     """
     Read configuration params from the yaml.
     """
-    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, topic_observations, topic_occ_map, topic_commands
+    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, cfg_map_resolution, topic_observations, topic_occ_map, topic_commands
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('perception_pkg')
@@ -66,76 +99,88 @@ def read_params():
         cfg_map_filepath = pkg_path + "/config/maps/" + config["map"]["fname"]
         cfg_obstacle_balloon_radius_px = config["map"]["obstacle_balloon_radius"]
         cfg_dt = config["perception_node_dt"]
+        cfg_map_resolution = config["map"]["resolution"]
         # Rostopics:
         topic_observations = config["topics"]["observations"]
         topic_occ_map = config["topics"]["occ_map"]
         topic_commands = config["topics"]["commands"]
 
-
-# # Helper functions
-# def rotate_image(src_img, center, angle):
-#     """
-#     Rotate an image about the given point by the given angle.
-#     """
-#     rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
-#     rot_img = cv2.warpAffine(src_img, rot_mat, src_img.size())
-#     return rot_mat
-
-
-def generate_observation():
+################################ CALLBACKS #########################################
+def get_command(msg:Vector3):
     """
-    Use the map and known ground-truth robot pose to generate the best possible observation.
+    Receive a commanded motion, which will move the robot accordingly.
     """
-    # desired observation size (always a square).
-    obs_side_len_px = 100
-    # project ahead of vehicle pose to determine center.
-    center_col = veh_pose_true_px[0] + (obs_side_len_px / 2) * cos(veh_pose_true_px[2])
-    center_row = veh_pose_true_px[0] + (obs_side_len_px / 2) * sin(veh_pose_true_px[2])
-    center = (center_col, center_row)
-    # create the rotated rectangle.
-    width = obs_side_len_px
-    height = obs_side_len_px
-    angle = np.rad2deg(veh_pose_true_px[2])
-    rect = (center, (width, height), angle)
-    # crop out the rotated rectangle and reorient it.
-    image_cropped = crop_rotated_rectangle(image = occ_map_true, rect = rect)
+    global veh_pose_true
+    # TODO Perturb with some noise.
+    # Clamp the commands at the allowed motion in a single timestep.
+    fwd_dist = clamp(msg.x, 0, 0.1) # meters forward
+    dtheta = clamp(msg.z, -0.0546, 0.0546) # radians CCW
+    veh_pose_true[0] += fwd_dist * cos(veh_pose_true[2])
+    veh_pose_true[1] += fwd_dist * sin(veh_pose_true[2])
+    # Keep yaw normalized to (-pi, pi).
+    veh_pose_true[2] = remainder(veh_pose_true[2] + dtheta, tau)
+    
+    print("Veh pose is now " + str(veh_pose_true))
 
-    # plot .
-    fig = plt.figure(figsize=(8, 6)) 
-    gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1]) 
-    ax0 = plt.subplot(gs[0])
-    ax0.imshow(occ_map_true)
-    ax1 = plt.subplot(gs[1])
-    ax1.imshow(image_cropped)
-    plt.tight_layout()
-    plt.show()
+    # Generate an observation for the new vehicle pose.
+    generate_observation()
 
 
 def get_occ_map(msg):
     """
     Get the processed occupancy grid map to use as the "ground truth" map.
     """
-    global occ_map_true, veh_pose_true_px
+    global occ_map_true
     # Convert from ROS Image message to an OpenCV image.
     occ_map_true = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
-    # Set robot's initial pose to the map center.
-    veh_pose_true_px[0] = occ_map_true.shape[0] // 2
-    veh_pose_true_px[1] = occ_map_true.shape[1] // 2
-    veh_pose_true_px[2] = pi/4
+    # Add the full map to our visualization.
+    ax0.imshow(occ_map_true, cmap="gray", vmin=0, vmax=1)
 
-    # debug attempt rotated roi.
+    # NOTE this architecture forms a cycle, observation -> localization -> command, so to complete it we will generate a new observation upon receiving a command.
+    # To kick-start this cycle, we will wait until the map has been processed, and then assume we've just received a zero command.
     generate_observation()
 
-def get_command(msg:Vector3):
+
+def generate_observation():
     """
-    Receive a commanded motion, which will move the robot accordingly.
+    Use the map and known ground-truth robot pose to generate the best possible observation.
     """
-    global veh_pose_true
-    # TODO perturb with some noise.
-    veh_pose_true[0] += msg.x
-    veh_pose_true[1] += msg.y
-    # keep yaw normalized to (-pi, pi)
-    veh_pose_true[2] = remainder(veh_pose_true[2] + msg.z, tau)
+    global last_obs_img
+    # desired observation size (always a square).
+    obs_side_len_px = 50
+    # Compute vehicle pose in pixels.
+    veh_row, veh_col = transform_map_m_to_px(veh_pose_true[0], veh_pose_true[1])
+
+    # Add the new vehicle pose to the viz.
+    remove_plot("veh_pose_true")
+    plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="green", width=1.0)
+
+    # project ahead of vehicle pose to determine center.
+    center_col = veh_col + (obs_side_len_px / 2) * cos(veh_pose_true[2])
+    center_row = veh_row + (obs_side_len_px / 2) * sin(veh_pose_true[2])
+    center = (center_col, center_row)
+    # create the rotated rectangle.
+    width = obs_side_len_px
+    height = obs_side_len_px
+    angle = np.rad2deg(veh_pose_true[2])
+    rect = (center, (width, height), angle)
+    # crop out the rotated rectangle and reorient it.
+    obs_img = crop_rotated_rectangle(image = occ_map_true, rect = rect)
+
+    if obs_img is None:
+        obs_img = last_obs_img
+
+    # Publish this observation for the localization node to use.
+    observation_pub.publish(bridge.cv2_to_imgmsg(obs_img, encoding="passthrough"))
+    # Save last observation to keep using in case we've gone out of bounds.
+    # TODO do something to handle vehicle going near the edges.
+    last_obs_img = obs_img
+
+    # Update the plot.
+    ax1.imshow(obs_img, cmap="gray", vmin=0, vmax=1)
+    plt.draw()
+    plt.pause(0.2)
+    # plt.pause(0.00000000001)
 
 
 def main():
@@ -144,16 +189,31 @@ def main():
 
     read_params()
 
+    # make live plot bigger.
+    plt.rcParams["figure.figsize"] = (9,9)
+
     # Subscribe to occupancy grid map to use as ground-truth.
     rospy.Subscriber(topic_occ_map, Image, get_occ_map, queue_size=1)
     # Subscribe to commanded motion.
     rospy.Subscriber(topic_commands, Vector3, get_command, queue_size=1)
 
     # Publish ground-truth observation
-    observation_pub = rospy.Publisher(topic_observations + "/true", Image, queue_size=1)
+    observation_pub = rospy.Publisher(topic_observations, Image, queue_size=1)
+    # observation_pub = rospy.Publisher(topic_observations + "/true", Image, queue_size=1)
 
-    # NOTE this architecture forms a cycle, observation -> localization -> command, so to complete it we will generate a new observation upon receiving a command.
-    # To kick-start this cycle, we will assume we've just received a zero command.
+    # startup the plot.
+    global fig, ax0, ax1
+    fig = plt.figure(figsize=(8, 6)) 
+    gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1]) 
+    ax0 = plt.subplot(gs[0])
+    ax1 = plt.subplot(gs[1])
+    # set constant plot params.
+    plt.title("Ground Truth Observation Generation")
+    plt.axis("equal")
+    plt.tight_layout()
+    # plt.xlabel("x (m)")
+    # plt.ylabel("y (m)")
+    plt.show()
 
     rospy.spin()
 

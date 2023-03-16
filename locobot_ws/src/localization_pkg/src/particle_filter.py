@@ -5,6 +5,7 @@ Particle Filter class implementation.
 Can separately process its prediction and update steps at different, independent rates, and can be polled for the most likely particle estimate at any time.
 """
 
+import numpy as np
 from math import pi, sin, cos
 
 class ParticleFilter:
@@ -23,7 +24,7 @@ class ParticleFilter:
         """
         Instantiate the particle filter object.
         """
-        pass
+        self.best_estimate = np.array([0.0, 0.0, 0.0])
     
 
     def set_params(self, config):
@@ -82,6 +83,6 @@ class ParticleFilter:
         """
         # Save off the most likely particle as our filter output.
         i = 0 # TODO get index of highest weight.
-        self.best_estimate = self.particle_set[i,:]
+        # self.best_estimate = self.particle_set[i,:]
         # TODO Sample from weights to form most of the population.
         # TODO Randomly generate small portion of population to prevent particle depletion.
