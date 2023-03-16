@@ -56,9 +56,9 @@ def get_localization_est(msg):
     print("Got localization estimate {:}".format(msg))
     # DEBUG send a simple motion command.
     msg = Vector3()
-    msg.x = 0.1 # forward, meters
+    msg.x = 0.02 # forward, meters
     msg.y = 0 # lateral, meters (should = 0 for differential drive)
-    msg.z = pi/10 # CCW angle, radians
+    msg.z = pi # CCW angle, radians
     cmd_pub.publish(msg)
 
 

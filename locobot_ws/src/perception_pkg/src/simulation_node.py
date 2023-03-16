@@ -14,6 +14,7 @@ import rospkg, yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
+from matplotlib.backend_bases import MouseButton
 import cv2
 from cv_bridge import CvBridge
 from math import remainder, tau, sin, cos, pi
@@ -41,8 +42,25 @@ def remove_plot(name):
     Remove the plot if it already exists.
     """
     if name in plots.keys():
-        plots[name].remove()
+        try:
+            # this works for stuff like scatter(), arrow()
+            plots[name].remove()
+        except:
+            # the first way doesn't work for plt.plot()
+            line = plots[name].pop(0)
+            line.remove()
+        # remove the key.
         del plots[name]
+
+def on_click(event):
+    # global clicked_points
+    if event.button is MouseButton.LEFT:
+        # kill the node.
+        rospy.loginfo("Killing simulation_node because you clicked on the plot.")
+        exit()
+    elif event.button is MouseButton.RIGHT:
+        # may want to use this for something eventually
+        pass
 
 def clamp(val:float, min_val:float, max_val:float):
     """
@@ -162,8 +180,16 @@ def generate_observation():
     # create the rotated rectangle.
     width = obs_side_len_px
     height = obs_side_len_px
-    angle = np.rad2deg(veh_pose_true[2])
+    angle = -np.rad2deg(veh_pose_true[2])
     rect = (center, (width, height), angle)
+
+    # Plot the bounding box on the base map.
+    box = cv2.boxPoints(rect)
+    box_x_coords = [box[i,0] for i in range(box.shape[0])] + [box[0,0]]
+    box_y_coords = [box[i,1] for i in range(box.shape[0])] + [box[0,1]]
+    remove_plot("obs_bounding_box")
+    plots["obs_bounding_box"] = ax0.plot(box_x_coords, box_y_coords, "r-", zorder=2)
+
     # crop out the rotated rectangle and reorient it.
     obs_img = crop_rotated_rectangle(image = occ_map_true, rect = rect)
 
@@ -211,8 +237,8 @@ def main():
     plt.title("Ground Truth Observation Generation")
     plt.axis("equal")
     plt.tight_layout()
-    # plt.xlabel("x (m)")
-    # plt.ylabel("y (m)")
+    # allow clicking on the plot to do things (like kill the node).
+    plt.connect('button_press_event', on_click)
     plt.show()
 
     rospy.spin()
