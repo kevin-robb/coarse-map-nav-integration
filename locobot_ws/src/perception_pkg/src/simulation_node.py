@@ -175,7 +175,7 @@ def generate_observation():
 
     # project ahead of vehicle pose to determine center.
     center_col = veh_col + (obs_side_len_px / 2) * cos(veh_pose_true[2])
-    center_row = veh_row + (obs_side_len_px / 2) * sin(veh_pose_true[2])
+    center_row = veh_row - (obs_side_len_px / 2) * sin(veh_pose_true[2])
     center = (center_col, center_row)
     # create the rotated rectangle.
     width = obs_side_len_px
@@ -203,7 +203,8 @@ def generate_observation():
     last_obs_img = obs_img
 
     # Update the plot.
-    ax1.imshow(obs_img, cmap="gray", vmin=0, vmax=1)
+    remove_plot("obs_img")
+    plots["obs_img"] = ax1.imshow(obs_img, cmap="gray", vmin=0, vmax=1)
     plt.draw()
     plt.pause(0.2)
     # plt.pause(0.00000000001)
@@ -232,10 +233,13 @@ def main():
     fig = plt.figure(figsize=(8, 6)) 
     gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1]) 
     ax0 = plt.subplot(gs[0])
+    plt.title("Ground Truth Map & Vehicle Pose")
+    plt.axis("off")
     ax1 = plt.subplot(gs[1])
+    plt.title("Observation")
     # set constant plot params.
-    plt.title("Ground Truth Observation Generation")
     plt.axis("equal")
+    plt.axis("off")
     plt.tight_layout()
     # allow clicking on the plot to do things (like kill the node).
     plt.connect('button_press_event', on_click)
