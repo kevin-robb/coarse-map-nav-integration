@@ -9,7 +9,7 @@ from sensor_msgs.msg import Image
 import rospkg, yaml
 import numpy as np
 import cv2
-from cv_bridge import CvBridge
+from cv_bridge import CvBridge, CvBridgeError
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
@@ -134,8 +134,11 @@ def read_coarse_map():
 
     # turn them into Image messages to publish for other nodes.
     bridge = CvBridge()
-    occ_map_pub.publish(bridge.cv2_to_imgmsg(occ_map, encoding="passthrough"))
-    raw_map_pub.publish(bridge.cv2_to_imgmsg(raw_map, encoding="passthrough"))
+    try:
+        occ_map_pub.publish(bridge.cv2_to_imgmsg(occ_map, encoding="passthrough"))
+        raw_map_pub.publish(bridge.cv2_to_imgmsg(raw_map, encoding="passthrough"))
+    except CvBridgeError as e:
+        print(e)
 
 
 def main():

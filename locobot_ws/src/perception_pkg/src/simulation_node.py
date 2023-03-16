@@ -12,9 +12,13 @@ from sensor_msgs.msg import Image
 from geometry_msgs.msg import Vector3
 import rospkg, yaml
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
 import cv2
 from cv_bridge import CvBridge
-from math import remainder, tau
+from math import remainder, tau, sin, cos, pi
+
+from rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
@@ -26,6 +30,7 @@ most_recent_measurement = None
 
 occ_map_true = None # Occupancy grid of ground-truth map.
 veh_pose_true = np.array([0.0, 0.0, 0.0]) # Ground-truth vehicle pose (x,y,yaw) in map coordinates.
+veh_pose_true_px = np.array([0, 0, 0]) # Ground-truth vehicle pose (col,row,yaw) in pixel map coordinates.
 #################################################
 # use bilinear interpolation on map to query expected value at certain pt.
 
@@ -67,21 +72,59 @@ def read_params():
         topic_commands = config["topics"]["commands"]
 
 
-def generate_observation(event):
+# # Helper functions
+# def rotate_image(src_img, center, angle):
+#     """
+#     Rotate an image about the given point by the given angle.
+#     """
+#     rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+#     rot_img = cv2.warpAffine(src_img, rot_mat, src_img.size())
+#     return rot_mat
+
+
+def generate_observation():
     """
     Use the map and known ground-truth robot pose to generate the best possible observation.
     """
-    pass
+    # desired observation size (always a square).
+    obs_side_len_px = 100
+    # project ahead of vehicle pose to determine center.
+    center_col = veh_pose_true_px[0] + (obs_side_len_px / 2) * cos(veh_pose_true_px[2])
+    center_row = veh_pose_true_px[0] + (obs_side_len_px / 2) * sin(veh_pose_true_px[2])
+    center = (center_col, center_row)
+    # create the rotated rectangle.
+    width = obs_side_len_px
+    height = obs_side_len_px
+    angle = np.rad2deg(veh_pose_true_px[2])
+    rect = (center, (width, height), angle)
+    # crop out the rotated rectangle and reorient it.
+    image_cropped = crop_rotated_rectangle(image = occ_map_true, rect = rect)
+
+    # plot .
+    fig = plt.figure(figsize=(8, 6)) 
+    gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1]) 
+    ax0 = plt.subplot(gs[0])
+    ax0.imshow(occ_map_true)
+    ax1 = plt.subplot(gs[1])
+    ax1.imshow(image_cropped)
+    plt.tight_layout()
+    plt.show()
 
 
 def get_occ_map(msg):
     """
     Get the processed occupancy grid map to use as the "ground truth" map.
     """
-    global occ_map_true
+    global occ_map_true, veh_pose_true_px
     # Convert from ROS Image message to an OpenCV image.
     occ_map_true = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+    # Set robot's initial pose to the map center.
+    veh_pose_true_px[0] = occ_map_true.shape[0] // 2
+    veh_pose_true_px[1] = occ_map_true.shape[1] // 2
+    veh_pose_true_px[2] = pi/4
 
+    # debug attempt rotated roi.
+    generate_observation()
 
 def get_command(msg:Vector3):
     """
