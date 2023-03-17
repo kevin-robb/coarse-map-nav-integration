@@ -181,15 +181,16 @@ def generate_observation():
 
     # Add the new vehicle pose to the viz.
     remove_plot("veh_pose_true")
-    plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="green", width=1.0)
+    plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0)
 
-    # project ahead of vehicle pose to determine center.
-    center_col = veh_col + (obs_width_px_on_map / 2) * cos(veh_pose_true[2])
+    # Project ahead of vehicle pose to determine center.
+    # TODO parametrize vehicle location relative to observation region.
+    center_col = veh_col + (obs_height_px_on_map / 2) * cos(veh_pose_true[2])
     center_row = veh_row - (obs_height_px_on_map / 2) * sin(veh_pose_true[2])
     center = (center_col, center_row)
-    # create the rotated rectangle.
+    # Create the rotated rectangle.
     angle = -np.rad2deg(veh_pose_true[2])
-    rect = (center, (obs_width_px_on_map, obs_height_px_on_map), angle)
+    rect = (center, (obs_height_px_on_map, obs_width_px_on_map), angle)
 
     # Plot the bounding box on the base map.
     box = cv2.boxPoints(rect)
@@ -198,13 +199,13 @@ def generate_observation():
     remove_plot("obs_bounding_box")
     plots["obs_bounding_box"] = ax0.plot(box_x_coords, box_y_coords, "r-", zorder=2)
 
-    # crop out the rotated rectangle and reorient it.
+    # Crop out the rotated rectangle and reorient it.
     obs_img = crop_rotated_rectangle(image = occ_map_true, rect = rect)
 
     if obs_img is None:
         obs_img = last_obs_img
 
-    # resize observation to desired resolution.
+    # Resize observation to desired resolution.
     obs_img = cv2.resize(obs_img, (obs_height_px, obs_width_px))
 
     # Publish this observation for the localization node to use.
@@ -216,6 +217,11 @@ def generate_observation():
     # Update the plot.
     remove_plot("obs_img")
     plots["obs_img"] = ax1.imshow(obs_img, cmap="gray", vmin=0, vmax=1)
+    # Add vehicle pose relative to observation region for clarity.
+    # NOTE since it's plotted sideways, robot pose is on the left side.
+    if "veh_pose_obs" not in plots.keys():
+        plots["veh_pose_obs"] = ax1.arrow(0.0, obs_width_px // 2, 0.5, 0.0, color="blue", width=1.0, zorder = 2)
+
     plt.draw()
     plt.pause(0.2)
     # plt.pause(0.00000000001)
