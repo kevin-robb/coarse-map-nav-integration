@@ -28,6 +28,11 @@ observation_pub = None
 occ_map_pub = None
 raw_map_pub = None
 most_recent_measurement = None
+# Observation params.
+obs_height_px_on_map = None # number of pixels on map to crop out observation region.
+obs_width_px_on_map = None # number of pixels on map to crop out observation region.
+obs_height_px = None # desired height (px) of resulting observation image.
+obs_width_px = None # desired height (px) of resulting observation image.
 # Ground truth.
 occ_map_true = None # Occupancy grid of ground-truth map.
 veh_pose_true = np.array([0.0, 0.0, 0.0]) # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
@@ -106,7 +111,7 @@ def read_params():
     """
     Read configuration params from the yaml.
     """
-    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, cfg_map_resolution, topic_observations, topic_occ_map, topic_commands
+    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, cfg_map_resolution, topic_observations, topic_occ_map, topic_commands, obs_height_px, obs_width_px, obs_height_px_on_map, obs_width_px_on_map
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('perception_pkg')
@@ -122,6 +127,13 @@ def read_params():
         topic_observations = config["topics"]["observations"]
         topic_occ_map = config["topics"]["occ_map"]
         topic_commands = config["topics"]["commands"]
+        # Observation params.
+        map_resolution = config["map"]["resolution"]
+        obs_resolution = config["observation"]["resolution"]
+        obs_height_px = config["observation"]["height"]
+        obs_width_px = config["observation"]["width"]
+        obs_height_px_on_map = int(obs_height_px * obs_resolution / map_resolution)
+        obs_width_px_on_map = int(obs_width_px * obs_resolution / map_resolution)
 
 ################################ CALLBACKS #########################################
 def get_command(msg:Vector3):
@@ -164,8 +176,6 @@ def generate_observation():
     Use the map and known ground-truth robot pose to generate the best possible observation.
     """
     global last_obs_img
-    # desired observation size (always a square).
-    obs_side_len_px = 50
     # Compute vehicle pose in pixels.
     veh_row, veh_col = transform_map_m_to_px(veh_pose_true[0], veh_pose_true[1])
 
@@ -174,14 +184,12 @@ def generate_observation():
     plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="green", width=1.0)
 
     # project ahead of vehicle pose to determine center.
-    center_col = veh_col + (obs_side_len_px / 2) * cos(veh_pose_true[2])
-    center_row = veh_row - (obs_side_len_px / 2) * sin(veh_pose_true[2])
+    center_col = veh_col + (obs_width_px_on_map / 2) * cos(veh_pose_true[2])
+    center_row = veh_row - (obs_height_px_on_map / 2) * sin(veh_pose_true[2])
     center = (center_col, center_row)
     # create the rotated rectangle.
-    width = obs_side_len_px
-    height = obs_side_len_px
     angle = -np.rad2deg(veh_pose_true[2])
-    rect = (center, (width, height), angle)
+    rect = (center, (obs_width_px_on_map, obs_height_px_on_map), angle)
 
     # Plot the bounding box on the base map.
     box = cv2.boxPoints(rect)
@@ -195,6 +203,9 @@ def generate_observation():
 
     if obs_img is None:
         obs_img = last_obs_img
+
+    # resize observation to desired resolution.
+    obs_img = cv2.resize(obs_img, (obs_height_px, obs_width_px))
 
     # Publish this observation for the localization node to use.
     observation_pub.publish(bridge.cv2_to_imgmsg(obs_img, encoding="passthrough"))

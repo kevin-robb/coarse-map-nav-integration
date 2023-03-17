@@ -21,7 +21,8 @@ observation:
   resolution: 0.1 # Image resolution, in meters/pixel.
   height: 10 # in pixels.
   width: 10 # in pixels.
-  # Coordinates on the observation image frame the vehicle's POV is. (origin is bottom left)
+  # Coordinates on the observation image frame the vehicle's POV is. (origin is bottom center)
+  # FOR NOW, CHANGING VEH POSE IS NOT SUPPORTED
   veh_x: 0.0 # meters from left.
   veh_y: 0.0 # meters from bottom.
   veh_yaw: 0.0 # radians. 0 = facing right, increases CCW. 
