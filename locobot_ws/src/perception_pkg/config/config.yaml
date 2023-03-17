@@ -23,8 +23,8 @@ observation:
   width: 100 # in pixels. lateral span.
   # Coordinates on the observation image frame the vehicle's POV is. (origin is bottom center)
   # FOR NOW, CHANGING VEH POSE IS NOT SUPPORTED
-  veh_x: 0.0 # meters from left.
-  veh_y: 0.0 # meters from bottom.
+  veh_horz_pos: 0 # px from center.
+  veh_vert_pos: 0 # px from bottom. use 1/2 of height to put veh in center.
   veh_yaw: 0.0 # radians. 0 = facing right, increases CCW. 
 
 perception_node_dt: 0.1 # timer period of perception_node's main update loop (seconds). NOTE later we can characterize the runtime of the model to optimize this value.

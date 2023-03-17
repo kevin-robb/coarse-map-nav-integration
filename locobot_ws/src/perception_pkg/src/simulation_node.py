@@ -25,14 +25,12 @@ from rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectang
 # ROS stuff.
 bridge = CvBridge()
 observation_pub = None
-occ_map_pub = None
-raw_map_pub = None
-most_recent_measurement = None
 # Observation params.
 obs_height_px_on_map = None # number of pixels on map to crop out observation region.
 obs_width_px_on_map = None # number of pixels on map to crop out observation region.
 obs_height_px = None # desired height (px) of resulting observation image.
 obs_width_px = None # desired height (px) of resulting observation image.
+veh_px_horz_from_center_on_map, veh_px_horz_from_center_on_obs, veh_px_vert_from_bottom_on_map, veh_px_vert_from_bottom_on_obs = None, None, None, None
 # Ground truth.
 occ_map_true = None # Occupancy grid of ground-truth map.
 veh_pose_true = np.array([0.0, 0.0, 0.0]) # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
@@ -111,7 +109,7 @@ def read_params():
     """
     Read configuration params from the yaml.
     """
-    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, cfg_map_resolution, topic_observations, topic_occ_map, topic_commands, obs_height_px, obs_width_px, obs_height_px_on_map, obs_width_px_on_map
+    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, cfg_map_resolution, topic_observations, topic_occ_map, topic_commands, obs_height_px, obs_width_px, obs_height_px_on_map, obs_width_px_on_map, veh_px_horz_from_center_on_map, veh_px_horz_from_center_on_obs, veh_px_vert_from_bottom_on_map, veh_px_vert_from_bottom_on_obs
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('perception_pkg')
@@ -134,6 +132,10 @@ def read_params():
         obs_width_px = config["observation"]["width"]
         obs_height_px_on_map = int(obs_height_px * obs_resolution / map_resolution)
         obs_width_px_on_map = int(obs_width_px * obs_resolution / map_resolution)
+        veh_px_horz_from_center_on_obs = config["observation"]["veh_horz_pos"]
+        veh_px_vert_from_bottom_on_obs = config["observation"]["veh_vert_pos"]
+        veh_px_horz_from_center_on_map = config["observation"]["veh_horz_pos"] * obs_resolution / map_resolution
+        veh_px_vert_from_bottom_on_map = config["observation"]["veh_vert_pos"] * obs_resolution / map_resolution
 
 ################################ CALLBACKS #########################################
 def get_command(msg:Vector3):
@@ -184,9 +186,8 @@ def generate_observation():
     plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0)
 
     # Project ahead of vehicle pose to determine center.
-    # TODO parametrize vehicle location relative to observation region.
-    center_col = veh_col + (obs_height_px_on_map / 2) * cos(veh_pose_true[2])
-    center_row = veh_row - (obs_height_px_on_map / 2) * sin(veh_pose_true[2])
+    center_col = veh_col + (obs_height_px_on_map / 2 - veh_px_vert_from_bottom_on_map) * cos(veh_pose_true[2])
+    center_row = veh_row - (obs_height_px_on_map / 2 - veh_px_vert_from_bottom_on_map) * sin(veh_pose_true[2])
     center = (center_col, center_row)
     # Create the rotated rectangle.
     angle = -np.rad2deg(veh_pose_true[2])
@@ -220,15 +221,14 @@ def generate_observation():
     # Add vehicle pose relative to observation region for clarity.
     # NOTE since it's plotted sideways, robot pose is on the left side.
     if "veh_pose_obs" not in plots.keys():
-        plots["veh_pose_obs"] = ax1.arrow(0.0, obs_width_px // 2, 0.5, 0.0, color="blue", width=1.0, zorder = 2)
+        plots["veh_pose_obs"] = ax1.arrow(veh_px_vert_from_bottom_on_obs, obs_width_px // 2 + veh_px_horz_from_center_on_obs, 0.5, 0.0, color="blue", width=1.0, zorder = 2)
 
     plt.draw()
-    plt.pause(0.2)
-    # plt.pause(0.00000000001)
+    plt.pause(cfg_dt)
 
 
 def main():
-    global observation_pub, occ_map_pub, raw_map_pub
+    global observation_pub
     rospy.init_node('simulation_node')
 
     read_params()
@@ -243,7 +243,6 @@ def main():
 
     # Publish ground-truth observation
     observation_pub = rospy.Publisher(topic_observations, Image, queue_size=1)
-    # observation_pub = rospy.Publisher(topic_observations + "/true", Image, queue_size=1)
 
     # startup the plot.
     global fig, ax0, ax1
