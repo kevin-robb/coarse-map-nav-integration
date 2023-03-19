@@ -12,7 +12,7 @@ import numpy as np
 import cv2
 from cv_bridge import CvBridge
 
-from particle_filter import ParticleFilter
+from scripts.particle_filter import ParticleFilter
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
@@ -27,7 +27,7 @@ def read_params():
     """
     # Determine filepath.
     rospack = rospkg.RosPack()
-    pkg_path = rospack.get_path('perception_pkg')
+    pkg_path = rospack.get_path('cmn_pkg')
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
@@ -39,11 +39,6 @@ def read_params():
         g_topic_occ_map = config["topics"]["occ_map"]
         g_topic_localization = config["topics"]["localization"]
         g_topic_commands = config["topics"]["commands"]
-        # NOTE Map scale and observation scale are assumed known for now. The former will eventually be estimated with another filter.
-        map_resolution = config["map"]["resolution"]
-        obs_resolution = config["observation"]["resolution"]
-        # Set particle filter params.
-        pf.set_params(config["particle_filter"], map_resolution)
 
 
 def get_observation(msg):

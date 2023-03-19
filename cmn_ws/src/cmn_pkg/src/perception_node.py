@@ -27,7 +27,7 @@ def read_params():
     global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, topic_measurements, topic_observations, topic_occ_map, topic_raw_map
     # Determine filepath.
     rospack = rospkg.RosPack()
-    pkg_path = rospack.get_path('perception_pkg')
+    pkg_path = rospack.get_path('cmn_pkg')
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)

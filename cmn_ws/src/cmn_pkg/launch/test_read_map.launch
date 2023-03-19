@@ -1,0 +1,6 @@
+<launch>
+    <!-- perception node reads the map from file, processes it, and sends it -->
+    <node pkg="cmn_pkg" type="perception_node.py" name="perception_node" output="screen" />
+    <!-- motion planning & control node receives the map -->
+    <node pkg="cmn_pkg" type="motion_planning_node.py" name="motion_planning_node" output="screen" />
+</launch>

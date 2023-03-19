@@ -19,7 +19,7 @@ import cv2
 from cv_bridge import CvBridge
 from math import remainder, tau, sin, cos, pi, ceil
 
-from cmn_utilities import clamp, ObservationGenerator
+from scripts.cmn_utilities import clamp, ObservationGenerator
 
 ############ GLOBAL VARIABLES ###################
 # ROS stuff.
@@ -65,7 +65,7 @@ def read_params():
     """
     # Determine filepath.
     rospack = rospkg.RosPack()
-    pkg_path = rospack.get_path('perception_pkg')
+    pkg_path = rospack.get_path('cmn_pkg')
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
@@ -118,7 +118,7 @@ def get_occ_map(msg):
     global g_map_x_min_meters, g_map_y_min_meters, g_map_x_max_meters, g_map_y_max_meters
     g_map_x_min_meters, g_map_y_min_meters = obs_gen.transform_map_px_to_m(occ_map_true.shape[1]-1, 0)
     g_map_x_max_meters, g_map_y_max_meters = obs_gen.transform_map_px_to_m(0, occ_map_true.shape[0]-1)
-    print("Setting vehicle bounds ({:}, {:}), ({:}, {:})".format(g_map_x_min_meters, g_map_x_max_meters, g_map_y_min_meters, g_map_y_max_meters))
+    # print("Setting vehicle bounds ({:}, {:}), ({:}, {:})".format(g_map_x_min_meters, g_map_x_max_meters, g_map_y_min_meters, g_map_y_max_meters))
 
     # # Check all values appearing in the map.
     # vals_in_map = set()
@@ -127,10 +127,12 @@ def get_occ_map(msg):
     #         vals_in_map.add(occ_map_true[i,j])
     # print("Values appearing in the map: {:}".format(vals_in_map))
 
-    # When generating an observation, it is possible the desired region will be partially outside the bounds of the map.
-    # To prevent potential errors, create a padded version of the map with enough extra rows/cols to ensure this won't happen.
-    # Expand all dimensions by the diagonal of the observation area to cover all possible situations.
-    # All extra space will be assumed to be occluded cells (value = 0.0).
+    """
+    When generating an observation, it is possible the desired region will be partially outside the bounds of the map.
+    To prevent potential errors, create a padded version of the map with enough extra rows/cols to ensure this won't happen.
+    Expand all dimensions by the diagonal of the observation area to cover all possible situations.
+    All extra space will be assumed to be occluded cells (value = 0.0).
+    """
     max_obs_dim = ceil(np.sqrt(obs_gen.obs_height_px_on_map**2 + obs_gen.obs_width_px_on_map**2))
     occ_map_true = cv2.copyMakeBorder(occ_map_true, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
 
@@ -140,10 +142,10 @@ def get_occ_map(msg):
     # Add the full map to our visualization.
     ax0.imshow(occ_map_true, cmap="gray", vmin=0, vmax=1)
 
-    
-
-    # NOTE this architecture forms a cycle, observation -> localization -> command, so to complete it we will generate a new observation upon receiving a command.
-    # To kick-start this cycle, we will wait until the map has been processed, and then assume we've just received a zero command.
+    """
+    NOTE this architecture forms a cycle, observation -> localization -> command, so to complete it we will generate a new observation upon receiving a command.
+    To kick-start this cycle, we will wait until the map has been processed, and then assume we've just received a zero command.
+    """
     generate_observation()
 
 

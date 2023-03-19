@@ -4,13 +4,11 @@
 Functions that will be useful in more than one node in this project.
 """
 
-import rospkg
+import rospkg, yaml, cv2
 import numpy as np
-import yaml
-import cv2
-from math import pi, tau, remainder, sin, cos
+from math import sin, cos
 
-from rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
+from scripts.rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
 
 
 def clamp(val:float, min_val:float, max_val:float):
@@ -42,7 +40,7 @@ class ObservationGenerator:
         """
         # Determine filepath.
         rospack = rospkg.RosPack()
-        pkg_path = rospack.get_path('perception_pkg')
+        pkg_path = rospack.get_path('cmn_pkg')
         # Open the yaml and get the relevant params.
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
@@ -65,7 +63,6 @@ class ObservationGenerator:
         Set the map that will be used to crop out observation regions.
         """
         self.map = map
-        print("Setting map ---------------------------------------")
 
     def transform_map_px_to_m(self, row:int, col:int):
         """
