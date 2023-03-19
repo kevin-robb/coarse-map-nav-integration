@@ -25,21 +25,25 @@ def read_params():
     """
     Read configuration params from the yaml.
     """
-    global cfg_debug_mode, topic_observations, topic_occ_map, topic_localization, topic_commands
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('perception_pkg')
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        cfg_debug_mode = config["test"]["run_debug_mode"]
-        # Rostopics:
-        topic_observations = config["topics"]["observations"]
-        topic_occ_map = config["topics"]["occ_map"]
-        topic_localization = config["topics"]["localization"]
-        topic_commands = config["topics"]["commands"]
+        global g_debug_mode
+        g_debug_mode = config["test"]["run_debug_mode"]
+        # Rostopics.
+        global g_topic_observations, g_topic_occ_map, g_topic_localization, g_topic_commands
+        g_topic_observations = config["topics"]["observations"]
+        g_topic_occ_map = config["topics"]["occ_map"]
+        g_topic_localization = config["topics"]["localization"]
+        g_topic_commands = config["topics"]["commands"]
+        # NOTE Map scale and observation scale are assumed known for now. The former will eventually be estimated with another filter.
+        map_resolution = config["map"]["resolution"]
+        obs_resolution = config["observation"]["resolution"]
         # Set particle filter params.
-        pf.set_params(config["particle_filter"])
+        pf.set_params(config["particle_filter"], map_resolution)
 
 
 def get_observation(msg):
@@ -70,7 +74,7 @@ def get_command(msg:Vector3):
     """
     Receive a commanded motion, and propagate all particles.
     """
-    pf.propagate_particles(msg.x, msg.y, msg.z)
+    pf.propagate_particles(msg.x, msg.z)
 
 
 def main():
@@ -81,14 +85,14 @@ def main():
     # Init the particle filter instance.
 
     # Subscribe to occupancy grid map. Needed for PF's measurement likelihood step.
-    rospy.Subscriber(topic_occ_map, Image, get_occ_map, queue_size=1)
+    rospy.Subscriber(g_topic_occ_map, Image, get_occ_map, queue_size=1)
     # Subscribe to observations.
-    rospy.Subscriber(topic_observations, Image, get_observation, queue_size=1)
+    rospy.Subscriber(g_topic_observations, Image, get_observation, queue_size=1)
     # Subscribe to commanded motion. Needed to propagate particles between iterations.
-    rospy.Subscriber(topic_commands, Vector3, get_command, queue_size=1)
+    rospy.Subscriber(g_topic_commands, Vector3, get_command, queue_size=1)
 
     # Publish localization estimate.
-    localization_pub = rospy.Publisher(topic_localization, Vector3, queue_size=1)
+    localization_pub = rospy.Publisher(g_topic_localization, Vector3, queue_size=1)
 
     rospy.spin()
 

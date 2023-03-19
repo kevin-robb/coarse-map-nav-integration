@@ -6,7 +6,7 @@ Can separately process its prediction and update steps at different, independent
 """
 
 import numpy as np
-from math import pi, sin, cos
+from math import pi, sin, cos, remainder, tau
 
 class ParticleFilter:
     # GLOBAL VARIABLES
@@ -15,7 +15,7 @@ class ParticleFilter:
     occ_map = None
     particle_set = None
     particle_weights = None
-    scale = None
+    map_resolution = None
     # FILTER OUTPUT
     best_estimate = None
 
@@ -24,16 +24,21 @@ class ParticleFilter:
         """
         Instantiate the particle filter object.
         """
-        self.best_estimate = np.array([0.0, 0.0, 0.0])
+        pass
     
 
-    def set_params(self, config):
+    def set_params(self, config, map_resolution):
         """
         Set particle filter parameters from the yaml.
         @param config, a dictionary of the "particle filter" section from config.yaml.
         """
         self.num_particles = int(config["num_particles"])
         self.state_size = int(config["state_size"])
+        self.map_resolution = map_resolution
+        # Init things with the correct dimensions.
+        self.particle_set = np.zeros((self.num_particles, self.state_size))
+        self.particle_weights = np.zeros(self.num_particles)
+        self.best_estimate = np.zeros(self.state_size)
     
 
     def set_map(self, map):
@@ -44,16 +49,17 @@ class ParticleFilter:
         self.occ_map = map
 
 
-    def propagate_particles(self, dx, dy, dtheta):
+    def propagate_particles(self, fwd, ang):
         """
         Given a relative motion since last iteration, apply this to all particles.
-        @param dx, commanded change in x.
-        @param dy, commanded change in y.
-        @param dtheta, commanded change in yaw.
+        @param fwd, commanded forward motion in meters.
+        @param ang, commanded angular motion in radians (CCW).
         """
-        # Compute coordinate-free representation of this motion.
-        # TODO test on robot after finding exact topic. these might already be like  "x = forward motion from current position"
-        pass
+        for i in range(self.num_particles):
+            self.particle_set[i,0] += fwd * cos(self.particle_set[i,2])
+            self.particle_set[i,1] += fwd * sin(self.particle_set[i,2])
+            # Keep yaw normalized to (-pi, pi).
+            self.particle_set[i,2] = remainder(self.particle_set[i,2] + ang, tau)
 
 
     def update_with_observation(self, observation):
