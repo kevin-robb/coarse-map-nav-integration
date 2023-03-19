@@ -92,8 +92,8 @@ def get_command(msg:Vector3):
     veh_pose_true[0] += fwd_dist * cos(veh_pose_true[2])
     veh_pose_true[1] += fwd_dist * sin(veh_pose_true[2])
     # Clamp the vehicle pose to remain inside the map bounds.
-    veh_pose_true[0] = clamp(veh_pose_true[0], g_map_x_min_meters, g_map_x_max_meters)
-    veh_pose_true[1] = clamp(veh_pose_true[1], g_map_y_min_meters, g_map_y_max_meters)
+    veh_pose_true[0] = clamp(veh_pose_true[0], obs_gen.map_x_min_meters, obs_gen.map_x_max_meters)
+    veh_pose_true[1] = clamp(veh_pose_true[1], obs_gen.map_y_min_meters, obs_gen.map_y_max_meters)
     # Keep yaw normalized to (-pi, pi).
     veh_pose_true[2] = remainder(veh_pose_true[2] + dtheta, tau)
 
@@ -114,33 +114,8 @@ def get_occ_map(msg):
     # Set map in our utilities class.
     obs_gen.set_map(occ_map_true)
 
-    # Set the map bounds in meters. This prevents true vehicle pose from leaving the map.
-    global g_map_x_min_meters, g_map_y_min_meters, g_map_x_max_meters, g_map_y_max_meters
-    g_map_x_min_meters, g_map_y_min_meters = obs_gen.transform_map_px_to_m(occ_map_true.shape[1]-1, 0)
-    g_map_x_max_meters, g_map_y_max_meters = obs_gen.transform_map_px_to_m(0, occ_map_true.shape[0]-1)
-    # print("Setting vehicle bounds ({:}, {:}), ({:}, {:})".format(g_map_x_min_meters, g_map_x_max_meters, g_map_y_min_meters, g_map_y_max_meters))
-
-    # # Check all values appearing in the map.
-    # vals_in_map = set()
-    # for i in range(occ_map_true.shape[0]):
-    #     for j in range(occ_map_true.shape[1]):
-    #         vals_in_map.add(occ_map_true[i,j])
-    # print("Values appearing in the map: {:}".format(vals_in_map))
-
-    """
-    When generating an observation, it is possible the desired region will be partially outside the bounds of the map.
-    To prevent potential errors, create a padded version of the map with enough extra rows/cols to ensure this won't happen.
-    Expand all dimensions by the diagonal of the observation area to cover all possible situations.
-    All extra space will be assumed to be occluded cells (value = 0.0).
-    """
-    max_obs_dim = ceil(np.sqrt(obs_gen.obs_height_px_on_map**2 + obs_gen.obs_width_px_on_map**2))
-    occ_map_true = cv2.copyMakeBorder(occ_map_true, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
-
-    # Update map with the padded version. Needed to wait for the veh pos bounds to be set using the original map first.
-    obs_gen.set_map(occ_map_true)
-
-    # Add the full map to our visualization.
-    ax0.imshow(occ_map_true, cmap="gray", vmin=0, vmax=1)
+    # Add the full map to our visualization (after it's processed).
+    ax0.imshow(obs_gen.map, cmap="gray", vmin=0, vmax=1)
 
     """
     NOTE this architecture forms a cycle, observation -> localization -> command, so to complete it we will generate a new observation upon receiving a command.
@@ -165,6 +140,10 @@ def generate_observation():
     """
     Use the map and known ground-truth robot pose to generate the best possible observation.
     """
+    # Do not attempt to use the utilities class until the map has been processed.
+    while not obs_gen.initialized:
+        rospy.sleep(0.1)
+
     # Add the new (ground truth) vehicle pose to the viz.
     veh_row, veh_col = obs_gen.transform_map_m_to_px(veh_pose_true[0], veh_pose_true[1])
     remove_plot("veh_pose_true")

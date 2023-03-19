@@ -28,8 +28,9 @@ observation:
 perception_node_dt: 0.1 # timer period of perception_node's main update loop (seconds). NOTE later we can characterize the runtime of the model to optimize this value.
 
 particle_filter:
-  num_particles: 1000 # Number of particles to track.
+  num_particles: 10 # Number of particles to track.
   state_size: 3 # Number of variables in the state. (i.e., (x,y,yaw)).
+  random_sampling_rate: 0.05 # Proportion in range [0, 1] of population that will be sampled randomly instead of from the previous generation.
 
 # Configs for running simulator node for basic testing.
 simulator:

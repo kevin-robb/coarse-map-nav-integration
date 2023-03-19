@@ -6,7 +6,8 @@ Functions that will be useful in more than one node in this project.
 
 import rospkg, yaml, cv2
 import numpy as np
-from math import sin, cos
+from math import sin, cos, remainder, tau, ceil
+from random import random, randrange
 
 from scripts.rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
 
@@ -25,6 +26,7 @@ class ObservationGenerator:
     Also uses the rotated_rectangle_crop_opencv functions to crop out an observation region corresponding to a particular vehicle pose.
     Used both for ground-truth observation generation as well as particle likelihood evalutation.
     """
+    initialized = False
     map = None # 2D numpy array of the global map
     map_resolution = None # float, meters/pixel for the map.
 
@@ -61,8 +63,23 @@ class ObservationGenerator:
     def set_map(self, map):
         """
         Set the map that will be used to crop out observation regions.
+        Determine valid vehicle bounds, and add padding around the map border.
         """
+        # Set the map as it is temporarily so we can use it to determine vehicle bounds.
         self.map = map
+        # Set the map bounds in meters. This prevents true vehicle pose from leaving the map.
+        self.map_x_min_meters, self.map_y_min_meters = self.transform_map_px_to_m(map.shape[1]-1, 0)
+        self.map_x_max_meters, self.map_y_max_meters = self.transform_map_px_to_m(0, map.shape[0]-1)
+
+        """
+        When generating an observation, it is possible the desired region will be partially outside the bounds of the map.
+        To prevent potential errors, create a padded version of the map with enough extra rows/cols to ensure this won't happen.
+        Expand all dimensions by the diagonal of the observation area to cover all possible situations.
+        All extra space will be assumed to be occluded cells (value = 0.0).
+        """
+        max_obs_dim = ceil(np.sqrt(self.obs_height_px_on_map**2 + self.obs_width_px_on_map**2))
+        self.map = cv2.copyMakeBorder(map, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
+        self.initialized = True
 
     def transform_map_px_to_m(self, row:int, col:int):
         """
@@ -120,7 +137,25 @@ class ObservationGenerator:
         obs_img = crop_rotated_rectangle(image = self.map, rect = rect)
 
         # Resize observation to desired resolution.
-        obs_img = cv2.resize(obs_img, (self.obs_height_px, self.obs_width_px))
+        if obs_img is not None:
+            obs_img = cv2.resize(obs_img, (self.obs_height_px, self.obs_width_px))
 
         # Return both the image and the rect points for the viz to use for plotting.
         return obs_img, rect
+    
+    def generate_random_valid_veh_pose(self):
+        """
+        Generate a vehicle pose at random.
+        Ensure this position is within map bounds, and is located in free space.
+        @return 3x1 numpy array of the created pose.
+        """
+        # Choose any yaw at random, with no validity condition.
+        yaw = remainder(random() * tau, tau)
+        # Generate a particle at random on the map, and ensure it's in a valid cell.
+        while True:
+            # Choose a random vehicle cell in px so we can first check if it's occluded.
+            r = randrange(0, self.map.shape[0])
+            c = randrange(0, self.map.shape[1])
+            if self.map[r, c] == 1: # this cell is free.
+                x, y = self.transform_map_px_to_m(r, c)
+                return np.array([x,y,yaw])

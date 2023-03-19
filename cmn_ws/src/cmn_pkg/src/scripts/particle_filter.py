@@ -7,19 +7,23 @@ Can separately process its prediction and update steps at different, independent
 
 import rospkg, yaml
 import numpy as np
-from math import pi, sin, cos, remainder, tau
+from math import sin, cos, remainder, tau
+from random import choices
 
-from scripts.cmn_utilities import clamp, ObservationGenerator
+from scripts.cmn_utilities import ObservationGenerator
 
 class ParticleFilter:
-    # GLOBAL VARIABLES
+    # Config params.
     num_particles = None
     state_size = None
+    num_to_resample_randomly = None
+    # Utility class.
+    obs_gen = None
+    # Ongoing state.
     particle_set = None
     particle_weights = None
-    # NOTE Map scale and observation scale are assumed known for now. The former will eventually be estimated with another filter.
-    obs_gen = None
-    # FILTER OUTPUT
+    # NOTE Map scale is assumed known for now, but it will eventually be estimated with another filter.
+    # Filter output.
     best_weight = 0
     best_estimate = None
 
@@ -36,7 +40,10 @@ class ParticleFilter:
             config = yaml.safe_load(file)
             # Particle filter params.
             self.num_particles = int(config["particle_filter"]["num_particles"])
+            self.all_indices = list(range(self.num_particles))
             self.state_size = int(config["particle_filter"]["state_size"])
+            random_sampling_rate = config["particle_filter"]["random_sampling_rate"]
+            self.num_to_resample_randomly = int(random_sampling_rate * self.num_particles)
 
         # Init things with the correct dimensions.
         self.particle_set = np.zeros((self.num_particles, self.state_size))
@@ -79,6 +86,7 @@ class ParticleFilter:
             obs_img_expected = self.obs_gen.extract_observation_region(self.particle_set[i,:])
             # Compare this to the actual observation to evaluate this particle's likelihood.
             self.particle_weights[i] = self.compute_measurement_likelihood(obs_img_expected, observation)
+            # NOTE these likelihoods are intentionally NOT normalized.
 
         # Find best particle this iteration.
         i_best = np.argmax(self.particle_weights)
@@ -107,6 +115,23 @@ class ParticleFilter:
         """
         Use the weights vector to sample from the population and form the next generation.
         """
-        # TODO Sample from weights to form most of the population.
-        # TODO Randomly generate small portion of population to prevent particle depletion.
-        pass
+        new_particle_set = np.zeros((self.num_particles, self.state_size))
+
+        # Sample from weights to form most of the population.
+        selected_indices = choices(self.all_indices, list(self.particle_weights), k=self.num_particles - self.num_to_resample_randomly)
+        for i_new, i_old in enumerate(selected_indices):
+            # Get the particle whose index was chosen based on its weight.
+            new_particle_set[i_new,:] = self.particle_set[i_old,:]
+            # TODO Perturb it with some noise.
+
+        # Randomly generate small portion of population to prevent particle depletion.
+        for i in range(self.num_particles - self.num_to_resample_randomly, self.num_particles):
+            # Do not attempt to use the utilities class until the map has been processed.
+            if self.obs_gen.initialized:
+                new_particle_set[i,:] = self.obs_gen.generate_random_valid_veh_pose()
+            else:
+                new_particle_set[i,:] = np.zeros(self.state_size)
+
+        # Update the set of particles.
+        self.particle_set = new_particle_set
+            

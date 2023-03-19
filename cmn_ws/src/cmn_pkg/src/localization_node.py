@@ -48,6 +48,7 @@ def get_observation(msg):
     Publish the best estimate from the pf as our localization result.
     """
     # Update the particle filter.
+    # pf_estimate = np.array([0,0,0])
     pf_estimate = pf.update_with_observation(msg.data)
     pf.resample()
     # Convert pf estimate into a message and publish it.
