@@ -10,6 +10,7 @@ Node for extremely basic testing of localization node in best-case-scenario:
 import rospy
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Vector3
+from std_msgs.msg import Float32MultiArray
 import rospkg, yaml
 import numpy as np
 import matplotlib.pyplot as plt
@@ -28,7 +29,8 @@ bridge = CvBridge()
 obs_gen = ObservationGenerator()
 # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
 veh_pose_true = np.array([0.0, 0.0, 0.0])
-veh_pose_est = np.array([0.0, 0.0, 0.0])
+veh_pose_est = np.array([0.0, 0.0, 0.0]) # PF estimate.
+particles_x, particles_y = None, None # Full set of particles in PF.
 # Place to store plots so we can remove/update them some time later.
 plots = {}
 #################################################
@@ -78,6 +80,9 @@ def read_params():
         g_topic_occ_map = config["topics"]["occ_map"]
         g_topic_localization = config["topics"]["localization"]
         g_topic_commands = config["topics"]["commands"]
+        # Particle filter params.
+        global g_pf_num_particles
+        g_pf_num_particles = config["particle_filter"]["num_particles"]
 
 ################################ CALLBACKS #########################################
 def get_command(msg:Vector3):
@@ -134,6 +139,15 @@ def get_localization_est(msg):
     veh_pose_est[1] = msg.y
     veh_pose_est[2] = msg.z
 
+def get_particle_set(msg):
+    """
+    Get the full set of particle positions from the current iteration.
+    @param msg, Float32MultiArray message whose data is an array containing [x1,..,xn,y1,..,yn].
+    """
+    global particles_x, particles_y
+    particles_x = msg.data[:g_pf_num_particles]
+    particles_y = msg.data[g_pf_num_particles:]
+
 
 ############################ SIMULATOR FUNCTIONS ####################################
 def generate_observation():
@@ -147,12 +161,23 @@ def generate_observation():
     # Add the new (ground truth) vehicle pose to the viz.
     veh_row, veh_col = obs_gen.transform_map_m_to_px(veh_pose_true[0], veh_pose_true[1])
     remove_plot("veh_pose_true")
-    plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0)
+    plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0, label="True Vehicle Pose")
 
     # Add the most recent localization estimate to the viz.
     veh_row_est, veh_col_est = obs_gen.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
     remove_plot("veh_pose_est")
-    plots["veh_pose_est"] = ax0.arrow(veh_col_est, veh_row_est, 0.5*cos(veh_pose_est[2]), -0.5*sin(veh_pose_est[2]), color="green", width=1.0, zorder = 3)
+    plots["veh_pose_est"] = ax0.arrow(veh_col_est, veh_row_est, 0.5*cos(veh_pose_est[2]), -0.5*sin(veh_pose_est[2]), color="green", width=1.0, zorder = 3, label="PF Estimate")
+
+    # Plot the set of particles in the PF.
+    if particles_x is not None and particles_y is not None:
+        remove_plot("particle_set")
+        # Convert all particles from meters to pixels.
+        particles_r, particles_c = [], []
+        for i in range(g_pf_num_particles):
+            r, c = obs_gen.transform_map_m_to_px(particles_x[i], particles_y[i])
+            particles_r.append(r)
+            particles_c.append(c)
+        plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="red", zorder=1, label="All Particles")
 
     # Use utilities class to generate the observation.
     obs_img, rect = obs_gen.extract_observation_region(veh_pose_true)
@@ -172,6 +197,7 @@ def generate_observation():
     if "veh_pose_obs" not in plots.keys():
         plots["veh_pose_obs"] = ax1.arrow(obs_gen.veh_px_vert_from_bottom_on_obs, obs_gen.obs_width_px // 2 + obs_gen.veh_px_horz_from_center_on_obs, 0.5, 0.0, color="blue", width=1.0, zorder = 2)
 
+    ax0.legend(loc="upper left")
     plt.draw()
     plt.pause(g_dt)
 
@@ -195,6 +221,7 @@ def main():
 
     # Subscribe to localization est (for viz only).
     rospy.Subscriber(g_topic_localization, Vector3, get_localization_est, queue_size=1)
+    rospy.Subscriber(g_topic_localization + "/set", Float32MultiArray, get_particle_set, queue_size=1)
 
     # Publish ground-truth observation
     observation_pub = rospy.Publisher(g_topic_observations, Image, queue_size=1)

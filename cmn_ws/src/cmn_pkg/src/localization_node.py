@@ -7,6 +7,7 @@ Node to handle ROS interface for getting observations, running the localization 
 import rospy
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import Vector3
+from std_msgs.msg import Float32MultiArray
 import rospkg, yaml
 import numpy as np
 import cv2
@@ -16,7 +17,6 @@ from scripts.particle_filter import ParticleFilter
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
-localization_pub = None
 pf = ParticleFilter()
 #################################################
 
@@ -50,10 +50,18 @@ def get_observation(msg):
     # Update the particle filter.
     # pf_estimate = np.array([0,0,0])
     pf_estimate = pf.update_with_observation(msg.data)
-    pf.resample()
     # Convert pf estimate into a message and publish it.
     loc_est = Vector3(pf_estimate[0], pf_estimate[1], pf_estimate[2])
     localization_pub.publish(loc_est)
+
+    # If running the simulator, publish the full particle set (for viz).
+    # TODO use param in launch file to only run this with simulator node.
+    pf_set_msg = Float32MultiArray()
+    pf_set_msg.data = list(pf.particle_set[:,0]) + list(pf.particle_set[:,1])
+    particle_set_pub.publish(pf_set_msg)
+
+    # Run the PF resampling step.
+    pf.resample()
 
 
 def get_occ_map(msg):
@@ -74,7 +82,7 @@ def get_command(msg:Vector3):
 
 
 def main():
-    global localization_pub
+    global localization_pub, particle_set_pub
     rospy.init_node('localization_node')
 
     read_params()
@@ -89,6 +97,8 @@ def main():
 
     # Publish localization estimate.
     localization_pub = rospy.Publisher(g_topic_localization, Vector3, queue_size=1)
+    # Publish the full particle set (for viz only).
+    particle_set_pub = rospy.Publisher(g_topic_localization + "/set", Float32MultiArray, queue_size=1)
 
     rospy.spin()
 
