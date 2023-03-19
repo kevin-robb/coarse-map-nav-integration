@@ -57,8 +57,8 @@ def get_localization_est(msg):
     
     # DEBUG send a simple motion command.
     # NOTE x-component = forward motion, z-component = angular motion. y-component = lateral motion, which is impossible for our system and is ignored.
-    # msg = Vector3(0.02, 0.0, pi) # drive in a small circle.
-    msg = Vector3(0.02, 0.0, 0.0) # drive in a straight line.
+    msg = Vector3(0.02, 0.0, pi) # drive in a small circle.
+    # msg = Vector3(0.02, 0.0, 0.0) # drive in a straight line.
     cmd_pub.publish(msg)
 
 

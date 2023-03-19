@@ -26,6 +26,7 @@ from rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectang
 bridge = CvBridge()
 # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
 veh_pose_true = np.array([0.0, 0.0, 0.0])
+veh_pose_est = np.array([0.0, 0.0, 0.0])
 # Place to store plots so we can remove/update them some time later.
 plots = {}
 #################################################
@@ -197,15 +198,13 @@ def get_occ_map(msg):
 
 def get_localization_est(msg):
     """
-    Get localization estimate from the particle filter, and display it on the map for visual performance evaluation.
+    Get localization estimate from the particle filter, and save it to be displayed on the viz.
     """
+    global veh_pose_est
     # Yaw is always estimated globally in radians.
-    yaw = msg.z
-    # Position is estimated in meters.
-    r, c = transform_map_m_to_px(msg.x, msg.y)
-    # Add localization est to plot.
-    remove_plot("veh_pose_est")
-    plots["veh_pose_est"] = ax0.arrow(c, r, 0.5*cos(yaw), -0.5*sin(yaw), color="green", width=1.0, zorder = 3)
+    veh_pose_est[0] = msg.x
+    veh_pose_est[1] = msg.y
+    veh_pose_est[2] = msg.z
 
 
 ############################ SIMULATOR FUNCTIONS ####################################
@@ -217,9 +216,14 @@ def generate_observation():
     # Compute vehicle pose in pixels.
     veh_row, veh_col = transform_map_m_to_px(veh_pose_true[0], veh_pose_true[1])
 
-    # Add the new vehicle pose to the viz.
+    # Add the new (ground truth) vehicle pose to the viz.
     remove_plot("veh_pose_true")
     plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0)
+
+    # Add the most recent localization estimate to the viz.
+    veh_row_est, veh_col_est = transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
+    remove_plot("veh_pose_est")
+    plots["veh_pose_est"] = ax0.arrow(veh_col_est, veh_row_est, 0.5*cos(veh_pose_est[2]), -0.5*sin(veh_pose_est[2]), color="green", width=1.0, zorder = 3)
 
     # Project ahead of vehicle pose to determine center.
     center_col = veh_col + (g_obs_height_px_on_map / 2 - g_veh_px_vert_from_bottom_on_map) * cos(veh_pose_true[2])
