@@ -163,21 +163,21 @@ def generate_observation():
     remove_plot("veh_pose_true")
     plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0, label="True Vehicle Pose")
 
-    # Add the most recent localization estimate to the viz.
-    veh_row_est, veh_col_est = obs_gen.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
-    remove_plot("veh_pose_est")
-    plots["veh_pose_est"] = ax0.arrow(veh_col_est, veh_row_est, 0.5*cos(veh_pose_est[2]), -0.5*sin(veh_pose_est[2]), color="green", width=1.0, zorder = 3, label="PF Estimate")
+    # # Add the most recent localization estimate to the viz.
+    # veh_row_est, veh_col_est = obs_gen.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
+    # remove_plot("veh_pose_est")
+    # plots["veh_pose_est"] = ax0.arrow(veh_col_est, veh_row_est, 0.5*cos(veh_pose_est[2]), -0.5*sin(veh_pose_est[2]), color="green", width=1.0, zorder = 3, label="PF Estimate")
 
-    # Plot the set of particles in the PF.
-    if particles_x is not None and particles_y is not None:
-        remove_plot("particle_set")
-        # Convert all particles from meters to pixels.
-        particles_r, particles_c = [], []
-        for i in range(g_pf_num_particles):
-            r, c = obs_gen.transform_map_m_to_px(particles_x[i], particles_y[i])
-            particles_r.append(r)
-            particles_c.append(c)
-        plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="red", zorder=1, label="All Particles")
+    # # Plot the set of particles in the PF.
+    # if particles_x is not None and particles_y is not None:
+    #     remove_plot("particle_set")
+    #     # Convert all particles from meters to pixels.
+    #     particles_r, particles_c = [], []
+    #     for i in range(g_pf_num_particles):
+    #         r, c = obs_gen.transform_map_m_to_px(particles_x[i], particles_y[i])
+    #         particles_r.append(r)
+    #         particles_c.append(c)
+    #     plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="red", zorder=1, label="All Particles")
 
     # Use utilities class to generate the observation.
     obs_img, rect = obs_gen.extract_observation_region(veh_pose_true)
@@ -187,7 +187,7 @@ def generate_observation():
     box_x_coords = [box[i,0] for i in range(box.shape[0])] + [box[0,0]]
     box_y_coords = [box[i,1] for i in range(box.shape[0])] + [box[0,1]]
     remove_plot("obs_bounding_box")
-    plots["obs_bounding_box"] = ax0.plot(box_x_coords, box_y_coords, "r-", zorder=2)
+    plots["obs_bounding_box"] = ax0.plot(box_x_coords, box_y_coords, "r-", zorder=2, label="Observed Area")
 
     # Plot the new observation.
     remove_plot("obs_img")
@@ -195,7 +195,7 @@ def generate_observation():
     # Add vehicle pose relative to observation region for clarity.
     # NOTE since it's plotted sideways, robot pose is on the left side.
     if "veh_pose_obs" not in plots.keys():
-        plots["veh_pose_obs"] = ax1.arrow(obs_gen.veh_px_vert_from_bottom_on_obs, obs_gen.obs_width_px // 2 + obs_gen.veh_px_horz_from_center_on_obs, 0.5, 0.0, color="blue", width=1.0, zorder = 2)
+        plots["veh_pose_obs"] = ax1.arrow(obs_gen.veh_px_vert_from_bottom_on_obs-0.5, obs_gen.obs_width_px // 2 + obs_gen.veh_px_horz_from_center_on_obs, 0.5*obs_gen.obs_resolution, 0.0, color="blue", width=0.01/obs_gen.obs_resolution, zorder = 2)
 
     ax0.legend(loc="upper left")
     plt.draw()
