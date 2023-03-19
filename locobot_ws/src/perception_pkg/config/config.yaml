@@ -20,10 +20,10 @@ map:
 observation:
   resolution: 0.01 # Image resolution, in meters/pixel.
   height: 50 # in pixels. forward distance ahead of vehicle.
-  width: 100 # in pixels. lateral span.
+  width: 50 # in pixels. lateral span.
   # Coordinates on the observation image frame the vehicle's POV is. (origin is bottom center)
-  veh_horz_pos: 0 # px from center.
-  veh_vert_pos: 0 # px from bottom. use 1/2 of height to put veh in center.
+  veh_horz_pos_ratio: 0.5 # relative position from left (0) to right (1). Use 0.5 to center it.
+  veh_vert_pos_ratio: 0.0 # relative position from bottom (0) to top (1). Use 0.5 to center it.
 
 perception_node_dt: 0.1 # timer period of perception_node's main update loop (seconds). NOTE later we can characterize the runtime of the model to optimize this value.
 

@@ -132,10 +132,11 @@ def read_params():
         obs_width_px = config["observation"]["width"]
         obs_height_px_on_map = int(obs_height_px * obs_resolution / map_resolution)
         obs_width_px_on_map = int(obs_width_px * obs_resolution / map_resolution)
-        veh_px_horz_from_center_on_obs = config["observation"]["veh_horz_pos"]
-        veh_px_vert_from_bottom_on_obs = config["observation"]["veh_vert_pos"]
-        veh_px_horz_from_center_on_map = config["observation"]["veh_horz_pos"] * obs_resolution / map_resolution
-        veh_px_vert_from_bottom_on_map = config["observation"]["veh_vert_pos"] * obs_resolution / map_resolution
+        # Vehicle position relative to observation region.
+        veh_px_horz_from_center_on_obs = (config["observation"]["veh_horz_pos_ratio"] - 0.5) * obs_width_px
+        veh_px_vert_from_bottom_on_obs = config["observation"]["veh_vert_pos_ratio"] * obs_width_px
+        veh_px_horz_from_center_on_map = veh_px_horz_from_center_on_obs * obs_resolution / map_resolution
+        veh_px_vert_from_bottom_on_map = veh_px_vert_from_bottom_on_obs * obs_resolution / map_resolution
 
 ################################ CALLBACKS #########################################
 def get_command(msg:Vector3):
