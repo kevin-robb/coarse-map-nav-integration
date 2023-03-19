@@ -17,27 +17,18 @@ from matplotlib import gridspec
 from matplotlib.backend_bases import MouseButton
 import cv2
 from cv_bridge import CvBridge
-from math import remainder, tau, sin, cos, pi
+from math import remainder, tau, sin, cos, pi, ceil
 
 from rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
 
 ############ GLOBAL VARIABLES ###################
 # ROS stuff.
 bridge = CvBridge()
-observation_pub = None
-# Observation params.
-obs_height_px_on_map = None # number of pixels on map to crop out observation region.
-obs_width_px_on_map = None # number of pixels on map to crop out observation region.
-obs_height_px = None # desired height (px) of resulting observation image.
-obs_width_px = None # desired height (px) of resulting observation image.
-veh_px_horz_from_center_on_map, veh_px_horz_from_center_on_obs, veh_px_vert_from_bottom_on_map, veh_px_vert_from_bottom_on_obs = None, None, None, None
-# Ground truth.
-occ_map_true = None # Occupancy grid of ground-truth map.
-veh_pose_true = np.array([0.0, 0.0, 0.0]) # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
-# Plotting.
+# Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
+veh_pose_true = np.array([0.0, 0.0, 0.0])
+# Place to store plots so we can remove/update them some time later.
 plots = {}
 #################################################
-# use bilinear interpolation on map to query expected value at certain pt.
 
 ########################### UTILITY/HELPER FUNCTIONS ###############################
 def remove_plot(name):
@@ -79,12 +70,15 @@ def transform_map_px_to_m(row:int, col:int):
     Origin in pixels is top left, and coords are strictly nonnegative.
     @return tuple of floats (x, y)
     """
+    # Clamp inputs within legal range of values.
+    row = int(clamp(row, 0, occ_map_true.shape[0]-1))
+    col = int(clamp(col, 0, occ_map_true.shape[1]-1))
     # Get pixel difference from map center.
     row_offset = row - occ_map_true.shape[0] // 2
     col_offset = col - occ_map_true.shape[1] // 2
     # Convert from pixels to meters.
-    x = cfg_map_resolution * col_offset
-    y = cfg_map_resolution * -row_offset
+    x = g_map_resolution * col_offset
+    y = g_map_resolution * -row_offset
     return x, y
 
 def transform_map_m_to_px(x:float, y:float):
@@ -95,8 +89,8 @@ def transform_map_m_to_px(x:float, y:float):
     @return tuple of ints (row, col)
     """
     # Convert from meters to pixels.
-    col_offset = x / cfg_map_resolution
-    row_offset = -y / cfg_map_resolution
+    col_offset = x / g_map_resolution
+    row_offset = -y / g_map_resolution
     # Shift origin from center to corner.
     row = row_offset + occ_map_true.shape[0] // 2
     col = col_offset + occ_map_true.shape[1] // 2
@@ -109,35 +103,37 @@ def read_params():
     """
     Read configuration params from the yaml.
     """
-    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, cfg_map_resolution, topic_observations, topic_occ_map, topic_localization, topic_commands, obs_height_px, obs_width_px, obs_height_px_on_map, obs_width_px_on_map, veh_px_horz_from_center_on_map, veh_px_horz_from_center_on_obs, veh_px_vert_from_bottom_on_map, veh_px_vert_from_bottom_on_obs
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('perception_pkg')
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        cfg_debug_mode = config["test"]["run_debug_mode"]
-        cfg_map_filepath = pkg_path + "/config/maps/" + config["map"]["fname"]
-        cfg_obstacle_balloon_radius_px = config["map"]["obstacle_balloon_radius"]
-        cfg_dt = config["perception_node_dt"]
-        cfg_map_resolution = config["map"]["resolution"]
-        # Rostopics:
-        topic_observations = config["topics"]["observations"]
-        topic_occ_map = config["topics"]["occ_map"]
-        topic_localization = config["topics"]["localization"]
-        topic_commands = config["topics"]["commands"]
+        global g_debug_mode, g_dt
+        g_debug_mode = config["test"]["run_debug_mode"]
+        g_dt = config["perception_node_dt"]
+        # Map params.
+        global g_map_resolution
+        g_map_resolution = config["map"]["resolution"]
+        # Rostopics.
+        global g_topic_observations, g_topic_occ_map, g_topic_localization, g_topic_commands
+        g_topic_observations = config["topics"]["observations"]
+        g_topic_occ_map = config["topics"]["occ_map"]
+        g_topic_localization = config["topics"]["localization"]
+        g_topic_commands = config["topics"]["commands"]
         # Observation params.
-        map_resolution = config["map"]["resolution"]
-        obs_resolution = config["observation"]["resolution"]
-        obs_height_px = config["observation"]["height"]
-        obs_width_px = config["observation"]["width"]
-        obs_height_px_on_map = int(obs_height_px * obs_resolution / map_resolution)
-        obs_width_px_on_map = int(obs_width_px * obs_resolution / map_resolution)
+        global g_obs_height_px, g_obs_width_px, g_obs_height_px_on_map, g_obs_width_px_on_map
+        g_obs_resolution = config["observation"]["resolution"]
+        g_obs_height_px = config["observation"]["height"]
+        g_obs_width_px = config["observation"]["width"]
+        g_obs_height_px_on_map = int(g_obs_height_px * g_obs_resolution / g_map_resolution)
+        g_obs_width_px_on_map = int(g_obs_width_px * g_obs_resolution / g_map_resolution)
         # Vehicle position relative to observation region.
-        veh_px_horz_from_center_on_obs = (config["observation"]["veh_horz_pos_ratio"] - 0.5) * obs_width_px
-        veh_px_vert_from_bottom_on_obs = config["observation"]["veh_vert_pos_ratio"] * obs_width_px
-        veh_px_horz_from_center_on_map = veh_px_horz_from_center_on_obs * obs_resolution / map_resolution
-        veh_px_vert_from_bottom_on_map = veh_px_vert_from_bottom_on_obs * obs_resolution / map_resolution
+        global g_veh_px_horz_from_center_on_map, g_veh_px_horz_from_center_on_obs, g_veh_px_vert_from_bottom_on_map, g_veh_px_vert_from_bottom_on_obs
+        g_veh_px_horz_from_center_on_obs = (config["observation"]["veh_horz_pos_ratio"] - 0.5) * g_obs_width_px
+        g_veh_px_vert_from_bottom_on_obs = config["observation"]["veh_vert_pos_ratio"] * g_obs_width_px
+        g_veh_px_horz_from_center_on_map = g_veh_px_horz_from_center_on_obs * g_obs_resolution / g_map_resolution
+        g_veh_px_vert_from_bottom_on_map = g_veh_px_vert_from_bottom_on_obs * g_obs_resolution / g_map_resolution
 
 ################################ CALLBACKS #########################################
 def get_command(msg:Vector3):
@@ -151,9 +147,12 @@ def get_command(msg:Vector3):
     dtheta = clamp(msg.z, -0.0546, 0.0546) # radians CCW
     veh_pose_true[0] += fwd_dist * cos(veh_pose_true[2])
     veh_pose_true[1] += fwd_dist * sin(veh_pose_true[2])
+    # Clamp the vehicle pose to remain inside the map bounds.
+    veh_pose_true[0] = clamp(veh_pose_true[0], g_map_x_min_meters, g_map_x_max_meters)
+    veh_pose_true[1] = clamp(veh_pose_true[1], g_map_y_min_meters, g_map_y_max_meters)
     # Keep yaw normalized to (-pi, pi).
     veh_pose_true[2] = remainder(veh_pose_true[2] + dtheta, tau)
-    
+
     print("Veh pose is now " + str(veh_pose_true))
 
     # Generate an observation for the new vehicle pose.
@@ -164,9 +163,30 @@ def get_occ_map(msg):
     """
     Get the processed occupancy grid map to use as the "ground truth" map.
     """
-    global occ_map_true
+    global occ_map_true, occ_map_true_padded
     # Convert from ROS Image message to an OpenCV image.
     occ_map_true = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+
+    # Set the map bounds in meters.
+    global g_map_x_min_meters, g_map_y_min_meters, g_map_x_max_meters, g_map_y_max_meters
+    g_map_x_min_meters, g_map_y_min_meters = transform_map_px_to_m(occ_map_true.shape[1]-1, 0)
+    g_map_x_max_meters, g_map_y_max_meters = transform_map_px_to_m(0, occ_map_true.shape[0]-1)
+    print("Setting vehicle bounds ({:}, {:}), ({:}, {:})".format(g_map_x_min_meters, g_map_x_max_meters, g_map_y_min_meters, g_map_y_max_meters))
+
+    # # Check all values appearing in the map.
+    # vals_in_map = set()
+    # for i in range(occ_map_true.shape[0]):
+    #     for j in range(occ_map_true.shape[1]):
+    #         vals_in_map.add(occ_map_true[i,j])
+    # print("Values appearing in the map: {:}".format(vals_in_map))
+
+    # When generating an observation, it is possible the desired region will be partially outside the bounds of the map.
+    # To prevent potential errors, create a padded version of the map with enough extra rows/cols to ensure this won't happen.
+    # Expand all dimensions by the diagonal of the observation area to cover all possible situations.
+    # All extra space will be assumed to be occluded cells (value = 0.0).
+    max_obs_dim = ceil(np.sqrt(g_obs_height_px_on_map**2 + g_obs_width_px_on_map**2))
+    occ_map_true = cv2.copyMakeBorder(occ_map_true, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
+
     # Add the full map to our visualization.
     ax0.imshow(occ_map_true, cmap="gray", vmin=0, vmax=1)
 
@@ -202,12 +222,12 @@ def generate_observation():
     plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0)
 
     # Project ahead of vehicle pose to determine center.
-    center_col = veh_col + (obs_height_px_on_map / 2 - veh_px_vert_from_bottom_on_map) * cos(veh_pose_true[2])
-    center_row = veh_row - (obs_height_px_on_map / 2 - veh_px_vert_from_bottom_on_map) * sin(veh_pose_true[2])
+    center_col = veh_col + (g_obs_height_px_on_map / 2 - g_veh_px_vert_from_bottom_on_map) * cos(veh_pose_true[2])
+    center_row = veh_row - (g_obs_height_px_on_map / 2 - g_veh_px_vert_from_bottom_on_map) * sin(veh_pose_true[2])
     center = (center_col, center_row)
     # Create the rotated rectangle.
     angle = -np.rad2deg(veh_pose_true[2])
-    rect = (center, (obs_height_px_on_map, obs_width_px_on_map), angle)
+    rect = (center, (g_obs_height_px_on_map, g_obs_width_px_on_map), angle)
 
     # Plot the bounding box on the base map.
     box = cv2.boxPoints(rect)
@@ -220,10 +240,12 @@ def generate_observation():
     obs_img = crop_rotated_rectangle(image = occ_map_true, rect = rect)
 
     if obs_img is None:
+        # Rotated rect could not be cropped since it's partially outside the bounds of the image.
+        print("Observation region could not be cropped out, since it's partially outside the map bounds.")
         obs_img = last_obs_img
 
     # Resize observation to desired resolution.
-    obs_img = cv2.resize(obs_img, (obs_height_px, obs_width_px))
+    obs_img = cv2.resize(obs_img, (g_obs_height_px, g_obs_width_px))
 
     # Publish this observation for the localization node to use.
     observation_pub.publish(bridge.cv2_to_imgmsg(obs_img, encoding="passthrough"))
@@ -237,10 +259,10 @@ def generate_observation():
     # Add vehicle pose relative to observation region for clarity.
     # NOTE since it's plotted sideways, robot pose is on the left side.
     if "veh_pose_obs" not in plots.keys():
-        plots["veh_pose_obs"] = ax1.arrow(veh_px_vert_from_bottom_on_obs, obs_width_px // 2 + veh_px_horz_from_center_on_obs, 0.5, 0.0, color="blue", width=1.0, zorder = 2)
+        plots["veh_pose_obs"] = ax1.arrow(g_veh_px_vert_from_bottom_on_obs, g_obs_width_px // 2 + g_veh_px_horz_from_center_on_obs, 0.5, 0.0, color="blue", width=1.0, zorder = 2)
 
     plt.draw()
-    plt.pause(cfg_dt)
+    plt.pause(g_dt)
 
 
 def main():
@@ -253,15 +275,15 @@ def main():
     plt.rcParams["figure.figsize"] = (9,9)
 
     # Subscribe to occupancy grid map to use as ground-truth.
-    rospy.Subscriber(topic_occ_map, Image, get_occ_map, queue_size=1)
+    rospy.Subscriber(g_topic_occ_map, Image, get_occ_map, queue_size=1)
     # Subscribe to commanded motion.
-    rospy.Subscriber(topic_commands, Vector3, get_command, queue_size=1)
+    rospy.Subscriber(g_topic_commands, Vector3, get_command, queue_size=1)
 
     # Subscribe to localization est (for viz only).
-    rospy.Subscriber(topic_localization, Vector3, get_localization_est, queue_size=1)
+    rospy.Subscriber(g_topic_localization, Vector3, get_localization_est, queue_size=1)
 
     # Publish ground-truth observation
-    observation_pub = rospy.Publisher(topic_observations, Image, queue_size=1)
+    observation_pub = rospy.Publisher(g_topic_observations, Image, queue_size=1)
 
     # startup the plot.
     global fig, ax0, ax1

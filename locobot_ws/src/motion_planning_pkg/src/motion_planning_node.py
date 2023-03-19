@@ -54,11 +54,11 @@ def get_localization_est(msg):
     """
     # TODO process it and associate with a particular cell/orientation on the map.
     print("Got localization estimate {:}".format(msg))
+    
     # DEBUG send a simple motion command.
-    msg = Vector3()
-    msg.x = 0.02 # forward, meters
-    msg.y = 0 # lateral, meters (should = 0 for differential drive)
-    msg.z = pi # CCW angle, radians
+    # NOTE x-component = forward motion, z-component = angular motion. y-component = lateral motion, which is impossible for our system and is ignored.
+    # msg = Vector3(0.02, 0.0, pi) # drive in a small circle.
+    msg = Vector3(0.02, 0.0, 0.0) # drive in a straight line.
     cmd_pub.publish(msg)
 
 
