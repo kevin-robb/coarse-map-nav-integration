@@ -109,7 +109,7 @@ def read_params():
     """
     Read configuration params from the yaml.
     """
-    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, cfg_map_resolution, topic_observations, topic_occ_map, topic_commands, obs_height_px, obs_width_px, obs_height_px_on_map, obs_width_px_on_map, veh_px_horz_from_center_on_map, veh_px_horz_from_center_on_obs, veh_px_vert_from_bottom_on_map, veh_px_vert_from_bottom_on_obs
+    global cfg_debug_mode, cfg_map_filepath, cfg_obstacle_balloon_radius_px, cfg_dt, cfg_map_resolution, topic_observations, topic_occ_map, topic_localization, topic_commands, obs_height_px, obs_width_px, obs_height_px_on_map, obs_width_px_on_map, veh_px_horz_from_center_on_map, veh_px_horz_from_center_on_obs, veh_px_vert_from_bottom_on_map, veh_px_vert_from_bottom_on_obs
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('perception_pkg')
@@ -124,6 +124,7 @@ def read_params():
         # Rostopics:
         topic_observations = config["topics"]["observations"]
         topic_occ_map = config["topics"]["occ_map"]
+        topic_localization = config["topics"]["localization"]
         topic_commands = config["topics"]["commands"]
         # Observation params.
         map_resolution = config["map"]["resolution"]
@@ -174,6 +175,20 @@ def get_occ_map(msg):
     generate_observation()
 
 
+def get_localization_est(msg):
+    """
+    Get localization estimate from the particle filter, and display it on the map for visual performance evaluation.
+    """
+    # Yaw is always estimated globally in radians.
+    yaw = msg.z
+    # Position is estimated in meters.
+    r, c = transform_map_m_to_px(msg.x, msg.y)
+    # Add localization est to plot.
+    remove_plot("veh_pose_est")
+    plots["veh_pose_est"] = ax0.arrow(c, r, 0.5*cos(yaw), -0.5*sin(yaw), color="green", width=1.0, zorder = 3)
+
+
+############################ SIMULATOR FUNCTIONS ####################################
 def generate_observation():
     """
     Use the map and known ground-truth robot pose to generate the best possible observation.
@@ -241,6 +256,9 @@ def main():
     rospy.Subscriber(topic_occ_map, Image, get_occ_map, queue_size=1)
     # Subscribe to commanded motion.
     rospy.Subscriber(topic_commands, Vector3, get_command, queue_size=1)
+
+    # Subscribe to localization est (for viz only).
+    rospy.Subscriber(topic_localization, Vector3, get_localization_est, queue_size=1)
 
     # Publish ground-truth observation
     observation_pub = rospy.Publisher(topic_observations, Image, queue_size=1)
