@@ -47,9 +47,11 @@ def get_observation(msg):
     Use this to update the particle filter.
     Publish the best estimate from the pf as our localization result.
     """
+    # Convert from ROS Image message to an OpenCV image.
+    obs_img = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
     # Update the particle filter.
     # pf_estimate = np.array([0,0,0])
-    pf_estimate = pf.update_with_observation(msg.data)
+    pf_estimate = pf.update_with_observation(obs_img)
     # Convert pf estimate into a message and publish it.
     loc_est = Vector3(pf_estimate[0], pf_estimate[1], pf_estimate[2])
     localization_pub.publish(loc_est)

@@ -83,6 +83,10 @@ def read_params():
         # Particle filter params.
         global g_pf_num_particles
         g_pf_num_particles = config["particle_filter"]["num_particles"]
+        # Constraints.
+        global g_max_fwd_cmd, g_max_ang_cmd
+        g_max_fwd_cmd = config["constraints"]["fwd"]
+        g_max_ang_cmd = config["constraints"]["ang"]
 
 ################################ CALLBACKS #########################################
 def get_command(msg:Vector3):
@@ -92,8 +96,8 @@ def get_command(msg:Vector3):
     global veh_pose_true
     # TODO Perturb with some noise.
     # Clamp the commands at the allowed motion in a single timestep.
-    fwd_dist = clamp(msg.x, 0, 0.1) # meters forward
-    dtheta = clamp(msg.z, -0.0546, 0.0546) # radians CCW
+    fwd_dist = clamp(msg.x, 0, g_max_fwd_cmd) # meters forward
+    dtheta = clamp(msg.z, -g_max_ang_cmd, g_max_ang_cmd) # radians CCW
     veh_pose_true[0] += fwd_dist * cos(veh_pose_true[2])
     veh_pose_true[1] += fwd_dist * sin(veh_pose_true[2])
     # Clamp the vehicle pose to remain inside the map bounds.
@@ -163,21 +167,21 @@ def generate_observation():
     remove_plot("veh_pose_true")
     plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0, label="True Vehicle Pose")
 
-    # # Add the most recent localization estimate to the viz.
-    # veh_row_est, veh_col_est = obs_gen.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
-    # remove_plot("veh_pose_est")
-    # plots["veh_pose_est"] = ax0.arrow(veh_col_est, veh_row_est, 0.5*cos(veh_pose_est[2]), -0.5*sin(veh_pose_est[2]), color="green", width=1.0, zorder = 3, label="PF Estimate")
+    # Add the most recent localization estimate to the viz.
+    veh_row_est, veh_col_est = obs_gen.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
+    remove_plot("veh_pose_est")
+    plots["veh_pose_est"] = ax0.arrow(veh_col_est, veh_row_est, 0.5*cos(veh_pose_est[2]), -0.5*sin(veh_pose_est[2]), color="green", width=1.0, zorder = 3, label="PF Estimate")
 
-    # # Plot the set of particles in the PF.
-    # if particles_x is not None and particles_y is not None:
-    #     remove_plot("particle_set")
-    #     # Convert all particles from meters to pixels.
-    #     particles_r, particles_c = [], []
-    #     for i in range(g_pf_num_particles):
-    #         r, c = obs_gen.transform_map_m_to_px(particles_x[i], particles_y[i])
-    #         particles_r.append(r)
-    #         particles_c.append(c)
-    #     plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="red", zorder=1, label="All Particles")
+    # Plot the set of particles in the PF.
+    if particles_x is not None and particles_y is not None:
+        remove_plot("particle_set")
+        # Convert all particles from meters to pixels.
+        particles_r, particles_c = [], []
+        for i in range(g_pf_num_particles):
+            r, c = obs_gen.transform_map_m_to_px(particles_x[i], particles_y[i])
+            particles_r.append(r)
+            particles_c.append(c)
+        plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="red", zorder=1, label="All Particles")
 
     # Use utilities class to generate the observation.
     obs_img, rect = obs_gen.extract_observation_region(veh_pose_true)

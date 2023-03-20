@@ -137,8 +137,7 @@ class ObservationGenerator:
         obs_img = crop_rotated_rectangle(image = self.map, rect = rect)
 
         # Resize observation to desired resolution.
-        if obs_img is not None:
-            obs_img = cv2.resize(obs_img, (self.obs_height_px, self.obs_width_px))
+        obs_img = cv2.resize(obs_img, (self.obs_height_px, self.obs_width_px))
 
         # Return both the image and the rect points for the viz to use for plotting.
         return obs_img, rect

@@ -68,6 +68,7 @@ class ParticleFilter:
         @param fwd, commanded forward motion in meters.
         @param ang, commanded angular motion in radians (CCW).
         """
+        print("Propagating all particles by ({:}, {:})".format(fwd, ang))
         for i in range(self.num_particles):
             self.particle_set[i,0] += fwd * cos(self.particle_set[i,2])
             self.particle_set[i,1] += fwd * sin(self.particle_set[i,2])
@@ -83,7 +84,7 @@ class ParticleFilter:
         """
         for i in range(self.num_particles):
             # For a certain particle, extract the region it would have given as an observation.
-            obs_img_expected = self.obs_gen.extract_observation_region(self.particle_set[i,:])
+            obs_img_expected, _ = self.obs_gen.extract_observation_region(self.particle_set[i,:])
             # Compare this to the actual observation to evaluate this particle's likelihood.
             self.particle_weights[i] = self.compute_measurement_likelihood(obs_img_expected, observation)
             # NOTE these likelihoods are intentionally NOT normalized.
@@ -107,8 +108,13 @@ class ParticleFilter:
         @return float, likelihood of this particle given the expected vs actual observations.
         """
         # NOTE the observation model gives an expected BEV of the environment. This is not limited to the robot's line-of-sight. As such, we will not use raycasting for particle evaluation, but rather a similarity check of the observation overlaid on the environment.
-        # TODO
-        return 0.0
+        likelihood = 1.0
+        for i in range(obs_expected.shape[0]):
+            for j in range(obs_expected.shape[1]):
+                diff = abs(obs_expected[i,j] - obs_actual[i,j])
+                # want to encourage diff -> 0.
+                likelihood *= (1.0 - diff)
+        return likelihood
 
 
     def resample(self):

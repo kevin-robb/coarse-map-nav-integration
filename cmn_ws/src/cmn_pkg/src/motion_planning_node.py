@@ -14,6 +14,8 @@ from cv_bridge import CvBridge
 from random import random
 from math import pi
 
+from scripts.cmn_utilities import clamp
+
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
 cmd_pub = None
@@ -29,18 +31,23 @@ def read_params():
     """
     Read configuration params from the yaml.
     """
-    global cfg_debug_mode, topic_occ_map, topic_localization, topic_commands
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('cmn_pkg')
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        cfg_debug_mode = config["test"]["run_debug_mode"]
-        # Rostopics:
-        topic_occ_map = config["topics"]["occ_map"]
-        topic_localization = config["topics"]["localization"]
-        topic_commands = config["topics"]["commands"]
+        global g_debug_mode
+        g_debug_mode = config["test"]["run_debug_mode"]
+        # Rostopics.
+        global g_topic_commands, g_topic_localization, g_topic_observations, g_topic_occ_map
+        g_topic_occ_map = config["topics"]["occ_map"]
+        g_topic_localization = config["topics"]["localization"]
+        g_topic_commands = config["topics"]["commands"]
+        # Constraints.
+        global g_max_fwd_cmd, g_max_ang_cmd
+        g_max_fwd_cmd = config["constraints"]["fwd"]
+        g_max_ang_cmd = config["constraints"]["ang"]
 
 
 # TODO do path planning.
@@ -55,27 +62,10 @@ def get_localization_est(msg):
     # TODO process it and associate with a particular cell/orientation on the map.
     print("Got localization estimate {:}".format(msg))
     
-    # DEBUG send a simple motion command.
-    # NOTE x-component = forward motion, z-component = angular motion. y-component = lateral motion, which is impossible for our system and is ignored.
-    msg = Vector3(0.02, 0.0, pi) # drive in a small circle.
-    # msg = Vector3(0.02, 0.0, 0.0) # drive in a straight line.
-    cmd_pub.publish(msg)
-
-
-def generate_test_command(event):
-    """
-    Send a simple twist command to test communication between the ros nodes.
-    """
-    # msg = Twist()
-    # msg.linear.x = random() * (cfg_test_spd_range[1] - cfg_test_spd_range[0]) + cfg_test_spd_range[0]
-    # msg.angular.z = random() * (cfg_test_ang_range[1] - cfg_test_ang_range[0]) + cfg_test_ang_range[0]
-    # print("Commanding linear: " + str(msg.linear.x) + ", angular: " + str(msg.angular.z))
-    msg = Vector3()
-    msg.x = 1
-    msg.y = 0
-    msg.z = pi/2
-    cmd_pub.publish(msg)
-
+    # DEBUG send a simple motion command.    
+    publish_command(0.02, pi) # drive in a small circle.
+    # publish_command(0.5, 0.0) # drive in a straight line.
+    
 
 def get_map(msg):
     """
@@ -85,9 +75,21 @@ def get_map(msg):
     # Convert from ROS Image message to an OpenCV image.
     occ_map = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
     # NOTE Map was already processed into an occupancy grid before being sent.
-    if cfg_debug_mode:
+    if g_debug_mode:
         print("map has shape {:}".format(occ_map.shape))
         cv2.imshow("Motion planning node received map", occ_map); cv2.waitKey(0); cv2.destroyAllWindows()
+
+
+def publish_command(fwd, ang):
+    """
+    Clamp a command within valid values, and publish it to the vehicle/simulator.
+    """
+    fwd = clamp(fwd, 0, g_max_fwd_cmd)
+    ang = clamp(ang, -g_max_ang_cmd, g_max_ang_cmd)
+    # Create ROS message.
+    # NOTE x-component = forward motion, z-component = angular motion. y-component = lateral motion, which is impossible for our system and is ignored.
+    msg = Vector3(fwd, 0.0, ang)
+    cmd_pub.publish(msg)
 
 
 def main():
@@ -97,18 +99,14 @@ def main():
     read_params()
 
     # Subscribe to localization est.
-    rospy.Subscriber(topic_localization, Vector3, get_localization_est, queue_size=1)
+    rospy.Subscriber(g_topic_localization, Vector3, get_localization_est, queue_size=1)
     # Subscribe to (or just read the map from) file.
-    rospy.Subscriber(topic_occ_map, Image, get_map, queue_size=1)
+    rospy.Subscriber(g_topic_occ_map, Image, get_map, queue_size=1)
 
     # Publish control commands.
-    cmd_pub = rospy.Publisher(topic_commands, Vector3, queue_size=1)
+    cmd_pub = rospy.Publisher(g_topic_commands, Vector3, queue_size=1)
     # there is a way to command a relative position/yaw motion:
     # python navigation/base_position_control.py --base_planner none --base_controller ilqr --smooth --close_loop --relative_position 1.,1.,1.57 --botname locobot
-
-    if cfg_debug_mode:
-        # Create a timer to send test commands every dt seconds.
-        rospy.Timer(rospy.Duration(cfg_dt), generate_test_command)
 
     rospy.spin()
 
