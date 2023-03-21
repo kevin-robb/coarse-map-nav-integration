@@ -31,6 +31,7 @@ obs_gen = ObservationGenerator()
 veh_pose_true = np.array([0.0, 0.0, 0.0])
 veh_pose_est = np.array([0.0, 0.0, 0.0]) # PF estimate.
 particles_x, particles_y = None, None # Full set of particles in PF.
+path_c, path_r = None, None # Full planned path.
 # Place to store plots so we can remove/update them some time later.
 plots = {}
 #################################################
@@ -75,11 +76,12 @@ def read_params():
         g_debug_mode = config["test"]["run_debug_mode"]
         g_dt = config["perception_node_dt"]
         # Rostopics.
-        global g_topic_commands, g_topic_localization, g_topic_observations, g_topic_occ_map
+        global g_topic_commands, g_topic_localization, g_topic_observations, g_topic_occ_map, g_topic_planned_path
         g_topic_observations = config["topics"]["observations"]
         g_topic_occ_map = config["topics"]["occ_map"]
         g_topic_localization = config["topics"]["localization"]
         g_topic_commands = config["topics"]["commands"]
+        g_topic_planned_path = config["topics"]["planned_path"]
         # Particle filter params.
         global g_pf_num_particles
         g_pf_num_particles = config["particle_filter"]["num_particles"]
@@ -152,6 +154,16 @@ def get_particle_set(msg):
     particles_x = msg.data[:g_pf_num_particles]
     particles_y = msg.data[g_pf_num_particles:]
 
+def get_planned_path(msg):
+    """
+    Get the full planned path, and save it to display on viz.
+    @param msg, Float32MultiArray message whose data is an array containing [r1,..,rn,c1,..,cn].
+    """
+    global path_r, path_c
+    path_len = len(msg.data) // 2
+    path_r = msg.data[:path_len]
+    path_c = msg.data[path_len:]
+
 
 ############################ SIMULATOR FUNCTIONS ####################################
 def generate_observation():
@@ -173,7 +185,7 @@ def generate_observation():
     plots["veh_pose_est"] = ax0.arrow(veh_col_est, veh_row_est, 0.5*cos(veh_pose_est[2]), -0.5*sin(veh_pose_est[2]), color="green", width=1.0, zorder = 3, label="PF Estimate")
 
     # Plot the set of particles in the PF.
-    if particles_x is not None and particles_y is not None:
+    if particles_x is not None:
         remove_plot("particle_set")
         # Convert all particles from meters to pixels.
         particles_r, particles_c = [], []
@@ -181,7 +193,12 @@ def generate_observation():
             r, c = obs_gen.transform_map_m_to_px(particles_x[i], particles_y[i])
             particles_r.append(r)
             particles_c.append(c)
-        plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="red", zorder=1, label="All Particles")
+        plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="purple", zorder=0, label="Planned Path")
+    
+    # Plot the full path the motion controller is attempting to follow.
+    if path_c is not None:
+        remove_plot("planned_path")
+        plots["planned_path"] = ax0.scatter(path_c, path_r, s=10, color="red", zorder=1, label="All Particles")
 
     # Use utilities class to generate the observation.
     obs_img, rect = obs_gen.extract_observation_region(veh_pose_true)
@@ -226,6 +243,8 @@ def main():
     # Subscribe to localization est (for viz only).
     rospy.Subscriber(g_topic_localization, Vector3, get_localization_est, queue_size=1)
     rospy.Subscriber(g_topic_localization + "/set", Float32MultiArray, get_particle_set, queue_size=1)
+    # Subscribe to planned path (for viz only).
+    rospy.Subscriber(g_topic_planned_path, Float32MultiArray, get_planned_path, queue_size=1)
 
     # Publish ground-truth observation
     observation_pub = rospy.Publisher(g_topic_observations, Image, queue_size=1)
