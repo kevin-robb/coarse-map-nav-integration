@@ -22,6 +22,7 @@ class PurePursuit:
     def compute_command(cur):
         """
         Determine odom command to stay on the path.
+        @param cur, 3x1 numpy array of vehicle pose in meters (x,y,yaw).
         """
         # pare the path up to current veh pos.
         PurePursuit.pare_path(cur)
@@ -59,7 +60,9 @@ class PurePursuit:
         # Update PID terms.
         P = 0.5 * beta # proportional to hdg error.
         I = 0.0 * PurePursuit.integ # integral to correct systematic error.
-        D = 0.0 * (beta - PurePursuit.err_prev) / dt # slope to reduce oscillation.
+        D = 0.0 # slope to reduce oscillation.
+        if dt != 0:
+            D *= (beta - PurePursuit.err_prev) / dt
         ang = P + I + D
         # Compute forward velocity control command using hdg error beta.
         fwd = 0.02 * (1 - abs(beta / pi))**12 + 0.01
@@ -73,6 +76,7 @@ class PurePursuit:
     def pare_path(cur):
         """
         If the vehicle is near a path pt, cut the path off up to this pt.
+        @param cur, 3x1 numpy array of vehicle pose in meters (x,y,yaw).
         """
         for i in range(len(PurePursuit.path_meters)):
             r = ((cur[0]-PurePursuit.path_meters[i][0])**2 + (cur[1]-PurePursuit.path_meters[i][1])**2)**(1/2)
@@ -86,6 +90,8 @@ class PurePursuit:
     def choose_lookahead_pt(cur, lookahead_dist):
         """
         Find the point on the path at the specified radius from the current veh pos.
+        @param cur, 3x1 numpy array of vehicle pose in meters (x,y,yaw).
+        @param lookahead_dist, float, search radius to use to find a goal point to aim for when navigating.
         """
         # if there's only one path point, go straight to it.
         if len(PurePursuit.path_meters) == 1:

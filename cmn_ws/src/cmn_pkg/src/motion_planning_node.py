@@ -116,13 +116,15 @@ def plan_path_to_goal(veh_pose_est):
     # Turn this path from px to meters and reverse it.
     path = []
     for i in range(len(path_px_rev)-1, -1, -1):
-        path.append(obs_gen.transform_map_m_to_px(path_px_rev[i][0]), path_px_rev[i][1])
+        path.append(obs_gen.transform_map_m_to_px(path_px_rev[i][0], path_px_rev[i][1]))
     # Set the path for pure pursuit, and generate a command.
     PurePursuit.path_meters = path
-    fwd, ang = PurePursuit.compute_command()
+    fwd, ang = PurePursuit.compute_command(veh_pose_est)
     # Keep within constraints.
     fwd = clamp(fwd, 0, g_max_fwd_cmd)
     ang = clamp(ang, g_max_ang_cmd, g_max_ang_cmd)
+
+    print("Planned path " + str(path_px_rev) + " and commands " + str(fwd) + ", " + str(ang))
 
     # Publish this motion command.
     publish_command(fwd, ang)
