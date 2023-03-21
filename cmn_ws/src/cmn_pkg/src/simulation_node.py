@@ -193,12 +193,12 @@ def generate_observation():
             r, c = obs_gen.transform_map_m_to_px(particles_x[i], particles_y[i])
             particles_r.append(r)
             particles_c.append(c)
-        plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="purple", zorder=0, label="Planned Path")
+        plots["particle_set"] = ax0.scatter(particles_c, particles_r, s=10, color="red", zorder=0, label="All Particles")
     
     # Plot the full path the motion controller is attempting to follow.
     if path_c is not None:
         remove_plot("planned_path")
-        plots["planned_path"] = ax0.scatter(path_c, path_r, s=10, color="red", zorder=1, label="All Particles")
+        plots["planned_path"] = ax0.scatter(path_c, path_r, s=3, color="purple", zorder=1, label="Planned Path")
 
     # Use utilities class to generate the observation.
     obs_img, rect = obs_gen.extract_observation_region(veh_pose_true)

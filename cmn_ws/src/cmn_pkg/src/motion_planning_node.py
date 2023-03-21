@@ -124,13 +124,14 @@ def plan_path_to_goal(veh_pose_est):
     fwd = clamp(fwd, 0, g_max_fwd_cmd)
     ang = clamp(ang, g_max_ang_cmd, g_max_ang_cmd)
 
-    print("Planned path " + str(path_px_rev) + " and commands " + str(fwd) + ", " + str(ang))
+    # print("Planned path " + str(path_px_rev) + " and commands " + str(fwd) + ", " + str(ang))
 
     # Publish this motion command.
     publish_command(fwd, ang)
 
     # Publish the path in pixels for the plotter to display.
-    path_pub.publish(Float32MultiArray(data=sum([path_px_rev[i][0] for i in range(len(path_px_rev))], [path_px_rev[i][1] for i in range(len(path_px_rev))])))
+    path_as_list = [path_px_rev[i][0] for i in range(len(path_px_rev))] + [path_px_rev[i][1] for i in range(len(path_px_rev))]
+    path_pub.publish(Float32MultiArray(data=path_as_list))
 
 
 # TODO obstacle avoidance?
