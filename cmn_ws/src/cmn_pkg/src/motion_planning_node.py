@@ -128,7 +128,7 @@ def plan_path_to_goal(veh_pose_est):
     # Turn this path from px to meters and reverse it.
     path = []
     for i in range(len(path_px_rev)-1, -1, -1):
-        path.append(obs_gen.transform_map_m_to_px(path_px_rev[i][0], path_px_rev[i][1]))
+        path.append(obs_gen.transform_map_px_to_m(path_px_rev[i][0], path_px_rev[i][1]))
         # Check if the path contains any occluded cells.
         if obs_gen.map[path_px_rev[i][0], path_px_rev[i][1]] == 0:
             rospy.logwarn("MOT: Path contains an occluded cell.")
@@ -138,7 +138,7 @@ def plan_path_to_goal(veh_pose_est):
     fwd, ang = PurePursuit.compute_command(veh_pose_est)
     # Keep within constraints.
     fwd_clamped = clamp(fwd, 0, g_max_fwd_cmd)
-    ang_clamped = clamp(ang, g_max_ang_cmd, g_max_ang_cmd)
+    ang_clamped = clamp(ang, -g_max_ang_cmd, g_max_ang_cmd)
     if fwd != fwd_clamped or ang != ang_clamped:
         rospy.logwarn("MOT: Clamped pure pursuit output from ({:.2f}, {:.2f}) to ({:.2f}, {:.2f}).".format(fwd, ang, fwd_clamped, ang_clamped))
 

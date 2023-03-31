@@ -32,7 +32,7 @@ class PurePursuit:
         @param cur, 3x1 numpy array of vehicle pose in meters (x,y,yaw).
         """
         # pare the path up to current veh pos.
-        # PurePursuit.pare_path(cur)
+        PurePursuit.pare_path(cur)
 
         if len(PurePursuit.path_meters) < 1: 
             # if there's no path yet, just wait. (send 0 cmd)
@@ -51,10 +51,15 @@ class PurePursuit:
             # we can't see the path, so just try to go to the first pt.
             lookahead_pt = PurePursuit.path_meters[0]
         
+        # TODO get this working right. for now, always use goal as lookahead point.
+        lookahead_pt = PurePursuit.path_meters[-1]
+        
+        rospy.logwarn("PP: Choosing lookahead point ({:}, {:}).".format(lookahead_pt[0], lookahead_pt[1]))
         # compute global heading to lookahead_pt
         gb = atan2(lookahead_pt[1] - cur[1], lookahead_pt[0] - cur[0])
         # compute hdg relative to veh pose.
         beta = remainder(gb - cur[2], tau)
+        rospy.logwarn("PP: Angle difference is {:.2f}, or {:.2f} relative to current vehicle pose.".format(gb, beta))
 
         # compute time since last iteration.
         dt = 0

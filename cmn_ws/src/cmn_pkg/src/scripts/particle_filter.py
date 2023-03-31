@@ -74,6 +74,12 @@ class ParticleFilter:
             self.particle_set[i,1] += fwd * sin(self.particle_set[i,2])
             # Keep yaw normalized to (-pi, pi).
             self.particle_set[i,2] = remainder(self.particle_set[i,2] + ang, tau)
+        # Propagate the overall filter estimate as well.
+        if self.best_estimate is not None:
+            self.best_estimate[0] += fwd * cos(self.best_estimate[2])
+            self.best_estimate[1] += fwd * sin(self.best_estimate[2])
+            # Keep yaw normalized to (-pi, pi).
+            self.best_estimate[2] = remainder(self.best_estimate[2] + ang, tau)
 
 
     def update_with_observation(self, observation):
