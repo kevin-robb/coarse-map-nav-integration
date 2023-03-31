@@ -47,10 +47,10 @@ def get_observation(msg):
     Use this to update the particle filter.
     Publish the best estimate from the pf as our localization result.
     """
+    rospy.loginfo("LOC: Got observation. Publishing PF estimate and full particle set.")
     # Convert from ROS Image message to an OpenCV image.
     obs_img = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
     # Update the particle filter.
-    # pf_estimate = np.array([0,0,0])
     pf_estimate = pf.update_with_observation(obs_img)
     # Convert pf estimate into a message and publish it.
     loc_est = Vector3(pf_estimate[0], pf_estimate[1], pf_estimate[2])
@@ -70,6 +70,7 @@ def get_occ_map(msg):
     """
     Get the processed occupancy grid map to use for PF measurement likelihood.
     """
+    rospy.loginfo("LOC: Got occupancy map.")
     # Convert from ROS Image message to an OpenCV image.
     occ_map = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
     # Save the map in the particle filter for it to use later.
@@ -80,6 +81,7 @@ def get_command(msg:Vector3):
     """
     Receive a commanded motion, and propagate all particles.
     """
+    rospy.loginfo("LOC: Got command. Propagating all particles by ({:}, {:})".format(msg.x, msg.z))
     pf.propagate_particles(msg.x, msg.z)
 
 

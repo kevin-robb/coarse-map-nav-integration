@@ -53,14 +53,18 @@ def remove_plot(name):
         del plots[name]
 
 def on_click(event):
-    # global clicked_points
+    """
+    Do something when the user clicks on the viz plot.
+    """
     if event.button is MouseButton.LEFT:
-        # kill the node.
-        rospy.loginfo("Killing simulation_node because you clicked on the plot.")
-        exit()
+        # Publish new goal pt for the planner.
+        # TODO determine if this sends (row, col) or (col, row), or if it even works since we have multiple subplots on the display.
+        goal_pub.publish(Vector3(x=event.ydata, y=event.xdata))
+        rospy.loginfo("SIM: Published goal point ({:}, {:}).".format(event.xdata, event.ydata))
     elif event.button is MouseButton.RIGHT:
-        # may want to use this for something eventually
-        pass
+        # kill the node.
+        rospy.loginfo("SIM: Killing simulation_node because you right-clicked on the plot.")
+        exit()
 
 def read_params():
     """
@@ -76,10 +80,11 @@ def read_params():
         g_debug_mode = config["test"]["run_debug_mode"]
         g_dt = config["perception_node_dt"]
         # Rostopics.
-        global g_topic_commands, g_topic_localization, g_topic_observations, g_topic_occ_map, g_topic_planned_path
+        global g_topic_commands, g_topic_localization, g_topic_observations, g_topic_occ_map, g_topic_planned_path, g_topic_goal
         g_topic_observations = config["topics"]["observations"]
         g_topic_occ_map = config["topics"]["occ_map"]
         g_topic_localization = config["topics"]["localization"]
+        g_topic_goal = config["topics"]["goal"]
         g_topic_commands = config["topics"]["commands"]
         g_topic_planned_path = config["topics"]["planned_path"]
         # Particle filter params.
@@ -108,7 +113,7 @@ def get_command(msg:Vector3):
     # Keep yaw normalized to (-pi, pi).
     veh_pose_true[2] = remainder(veh_pose_true[2] + dtheta, tau)
 
-    print("Veh pose is now " + str(veh_pose_true))
+    rospy.loginfo("SIM: Got command. Veh pose is now " + str(veh_pose_true))
 
     # Generate an observation for the new vehicle pose.
     generate_observation()
@@ -118,6 +123,7 @@ def get_occ_map(msg):
     """
     Get the processed occupancy grid map to use as the "ground truth" map.
     """
+    rospy.loginfo("SIM: Got occupancy map.")
     global occ_map_true
     # Convert from ROS Image message to an OpenCV image.
     occ_map_true = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
@@ -174,6 +180,7 @@ def generate_observation():
     while not obs_gen.initialized:
         rospy.sleep(0.1)
 
+    rospy.loginfo("SIM: generate_observation() called.")
     # Add the new (ground truth) vehicle pose to the viz.
     veh_row, veh_col = obs_gen.transform_map_m_to_px(veh_pose_true[0], veh_pose_true[1])
     remove_plot("veh_pose_true")
@@ -224,10 +231,10 @@ def generate_observation():
 
     # Publish this observation for the localization node to use.
     observation_pub.publish(bridge.cv2_to_imgmsg(obs_img, encoding="passthrough"))
+    rospy.loginfo("SIM: Updated plot and published observation.")
 
 
 def main():
-    global observation_pub
     rospy.init_node('simulation_node')
 
     read_params()
@@ -246,8 +253,11 @@ def main():
     # Subscribe to planned path (for viz only).
     rospy.Subscriber(g_topic_planned_path, Float32MultiArray, get_planned_path, queue_size=1)
 
-    # Publish ground-truth observation
+    global observation_pub, goal_pub
+    # Publish ground-truth observation.
     observation_pub = rospy.Publisher(g_topic_observations, Image, queue_size=1)
+    # Publish goal point for path planning.
+    goal_pub = rospy.Publisher(g_topic_goal, Vector3, queue_size=1)
 
     # startup the plot.
     global fig, ax0, ax1

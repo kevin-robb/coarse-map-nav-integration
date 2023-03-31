@@ -4,6 +4,7 @@
 Set of static functions to perform pure pursuit navigation.
 """
 
+import rospy
 from math import remainder, tau, pi, atan2, sqrt
 from time import time
 
@@ -11,12 +12,18 @@ class PurePursuit:
     # Pure pursuit params.
     lookahead_dist_init = 0.2 # meters.
     lookahead_dist_max = 2 # meters.
+    k_p = 0.5 # proportional gain.
+    k_i = 0.0 # integral gain.
+    k_d = 0.0 # derivative gain.
+    k_fwd_lin = 0.02 # mult. gain on fwd vel.
+    k_fwd_power = 12 # exponential term in fwd vel calculation.
+    k_fwd_add = 0.01 # additive term in fwd vel calculation.
     # Path to follow.
     path_meters = []
     # PID vars.
-    integ = 0
-    err_prev = 0.0
-    last_time = 0.0
+    integ = 0 # accumulating integral term.
+    err_prev = 0.0 # error from last iteration used for derivative term.
+    last_time = 0.0 # time from last iteration used for computing dt.
 
     @staticmethod
     def compute_command(cur):
@@ -25,10 +32,11 @@ class PurePursuit:
         @param cur, 3x1 numpy array of vehicle pose in meters (x,y,yaw).
         """
         # pare the path up to current veh pos.
-        PurePursuit.pare_path(cur)
+        # PurePursuit.pare_path(cur)
 
         if len(PurePursuit.path_meters) < 1: 
             # if there's no path yet, just wait. (send 0 cmd)
+            rospy.logwarn("PP: Pure pursuit called with no path. Commanding zeros.")
             return 0.0, 0.0
 
         # define lookahead point.
@@ -54,20 +62,19 @@ class PurePursuit:
             dt = time() - PurePursuit.last_time
         PurePursuit.last_time = time()
             
+        # Update PID terms.
+        P = PurePursuit.k_p * beta # proportional to hdg error.
         # Update global integral term.
         PurePursuit.integ += beta * dt
-
-        # Update PID terms.
-        P = 0.5 * beta # proportional to hdg error.
-        I = 0.0 * PurePursuit.integ # integral to correct systematic error.
+        I = PurePursuit.k_i * PurePursuit.integ # integral to correct systematic error.
         D = 0.0 # slope to reduce oscillation.
         if dt != 0:
-            D *= (beta - PurePursuit.err_prev) / dt
-        ang = P + I + D
-        # Compute forward velocity control command using hdg error beta.
-        fwd = 0.02 * (1 - abs(beta / pi))**12 + 0.01
+            D = PurePursuit.k_d * (beta - PurePursuit.err_prev) / dt
         # Save err for next iteration.
         PurePursuit.err_prev = beta
+        ang = P + I + D
+        # Compute forward velocity control command using hdg error beta.
+        fwd = PurePursuit.k_fwd_lin * (1 - abs(beta / pi))**PurePursuit.k_fwd_power + PurePursuit.k_fwd_add
         
         return fwd, ang
 

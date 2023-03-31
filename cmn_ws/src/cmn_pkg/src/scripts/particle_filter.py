@@ -68,7 +68,6 @@ class ParticleFilter:
         @param fwd, commanded forward motion in meters.
         @param ang, commanded angular motion in radians (CCW).
         """
-        print("Propagating all particles by ({:}, {:})".format(fwd, ang))
         for i in range(self.num_particles):
             self.particle_set[i,0] += fwd * cos(self.particle_set[i,2])
             self.particle_set[i,1] += fwd * sin(self.particle_set[i,2])

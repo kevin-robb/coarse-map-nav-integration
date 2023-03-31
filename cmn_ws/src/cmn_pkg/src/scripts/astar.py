@@ -3,17 +3,25 @@
 """
 Set of static functions to perform A* path planning.
 """
+import rospy
 from math import cos, sin
 
 class Astar:
     include_diagonals = False
-    # Always use the same map.
-    occ_map = None
+    map = None # 2D numpy array of the global map
     # Neighbors for comparison and avoiding re-computations.
     nbrs = [(0, -1), (0, 1), (-1, 0), (1, 0)] + ([(-1, -1), (-1, 1), (1, -1), (1, 1)] if include_diagonals else [])
 
-    @staticmethod
-    def astar(start_row, start_col, goal_row, goal_col):
+    """
+    medial axis graph path planning
+    only allow motion along voronoi lines that stay as far from obstacles as possible
+
+    allow the vehicle to be in collision since the coarse map could be inaccurate or have extraneous info
+
+    perhaps a base heuristic of removing small connected components in map to remove furniture and stuff.
+    """
+
+    def run_astar(self, start_row, start_col, goal_row, goal_col):
         """
         Use A* to generate a path from the current pose to the goal position.
         1 map grid cell = 0.1x0.1 units in ekf coords.
@@ -22,17 +30,27 @@ class Astar:
         # Define start and goal nodes.
         start_cell = Cell((start_row, start_col))
         goal_cell = Cell((goal_row, goal_col))
-        # make sure starting pose is on the map.
-        if start_cell.r < 0 or start_cell.c < 0 or start_cell.r >= Astar.occ_map.shape[0] or start_cell.c >= Astar.occ_map.shape[1]:
-            print("Starting position for A* not within map bounds.")
+        # make sure starting pose is on the map and not in collision.
+        if start_cell.r < 0 or start_cell.c < 0 or start_cell.r >= self.map.shape[0] or start_cell.c >= self.map.shape[1]:
+            rospy.logwarn("A*: Starting position not within map bounds. Exiting without computing a path.")
             return
-        # check if starting node (veh pose) is in collision.
-        start_cell.in_collision = Astar.occ_map[start_cell.r, start_cell.c] == 0
+        if start_cell.in_collision(self.map):
+            rospy.logwarn("A*: Starting position is in collision. Exiting without computing a path.")
+            return
+        # make sure goal is on the map and not in collision.
+        if goal_cell.r < 0 or goal_cell.c < 0 or goal_cell.r >= self.map.shape[0] or goal_cell.c >= self.map.shape[1]:
+            rospy.logwarn("A*: Goal position not within map bounds. Exiting without computing a path.")
+            return
+        if goal_cell.in_collision(self.map):
+            rospy.logwarn("A*: Goal position is in collision. Exiting without computing a path.")
+            return
+
         # add starting node to open list.
         open_list = [start_cell]
         closed_list = []
         # iterate until reaching the goal or exhausting all cells.
         while len(open_list) > 0:
+            rospy.loginfo("A*: Iteration with len(open_list)={:}, len(closed_list)={:}".format(len(open_list), len(closed_list)))
             # move first element of open list to closed list.
             open_list.sort(key=lambda cell: cell.f)
             cur_cell = open_list.pop(0)
@@ -47,13 +65,12 @@ class Astar:
             # add this node to the closed list.
             closed_list.append(cur_cell)
             # add its unoccupied neighbors to the open list.
-            for chg in Astar.nbrs:
+            for chg in self.nbrs:
                 nbr = Cell([cur_cell.r+chg[0], cur_cell.c+chg[1]], parent=cur_cell)
                 # skip if out of bounds.
-                if nbr.r < 0 or nbr.c < 0 or nbr.r >= Astar.occ_map.shape[0] or nbr.c >= Astar.occ_map.shape[1]: continue
+                if nbr.r < 0 or nbr.c < 0 or nbr.r >= self.map.shape[0] or nbr.c >= self.map.shape[1]: continue
                 # skip if occluded, unless parent is occluded.
-                nbr.in_collision = Astar.occ_map[nbr.r, nbr.c] == 0
-                if nbr.in_collision and not nbr.parent.in_collision: continue
+                if nbr.in_collision(self.map) and not nbr.parent_in_collision(self.map): continue
                 # skip if already in closed list.
                 if any([nbr == c for c in closed_list]): continue
                 # skip if already in open list, unless the cost is lower.
@@ -71,7 +88,7 @@ class Astar:
                     # there's no match, so proceed.
                     pass
                 # compute heuristic "cost-to-go"
-                if Astar.include_diagonals:
+                if self.include_diagonals:
                     # chebyshev heuristic
                     nbr.set_cost(h=max(abs(goal_cell.r - nbr.r), abs(goal_cell.c - nbr.c)))
                 else:
@@ -89,9 +106,24 @@ class Cell:
         self.parent = parent
         self.g = 0 if parent is None else parent.g + 1
         self.f = 0
-        self.in_collision = False
+
+    def in_collision(self, map):
+        """
+        Check if this cell is occupied on the given map.
+        @param map, a 2D numpy array of the occupancy grid map.
+        @return true if it's occupied.
+        """
+        return map[self.r, self.c] == 0
     
-    def set_cost(self, h=None, g=None):
+    def parent_in_collision(self, map):
+        """
+        If this cell has a parent, check if that parent is in collision.
+        """
+        if self.parent is None:
+            return False
+        return self.parent.in_collision(map)
+    
+    def set_cost(self, h=None, g=None, map=None):
         # set/update either g or h and recompute the cost, f.
         if h is not None:
             self.h = h
@@ -100,7 +132,9 @@ class Cell:
         # update the cost.
         self.f = self.g + self.h
         # give huge penalty if in collision to encourage leaving occluded cells ASAP.
-        if self.in_collision: self.f += 1000
+        if map is not None:
+            if self.in_collision(map):
+                self.f += 1000
 
     def __eq__(self, other):
         return self.r == other.r and self.c == other.c

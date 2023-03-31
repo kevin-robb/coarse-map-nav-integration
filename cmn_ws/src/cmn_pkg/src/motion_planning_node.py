@@ -22,10 +22,9 @@ from scripts.pure_pursuit import PurePursuit
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
 obs_gen = ObservationGenerator()
-occ_map = None # global occupancy grid map.
+astar = Astar()
 # goal pose in global map coords (row, col).
-goal_pos_px_r = None
-goal_pos_px_c = None
+goal_pos_px = None
 #################################################
 
 ##################### UTILITY FUNCTIONS #######################
@@ -42,19 +41,16 @@ def read_params():
         global g_debug_mode
         g_debug_mode = config["test"]["run_debug_mode"]
         # Rostopics.
-        global g_topic_commands, g_topic_localization, g_topic_occ_map, g_topic_planned_path
+        global g_topic_commands, g_topic_localization, g_topic_occ_map, g_topic_planned_path, g_topic_goal
         g_topic_occ_map = config["topics"]["occ_map"]
         g_topic_localization = config["topics"]["localization"]
+        g_topic_goal = config["topics"]["goal"]
         g_topic_commands = config["topics"]["commands"]
         g_topic_planned_path = config["topics"]["planned_path"]
         # Constraints.
         global g_max_fwd_cmd, g_max_ang_cmd
         g_max_fwd_cmd = config["constraints"]["fwd"]
         g_max_ang_cmd = config["constraints"]["ang"]
-        # Goal point.
-        global g_goal_col_rel, g_goal_row_rel
-        g_goal_col_rel = config["goal"]["x_rel"]
-        g_goal_row_rel = config["goal"]["y_rel"]
 
 def publish_command(fwd, ang):
     """
@@ -62,41 +58,50 @@ def publish_command(fwd, ang):
     """
     fwd = clamp(fwd, 0, g_max_fwd_cmd)
     ang = clamp(ang, -g_max_ang_cmd, g_max_ang_cmd)
+    rospy.loginfo("MOT: Publishing a command ({:}, {:})".format(fwd, ang))
     # Create ROS message.
     # NOTE x-component = forward motion, z-component = angular motion. y-component = lateral motion, which is impossible for our system and is ignored.
     msg = Vector3(fwd, 0.0, ang)
     cmd_pub.publish(msg)
 
 ######################## CALLBACKS ########################
-def get_localization_est(msg):
+def get_localization_est(msg:Vector3):
     """
     Get localization estimate from the particle filter.
     """
     # TODO process it and associate with a particular cell/orientation on the map.
-    print("Got localization estimate {:}".format(msg))
+    rospy.loginfo("MOT: Got localization estimate ({:.2f}, {:.2f}, {:.2f})".format(msg.x, msg.y, msg.z))
     # Convert message into numpy array (x,y,yaw).
     pose_est = np.array([msg.x, msg.y, msg.z])
 
-    # Plan a path from this estimated position to the goal.
-    plan_path_to_goal(pose_est)
+    if goal_pos_px is None:
+        # Send a simple motion command just to keep the cycle going.   
+        # publish_command(0.0, 0.0) # do nothing.
+        publish_command(0.02, pi) # drive in a small circle.
+        # publish_command(0.5, 0.0) # drive in a straight line.
+    else:
+        # Plan a path from this estimated position to the goal.
+        plan_path_to_goal(pose_est)
+
+def get_goal_pos(msg:Vector3):
+    """
+    Get goal position in pixels.
+    For now, this is obtained from the user clicking on the map in the sim viz.
+    """
+    rospy.loginfo("MOT: Got goal pos ({:}, {:})".format(int(msg.x), int(msg.y)))
+    global goal_pos_px
+    goal_pos_px = (int(msg.x), int(msg.y))
     
-    # DEBUG send a simple motion command.    
-    # publish_command(0.02, pi) # drive in a small circle.
-    # publish_command(0.5, 0.0) # drive in a straight line.
-    
-def get_map(msg):
+def get_map(msg:Image):
     """
     Get the global occupancy map to use for path planning.
     NOTE Map was already processed into an occupancy grid before being sent.
     """
-    global occ_map, goal_pos_px_r, goal_pos_px_c
+    rospy.loginfo("MOT: Got occupancy map.")
     # Convert from ROS Image message to an OpenCV image.
     occ_map = bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
     obs_gen.set_map(occ_map)
-    Astar.occ_map = occ_map
-    # Set the goal position in pixels.
-    goal_pos_px_r = int(clamp(g_goal_row_rel * occ_map.shape[0], 0, occ_map.shape[0]-1))
-    goal_pos_px_c = int(clamp(g_goal_col_rel * occ_map.shape[1], 0, occ_map.shape[1]-1))
+    astar.map = obs_gen.map
 
 ################ PATH PLANNING FUNCTIONS #####################
 def plan_path_to_goal(veh_pose_est):
@@ -109,14 +114,20 @@ def plan_path_to_goal(veh_pose_est):
     veh_r, veh_c = obs_gen.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
 
     # Generate (reverse) path with A*.
-    path_px_rev = Astar.astar(veh_r, veh_c, goal_pos_px_r, goal_pos_px_c)
+    path_px_rev = astar.run_astar(veh_r, veh_c, goal_pos_px[0], goal_pos_px[1])
     if path_px_rev is None:
-        rospy.logerr("No path found by A*.")
+        rospy.logerr("MOt: No path found by A*. Publishing zeros for motion command.")
+        publish_command(0.0, 0.0)
         return
+    rospy.loginfo("MOT: Planned path from A*: " + str(path_px_rev))
     # Turn this path from px to meters and reverse it.
     path = []
     for i in range(len(path_px_rev)-1, -1, -1):
         path.append(obs_gen.transform_map_m_to_px(path_px_rev[i][0], path_px_rev[i][1]))
+        # Check if the path contains any occluded cells.
+        if obs_gen.map[path_px_rev[i][0], path_px_rev[i][1]] == 0:
+            rospy.logwarn("MOT: Path contains an occluded cell.")
+
     # Set the path for pure pursuit, and generate a command.
     PurePursuit.path_meters = path
     fwd, ang = PurePursuit.compute_command(veh_pose_est)
@@ -124,7 +135,6 @@ def plan_path_to_goal(veh_pose_est):
     fwd = clamp(fwd, 0, g_max_fwd_cmd)
     ang = clamp(ang, g_max_ang_cmd, g_max_ang_cmd)
 
-    # print("Planned path " + str(path_px_rev) + " and commands " + str(fwd) + ", " + str(ang))
 
     # Publish this motion command.
     publish_command(fwd, ang)
@@ -145,6 +155,8 @@ def main():
 
     # Subscribe to localization est.
     rospy.Subscriber(g_topic_localization, Vector3, get_localization_est, queue_size=1)
+    # Subscribe to goal position in pixels on the map.
+    rospy.Subscriber(g_topic_goal, Vector3, get_goal_pos, queue_size=1)
     # Subscribe to (or just read the map from) file.
     rospy.Subscriber(g_topic_occ_map, Image, get_map, queue_size=1)
 
