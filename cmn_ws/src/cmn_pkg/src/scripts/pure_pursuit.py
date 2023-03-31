@@ -17,7 +17,7 @@ class PurePursuit:
     k_d = 0.0 # derivative gain.
     k_fwd_lin = 0.02 # mult. gain on fwd vel.
     k_fwd_power = 12 # exponential term in fwd vel calculation.
-    k_fwd_add = 0.01 # additive term in fwd vel calculation.
+    k_fwd_add = 0.0 # additive term in fwd vel calculation.
     # Path to follow.
     path_meters = []
     # PID vars.
@@ -40,26 +40,26 @@ class PurePursuit:
             return 0.0, 0.0
 
         # define lookahead point.
-        lookahead_pt = None
-        lookahead_dist = PurePursuit.lookahead_dist_init # starting search radius.
-        # look until we find the path, or give up at the maximum dist.
-        while lookahead_pt is None and lookahead_dist <= PurePursuit.lookahead_dist_max: 
-            lookahead_pt = PurePursuit.choose_lookahead_pt(cur, lookahead_dist)
-            lookahead_dist *= 1.25
-        # make sure we actually found the path.
-        if lookahead_pt is None:
-            # we can't see the path, so just try to go to the first pt.
-            lookahead_pt = PurePursuit.path_meters[0]
+        # lookahead_pt = None
+        # lookahead_dist = PurePursuit.lookahead_dist_init # starting search radius.
+        # # look until we find the path, or give up at the maximum dist.
+        # while lookahead_pt is None and lookahead_dist <= PurePursuit.lookahead_dist_max: 
+        #     lookahead_pt = PurePursuit.choose_lookahead_pt(cur, lookahead_dist)
+        #     lookahead_dist *= 1.25
+        # # make sure we actually found the path.
+        # if lookahead_pt is None:
+        #     # we can't see the path, so just try to go to the first pt.
+        #     lookahead_pt = PurePursuit.path_meters[0]
         
-        # TODO get this working right. for now, always use goal as lookahead point.
+        # TODO for now, always use goal as lookahead point.
         lookahead_pt = PurePursuit.path_meters[-1]
         
-        rospy.logwarn("PP: Choosing lookahead point ({:}, {:}).".format(lookahead_pt[0], lookahead_pt[1]))
+        rospy.loginfo("PP: Choosing lookahead point ({:}, {:}).".format(lookahead_pt[0], lookahead_pt[1]))
         # compute global heading to lookahead_pt
         gb = atan2(lookahead_pt[1] - cur[1], lookahead_pt[0] - cur[0])
         # compute hdg relative to veh pose.
         beta = remainder(gb - cur[2], tau)
-        rospy.logwarn("PP: Angle difference is {:.2f}, or {:.2f} relative to current vehicle pose.".format(gb, beta))
+        rospy.loginfo("PP: Angle difference is {:.2f}, or {:.2f} relative to current vehicle pose.".format(gb, beta))
 
         # compute time since last iteration.
         dt = 0

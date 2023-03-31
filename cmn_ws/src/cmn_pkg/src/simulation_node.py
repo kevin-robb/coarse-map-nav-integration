@@ -222,7 +222,7 @@ def generate_observation():
     # Add vehicle pose relative to observation region for clarity.
     # NOTE since it's plotted sideways, robot pose is on the left side.
     if "veh_pose_obs" not in plots.keys():
-        plots["veh_pose_obs"] = ax1.arrow(obs_gen.veh_px_vert_from_bottom_on_obs-0.5, obs_gen.obs_width_px // 2 + obs_gen.veh_px_horz_from_center_on_obs, 0.5*obs_gen.obs_resolution, 0.0, color="blue", width=0.01/obs_gen.obs_resolution, zorder = 2)
+        plots["veh_pose_obs"] = ax1.arrow(obs_gen.veh_px_vert_from_bottom_on_obs-0.5, obs_gen.obs_width_px // 2 + obs_gen.veh_px_horz_from_center_on_obs, 0.5*obs_gen.obs_resolution, 0.0, color="blue", width=0.01/obs_gen.obs_resolution/obs_gen.map_downscale_ratio, zorder = 2)
 
     ax0.legend(loc="upper left")
     plt.draw()
