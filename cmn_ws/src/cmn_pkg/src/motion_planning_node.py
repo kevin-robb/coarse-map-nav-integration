@@ -74,14 +74,20 @@ def get_localization_est(msg:Vector3):
     # Convert message into numpy array (x,y,yaw).
     pose_est = np.array([msg.x, msg.y, msg.z])
 
+    # Choose a motion command to send. Must send something to keep cycle going.
+    fwd, ang = 0.0, 0.0
     if goal_pos_px is None:
-        # Send a simple motion command just to keep the cycle going.   
-        # publish_command(0.0, 0.0) # do nothing.
-        publish_command(0.02, pi) # drive in a small circle.
-        # publish_command(0.5, 0.0) # drive in a straight line.
+        rospy.loginfo("MOT: No goal point, so commanding constant motion.")
+        # Set a simple motion command, since we have no goal to plan towards.  
+        fwd, ang = 0.0, 0.0 # do nothing.
+        # fwd, ang = 0.02, pi # drive in a small circle.
+        # fwd, ang = 0.5, 0.0 # drive in a straight line.
     else:
+        rospy.loginfo("MOT: Goal point exists, so planning a path there.")
         # Plan a path from this estimated position to the goal.
-        plan_path_to_goal(pose_est)
+        fwd, ang = plan_path_to_goal(pose_est)
+    # Publish the motion command.
+    publish_command(fwd, ang)
 
 def get_goal_pos(msg:Vector3):
     """
@@ -116,10 +122,9 @@ def plan_path_to_goal(veh_pose_est):
     # Generate (reverse) path with A*.
     path_px_rev = astar.run_astar(veh_r, veh_c, goal_pos_px[0], goal_pos_px[1])
     if path_px_rev is None:
-        rospy.logerr("MOt: No path found by A*. Publishing zeros for motion command.")
-        publish_command(0.0, 0.0)
-        return
-    rospy.loginfo("MOT: Planned path from A*: " + str(path_px_rev))
+        rospy.logerr("MOT: No path found by A*. Publishing zeros for motion command.")
+        return 0.0, 0.0
+    # rospy.loginfo("MOT: Planned path from A*: " + str(path_px_rev))
     # Turn this path from px to meters and reverse it.
     path = []
     for i in range(len(path_px_rev)-1, -1, -1):
@@ -132,16 +137,17 @@ def plan_path_to_goal(veh_pose_est):
     PurePursuit.path_meters = path
     fwd, ang = PurePursuit.compute_command(veh_pose_est)
     # Keep within constraints.
-    fwd = clamp(fwd, 0, g_max_fwd_cmd)
-    ang = clamp(ang, g_max_ang_cmd, g_max_ang_cmd)
-
-
-    # Publish this motion command.
-    publish_command(fwd, ang)
+    fwd_clamped = clamp(fwd, 0, g_max_fwd_cmd)
+    ang_clamped = clamp(ang, g_max_ang_cmd, g_max_ang_cmd)
+    if fwd != fwd_clamped or ang != ang_clamped:
+        rospy.logwarn("MOT: Clamped pure pursuit output from ({:.2f}, {:.2f}) to ({:.2f}, {:.2f}).".format(fwd, ang, fwd_clamped, ang_clamped))
 
     # Publish the path in pixels for the plotter to display.
     path_as_list = [path_px_rev[i][0] for i in range(len(path_px_rev))] + [path_px_rev[i][1] for i in range(len(path_px_rev))]
     path_pub.publish(Float32MultiArray(data=path_as_list))
+
+    # Return the motion command to be published.
+    return fwd_clamped, ang_clamped
 
 
 # TODO obstacle avoidance?

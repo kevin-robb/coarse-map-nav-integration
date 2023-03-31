@@ -58,9 +58,8 @@ def on_click(event):
     """
     if event.button is MouseButton.LEFT:
         # Publish new goal pt for the planner.
-        # TODO determine if this sends (row, col) or (col, row), or if it even works since we have multiple subplots on the display.
         goal_pub.publish(Vector3(x=event.ydata, y=event.xdata))
-        rospy.loginfo("SIM: Published goal point ({:}, {:}).".format(event.xdata, event.ydata))
+        rospy.loginfo("SIM: Published goal point ({:}, {:}).".format(event.ydata, event.xdata))
     elif event.button is MouseButton.RIGHT:
         # kill the node.
         rospy.loginfo("SIM: Killing simulation_node because you right-clicked on the plot.")

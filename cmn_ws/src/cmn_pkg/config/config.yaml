@@ -21,7 +21,7 @@ map:
 # Config params defining how the observation output from the perception model relates to the robot.
 # These should be known, since they are determined by the observation "ground truth" outputs used to train the model in the first place.
 observation:
-  resolution: 0.01 # Image resolution, in meters/pixel.
+  resolution: 0.1 # Image resolution, in meters/pixel.
   height: 5 # in pixels. forward distance ahead of vehicle.
   width: 5 # in pixels. lateral span.
   # Coordinates on the observation image frame the vehicle's POV is.
@@ -33,7 +33,7 @@ perception_node_dt: 0.1 # timer period of perception_node's main update loop (se
 particle_filter:
   num_particles: 10 # Number of particles to track.
   state_size: 3 # Number of variables in the state. (i.e., (x,y,yaw)).
-  random_sampling_rate: 0.5 # Proportion in range [0, 1] of population that will be sampled randomly instead of from the previous generation.
+  random_sampling_rate: 0.1 # Proportion in range [0, 1] of population that will be sampled randomly instead of from the previous generation.
 
 # Configs for running simulator node for basic testing.
 simulator:

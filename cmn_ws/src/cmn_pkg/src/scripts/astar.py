@@ -50,7 +50,7 @@ class Astar:
         closed_list = []
         # iterate until reaching the goal or exhausting all cells.
         while len(open_list) > 0:
-            rospy.loginfo("A*: Iteration with len(open_list)={:}, len(closed_list)={:}".format(len(open_list), len(closed_list)))
+            # rospy.loginfo("A*: Iteration with len(open_list)={:}, len(closed_list)={:}".format(len(open_list), len(closed_list)))
             # move first element of open list to closed list.
             open_list.sort(key=lambda cell: cell.f)
             cur_cell = open_list.pop(0)

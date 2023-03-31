@@ -48,8 +48,10 @@ class ObservationGenerator:
             config = yaml.safe_load(file)
             # Map params. NOTE this will eventually be unknown and thus non-constant as it is estimated.
             self.map_resolution = config["map"]["resolution"]
+            self.map_downscale_ratio = config["map"]["downscale_ratio"]
+            self.map_resolution /= self.map_downscale_ratio
             # Observation region size.
-            self.obs_resolution = config["observation"]["resolution"]
+            self.obs_resolution = config["observation"]["resolution"] / self.map_downscale_ratio
             self.obs_height_px = config["observation"]["height"]
             self.obs_width_px = config["observation"]["width"]
             self.obs_height_px_on_map = int(self.obs_height_px * self.obs_resolution / self.map_resolution)

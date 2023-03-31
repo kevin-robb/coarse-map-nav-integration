@@ -46,6 +46,7 @@ class ParticleFilter:
             self.num_to_resample_randomly = int(random_sampling_rate * self.num_particles)
 
         # Init things with the correct dimensions.
+        # TODO init particles randomly rather than all at 0.
         self.particle_set = np.zeros((self.num_particles, self.state_size))
         self.particle_weights = np.zeros(self.num_particles)
         self.best_estimate = np.zeros(self.state_size)
@@ -91,7 +92,7 @@ class ParticleFilter:
         # Find best particle this iteration.
         i_best = np.argmax(self.particle_weights)
         # Decay likelihood of current estimate.
-        self.best_weight *= 0.99
+        # self.best_weight *= 0.99
         # Update our filter estimate.
         if self.particle_weights[i_best] > self.best_weight:
             self.best_weight = self.particle_weights[i_best]
