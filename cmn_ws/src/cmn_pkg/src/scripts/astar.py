@@ -32,17 +32,16 @@ class Astar:
         goal_cell = Cell((goal_row, goal_col))
         # make sure starting pose is on the map and not in collision.
         if start_cell.r < 0 or start_cell.c < 0 or start_cell.r >= self.map.shape[0] or start_cell.c >= self.map.shape[1]:
-            rospy.logwarn("A*: Starting position not within map bounds. Exiting without computing a path.")
+            rospy.logerr("A*: Starting position not within map bounds. Exiting without computing a path.")
             return
         if start_cell.in_collision(self.map):
-            rospy.logwarn("A*: Starting position is in collision. Exiting without computing a path.")
-            return
+            rospy.logwarn("A*: Starting position is in collision. Computing a path, and encouraging motion to free space.")
         # make sure goal is on the map and not in collision.
         if goal_cell.r < 0 or goal_cell.c < 0 or goal_cell.r >= self.map.shape[0] or goal_cell.c >= self.map.shape[1]:
-            rospy.logwarn("A*: Goal position not within map bounds. Exiting without computing a path.")
+            rospy.logerr("A*: Goal position not within map bounds. Exiting without computing a path.")
             return
         if goal_cell.in_collision(self.map):
-            rospy.logwarn("A*: Goal position is in collision. Exiting without computing a path.")
+            rospy.logerr("A*: Goal position is in collision. Exiting without computing a path.")
             return
 
         # add starting node to open list.
