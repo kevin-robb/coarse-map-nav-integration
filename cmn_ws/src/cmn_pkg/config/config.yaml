@@ -35,6 +35,9 @@ particle_filter:
   state_size: 3 # Number of variables in the state. (i.e., (x,y,yaw)).
   random_sampling_rate: 0.1 # Proportion in range [0, 1] of population that will be sampled randomly instead of from the previous generation.
 
+path_planning:
+  do_path_planning: false # if true, use A* to compute a full path to the goal point, then use pure pursuit to choose a motion command. if false, navigate directly towards goal point.
+
 # Configs for running simulator node for basic testing.
 simulator:
   ground_truth_map:

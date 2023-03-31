@@ -38,8 +38,10 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        global g_debug_mode
+        global g_debug_mode, g_do_path_planning
         g_debug_mode = config["test"]["run_debug_mode"]
+        g_do_path_planning = config["path_planning"]["do_path_planning"]
+        PurePursuit.use_finite_lookahead_dist = g_do_path_planning
         # Rostopics.
         global g_topic_commands, g_topic_localization, g_topic_occ_map, g_topic_planned_path, g_topic_goal
         g_topic_occ_map = config["topics"]["occ_map"]
@@ -119,10 +121,12 @@ def plan_path_to_goal(veh_pose_est):
     # Convert vehicle pose from meters to pixels.
     veh_r, veh_c = obs_gen.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
 
-    # Generate (reverse) path with A*.
-    # path_px_rev = astar.run_astar(veh_r, veh_c, goal_pos_px[0], goal_pos_px[1])
-    # TODO for now, just use the goal point as the path.
-    path_px_rev = [goal_pos_px, (veh_r, veh_c)]
+    if g_do_path_planning:
+        # Generate (reverse) path with A*.
+        path_px_rev = astar.run_astar(veh_r, veh_c, goal_pos_px[0], goal_pos_px[1])
+    else:
+        # Just use the goal point as the "path".
+        path_px_rev = [goal_pos_px, (veh_r, veh_c)]
     if path_px_rev is None:
         rospy.logerr("MOT: No path found by A*. Publishing zeros for motion command.")
         return 0.0, 0.0

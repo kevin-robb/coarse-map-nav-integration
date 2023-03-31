@@ -10,6 +10,7 @@ from time import time
 
 class PurePursuit:
     # Pure pursuit params.
+    use_finite_lookahead_dist = True # if false, rather than computing a lookahead point, just use the goal point.
     lookahead_dist_init = 0.2 # meters.
     lookahead_dist_max = 2 # meters.
     k_p = 0.5 # proportional gain.
@@ -39,29 +40,30 @@ class PurePursuit:
             rospy.logwarn("PP: Pure pursuit called with no path. Commanding zeros.")
             return 0.0, 0.0
 
-        # define lookahead point.
-        # lookahead_pt = None
-        # lookahead_dist = PurePursuit.lookahead_dist_init # starting search radius.
-        # # look until we find the path, or give up at the maximum dist.
-        # while lookahead_pt is None and lookahead_dist <= PurePursuit.lookahead_dist_max: 
-        #     lookahead_pt = PurePursuit.choose_lookahead_pt(cur, lookahead_dist)
-        #     lookahead_dist *= 1.25
-        # # make sure we actually found the path.
-        # if lookahead_pt is None:
-        #     # we can't see the path, so just try to go to the first pt.
-        #     lookahead_pt = PurePursuit.path_meters[0]
-        
-        # TODO for now, always use goal as lookahead point.
-        lookahead_pt = PurePursuit.path_meters[-1]
+        if PurePursuit.use_finite_lookahead_dist:
+            # Define lookahead point.
+            lookahead_pt = None
+            lookahead_dist = PurePursuit.lookahead_dist_init # starting search radius.
+            # Look until we find the path, or give up at the maximum dist.
+            while lookahead_pt is None and lookahead_dist <= PurePursuit.lookahead_dist_max: 
+                lookahead_pt = PurePursuit.choose_lookahead_pt(cur, lookahead_dist)
+                lookahead_dist *= 1.25
+            # Make sure we actually found the path.
+            if lookahead_pt is None:
+                # We can't see the path, so just try to go to the first pt.
+                lookahead_pt = PurePursuit.path_meters[0]
+        else:
+            # Just use goal as lookahead point.
+            lookahead_pt = PurePursuit.path_meters[-1]
         
         rospy.loginfo("PP: Choosing lookahead point ({:}, {:}).".format(lookahead_pt[0], lookahead_pt[1]))
-        # compute global heading to lookahead_pt
+        # Compute global heading to lookahead_pt
         gb = atan2(lookahead_pt[1] - cur[1], lookahead_pt[0] - cur[0])
-        # compute hdg relative to veh pose.
+        # Compute hdg relative to veh pose.
         beta = remainder(gb - cur[2], tau)
         rospy.loginfo("PP: Angle difference is {:.2f}, or {:.2f} relative to current vehicle pose.".format(gb, beta))
 
-        # compute time since last iteration.
+        # Compute time since last iteration.
         dt = 0
         if PurePursuit.last_time != 0:
             dt = time() - PurePursuit.last_time
@@ -93,7 +95,7 @@ class PurePursuit:
         for i in range(len(PurePursuit.path_meters)):
             r = ((cur[0]-PurePursuit.path_meters[i][0])**2 + (cur[1]-PurePursuit.path_meters[i][1])**2)**(1/2)
             if r < 0.15:
-                # remove whole path up to this pt.
+                # Remove whole path up to this pt.
                 del PurePursuit.path_meters[0:i+1]
                 return
 
@@ -105,34 +107,36 @@ class PurePursuit:
         @param cur, 3x1 numpy array of vehicle pose in meters (x,y,yaw).
         @param lookahead_dist, float, search radius to use to find a goal point to aim for when navigating.
         """
-        # if there's only one path point, go straight to it.
+        # If there's only one path point, go straight to it.
         if len(PurePursuit.path_meters) == 1:
             return PurePursuit.path_meters[0]
         lookahead_pt = None
-        # check the line segments between each pair of path points.
+        # Check the line segments between each pair of path points.
         for i in range(1, len(PurePursuit.path_meters)):
-            # get vector between path pts.
+            # Get vector between path pts.
             diff = [PurePursuit.path_meters[i][0]-PurePursuit.path_meters[i-1][0], PurePursuit.path_meters[i][1]-PurePursuit.path_meters[i-1][1]]
-            # get vector from veh to first path pt.
+            # Get vector from veh to first path pt.
             v1 = [PurePursuit.path_meters[i-1][0]-cur[0], PurePursuit.path_meters[i-1][1]-cur[1]]
-            # compute coefficients for quadratic eqn to solve.
+            # Compute coefficients for quadratic eqn to solve.
             a = diff[0]**2 + diff[1]**2
             b = 2*(v1[0]*diff[0] + v1[1]*diff[1])
             c = v1[0]**2 + v1[1]**2 - lookahead_dist**2
             try:
                 discr = sqrt(b**2 - 4*a*c)
             except:
-                # discriminant is negative, so there are no real roots.
-                # (line segment is too far away)
+                # Discriminant is negative, so there are no real roots (i.e., line segment is too far away).
                 continue
-            # compute solutions to the quadratic.
-            # these will tell us what point along the 'diff' line segment is a solution.
+            # Compute solutions to the quadratic. These will tell us what point along the 'diff' line segment is a solution.
             q = [(-b-discr)/(2*a), (-b+discr)/(2*a)]
-            # check validity of solutions.
+            # Check validity of solutions.
             valid = [q[i] >= 0 and q[i] <= 1 for i in range(2)]
-            # compute the intersection pt. it's the first seg pt + q percent along diff vector.
-            if valid[0]: lookahead_pt = [PurePursuit.path_meters[i-1][0]+q[0]*diff[0], PurePursuit.path_meters[i-1][1]+q[0]*diff[1]]
-            elif valid[1]: lookahead_pt = [PurePursuit.path_meters[i-1][0]+q[1]*diff[0], PurePursuit.path_meters[i-1][1]+q[1]*diff[1]]
-            else: continue # no intersection pt in the allowable range.
+            # Compute the intersection pt. it's the first seg pt + q percent along diff vector.
+            if valid[0]:
+                lookahead_pt = [PurePursuit.path_meters[i-1][0]+q[0]*diff[0], PurePursuit.path_meters[i-1][1]+q[0]*diff[1]]
+            elif valid[1]:
+                lookahead_pt = [PurePursuit.path_meters[i-1][0]+q[1]*diff[0], PurePursuit.path_meters[i-1][1]+q[1]*diff[1]]
+            else:
+                # No intersection pt in the allowable range.
+                continue
         return lookahead_pt
 
