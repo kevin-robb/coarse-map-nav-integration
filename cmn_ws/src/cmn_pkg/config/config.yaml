@@ -51,8 +51,8 @@ simulator:
     veh_yaw_initial: 0.0 # radians. 0 = facing right, increases CCW.
 
 constraints:
-  fwd: 0.1 # commanded motion in a single iteration must be between 0 and this amount (meters).
-  ang: 0.0546 # commanded angular motion in a single iteration has its magnitude limited by this amount (radians).
+  fwd: 0.2 # commanded motion in a single iteration must be between 0 and this amount (meters).
+  ang: 0.1 #0.0546 # commanded angular motion in a single iteration has its magnitude limited by this amount (radians).
 
 
 test:

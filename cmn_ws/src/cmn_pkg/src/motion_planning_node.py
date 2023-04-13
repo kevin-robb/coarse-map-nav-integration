@@ -78,7 +78,7 @@ def test_timer_callback(event):
     if g_test_motion_type == "none":
         pass
     elif g_test_motion_type == "circle":
-        fwd, ang = 0.02, pi
+        fwd, ang = 0.1, pi
     elif g_test_motion_type == "straight":
         fwd, ang = 0.5, 0.0
     elif g_test_motion_type == "random":
@@ -104,7 +104,7 @@ def get_localization_est(msg:Vector3):
         rospy.loginfo("MOT: No goal point, so commanding constant motion.")
         # Set a simple motion command, since we have no goal to plan towards.  
         # fwd, ang = 0.0, 0.0 # do nothing.
-        fwd, ang = 0.02, pi # drive in a small circle.
+        fwd, ang = 0.02, pi # drive in a small circle, limited by motion constraints.
         # fwd, ang = 0.5, 0.0 # drive in a straight line.
     else:
         rospy.loginfo("MOT: Goal point exists, so planning a path there.")
