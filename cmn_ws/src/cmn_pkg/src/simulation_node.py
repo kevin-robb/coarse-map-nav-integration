@@ -9,7 +9,7 @@ Node for extremely basic testing of localization node in best-case-scenario:
 
 import rospy
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Vector3, Twist
 from std_msgs.msg import Float32MultiArray
 import rospkg, yaml
 import numpy as np
@@ -95,15 +95,15 @@ def read_params():
         g_max_ang_cmd = config["constraints"]["ang"]
 
 ################################ CALLBACKS #########################################
-def get_command(msg:Vector3):
+def get_command(msg:Twist):
     """
     Receive a commanded motion, which will move the robot accordingly.
     """
     global veh_pose_true
     # TODO Perturb with some noise.
     # Clamp the commands at the allowed motion in a single timestep.
-    fwd_dist = clamp(msg.x, 0, g_max_fwd_cmd) # meters forward
-    dtheta = clamp(msg.z, -g_max_ang_cmd, g_max_ang_cmd) # radians CCW
+    fwd_dist = clamp(msg.linear.x, 0, g_max_fwd_cmd) # meters forward
+    dtheta = clamp(msg.angular.z, -g_max_ang_cmd, g_max_ang_cmd) # radians CCW
     veh_pose_true[0] += fwd_dist * cos(veh_pose_true[2])
     veh_pose_true[1] += fwd_dist * sin(veh_pose_true[2])
     # Clamp the vehicle pose to remain inside the map bounds.
@@ -244,7 +244,7 @@ def main():
     # Subscribe to occupancy grid map to use as ground-truth.
     rospy.Subscriber(g_topic_occ_map, Image, get_occ_map, queue_size=1)
     # Subscribe to commanded motion.
-    rospy.Subscriber(g_topic_commands, Vector3, get_command, queue_size=1)
+    rospy.Subscriber(g_topic_commands, Twist, get_command, queue_size=1)
 
     # Subscribe to localization est (for viz only).
     rospy.Subscriber(g_topic_localization, Vector3, get_localization_est, queue_size=1)

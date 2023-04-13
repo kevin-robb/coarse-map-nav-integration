@@ -4,7 +4,7 @@
 Node to handle ROS interface for getting localization estimate, global map, and performing path planning, navigation, and publishing a control command to the turtlebot.
 """
 
-import rospy
+import rospy, sys
 from geometry_msgs.msg import Twist, Vector3
 from sensor_msgs.msg import Image
 from std_msgs.msg import Float32MultiArray
@@ -53,6 +53,9 @@ def read_params():
         global g_max_fwd_cmd, g_max_ang_cmd
         g_max_fwd_cmd = config["constraints"]["fwd"]
         g_max_ang_cmd = config["constraints"]["ang"]
+        # Test mode.
+        global g_test_command_dt
+        g_test_command_dt = config["test"]["test_command_dt"]
 
 def publish_command(fwd, ang):
     """
@@ -62,11 +65,30 @@ def publish_command(fwd, ang):
     ang = clamp(ang, -g_max_ang_cmd, g_max_ang_cmd)
     rospy.loginfo("MOT: Publishing a command ({:}, {:})".format(fwd, ang))
     # Create ROS message.
-    # NOTE x-component = forward motion, z-component = angular motion. y-component = lateral motion, which is impossible for our system and is ignored.
-    msg = Vector3(fwd, 0.0, ang)
+    msg = Twist(Vector3(fwd, 0, 0), Vector3(0, 0, ang))
     cmd_pub.publish(msg)
 
 ######################## CALLBACKS ########################
+def test_timer_callback(event):
+    """
+    Only runs in test mode.
+    Publish desired type of test motion every iteration.
+    """
+    fwd, ang = 0.0, 0.0
+    if g_test_motion_type == "none":
+        pass
+    elif g_test_motion_type == "circle":
+        fwd, ang = 0.02, pi
+    elif g_test_motion_type == "straight":
+        fwd, ang = 0.5, 0.0
+    elif g_test_motion_type == "random":
+        rospy.logerr("MOT: test random motion not yet implemented.")
+    else:
+        rospy.logerr("MOT: test mode called with invalid test_motion_type: {:}".format(g_test_motion_type))
+        exit()
+    # Send the motion to the robot.
+    publish_command(fwd, ang)
+
 def get_localization_est(msg:Vector3):
     """
     Get localization estimate from the particle filter.
@@ -81,8 +103,8 @@ def get_localization_est(msg:Vector3):
     if goal_pos_px is None:
         rospy.loginfo("MOT: No goal point, so commanding constant motion.")
         # Set a simple motion command, since we have no goal to plan towards.  
-        fwd, ang = 0.0, 0.0 # do nothing.
-        # fwd, ang = 0.02, pi # drive in a small circle.
+        # fwd, ang = 0.0, 0.0 # do nothing.
+        fwd, ang = 0.02, pi # drive in a small circle.
         # fwd, ang = 0.5, 0.0 # drive in a straight line.
     else:
         rospy.loginfo("MOT: Goal point exists, so planning a path there.")
@@ -165,6 +187,13 @@ def main():
 
     read_params()
 
+    # Read command line args.
+    if len(sys.argv) > 1:
+        rospy.logwarn("MOT: Running motion_planning_node in test mode, on its own timer.")
+        global g_run_test_motion, g_test_motion_type
+        g_run_test_motion = sys.argv[1].lower() == "true"
+        g_test_motion_type = sys.argv[2]
+
     # Subscribe to localization est.
     rospy.Subscriber(g_topic_localization, Vector3, get_localization_est, queue_size=1)
     # Subscribe to goal position in pixels on the map.
@@ -173,12 +202,16 @@ def main():
     rospy.Subscriber(g_topic_occ_map, Image, get_map, queue_size=1)
 
     # Publish control commands.
-    cmd_pub = rospy.Publisher(g_topic_commands, Vector3, queue_size=1)
+    cmd_pub = rospy.Publisher(g_topic_commands, Twist, queue_size=1)
     # there is a way to command a relative position/yaw motion:
     # python navigation/base_position_control.py --base_planner none --base_controller ilqr --smooth --close_loop --relative_position 1.,1.,1.57 --botname locobot
 
     # Publish planned path to the goal (for viz).
     path_pub = rospy.Publisher(g_topic_planned_path, Float32MultiArray, queue_size=1)
+
+    # In test mode, start a timer to publish commands to the robot.
+    if g_run_test_motion:
+        rospy.Timer(rospy.Duration(g_test_command_dt), test_timer_callback)
 
     rospy.spin()
 

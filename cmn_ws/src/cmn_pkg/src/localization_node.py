@@ -6,7 +6,7 @@ Node to handle ROS interface for getting observations, running the localization 
 
 import rospy
 from sensor_msgs.msg import Image
-from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Vector3, Twist
 from std_msgs.msg import Float32MultiArray
 import rospkg, yaml
 import numpy as np
@@ -77,12 +77,12 @@ def get_occ_map(msg):
     pf.set_map(occ_map)
 
 
-def get_command(msg:Vector3):
+def get_command(msg:Twist):
     """
     Receive a commanded motion, and propagate all particles.
     """
-    rospy.loginfo("LOC: Got command. Propagating all particles by ({:}, {:})".format(msg.x, msg.z))
-    pf.propagate_particles(msg.x, msg.z)
+    rospy.loginfo("LOC: Got command. Propagating all particles by ({:}, {:})".format(msg.linear.x, msg.angular.z))
+    pf.propagate_particles(msg.linear.x, msg.angular.z)
 
 
 def main():
@@ -97,7 +97,7 @@ def main():
     # Subscribe to observations.
     rospy.Subscriber(g_topic_observations, Image, get_observation, queue_size=1)
     # Subscribe to commanded motion. Needed to propagate particles between iterations.
-    rospy.Subscriber(g_topic_commands, Vector3, get_command, queue_size=1)
+    rospy.Subscriber(g_topic_commands, Twist, get_command, queue_size=1)
 
     # Publish localization estimate.
     localization_pub = rospy.Publisher(g_topic_localization, Vector3, queue_size=1)
