@@ -53,14 +53,15 @@ def read_params():
         global g_max_fwd_cmd, g_max_ang_cmd
         g_max_fwd_cmd = config["constraints"]["fwd"]
         g_max_ang_cmd = config["constraints"]["ang"]
-        # Test mode.
-        global g_test_command_dt
-        g_test_command_dt = config["test"]["test_command_dt"]
+        # In motion test mode, only this node will run, so it will handle the timer.
+        global g_dt
+        g_dt = config["dt"]
 
 def publish_command(fwd, ang):
     """
     Clamp a command within valid values, and publish it to the vehicle/simulator.
     """
+    # Clamp to allowed velocity ranges.
     fwd = clamp(fwd, 0, g_max_fwd_cmd)
     ang = clamp(ang, -g_max_ang_cmd, g_max_ang_cmd)
     rospy.loginfo("MOT: Publishing a command ({:}, {:})".format(fwd, ang))
@@ -78,9 +79,9 @@ def test_timer_callback(event):
     if g_test_motion_type == "none":
         pass
     elif g_test_motion_type == "circle":
-        fwd, ang = 0.1, pi
+        fwd, ang = g_max_fwd_cmd, g_max_ang_cmd
     elif g_test_motion_type == "straight":
-        fwd, ang = 0.5, 0.0
+        fwd, ang = g_max_fwd_cmd, 0.0
     elif g_test_motion_type == "random":
         rospy.logerr("MOT: test random motion not yet implemented.")
     else:
@@ -104,8 +105,8 @@ def get_localization_est(msg:Vector3):
         rospy.loginfo("MOT: No goal point, so commanding constant motion.")
         # Set a simple motion command, since we have no goal to plan towards.  
         # fwd, ang = 0.0, 0.0 # do nothing.
-        fwd, ang = 0.02, pi # drive in a small circle, limited by motion constraints.
-        # fwd, ang = 0.5, 0.0 # drive in a straight line.
+        fwd, ang = g_max_fwd_cmd, g_max_ang_cmd # drive in a small circle, limited by motion constraints.
+        # fwd, ang = g_max_fwd_cmd, 0.0 # drive in a straight line.
     else:
         rospy.loginfo("MOT: Goal point exists, so planning a path there.")
         # Plan a path from this estimated position to the goal.
@@ -201,7 +202,7 @@ def main():
     # Subscribe to (or just read the map from) file.
     rospy.Subscriber(g_topic_occ_map, Image, get_map, queue_size=1)
 
-    # Publish control commands.
+    # Publish control commands (velocities in m/s and rad/s).
     cmd_pub = rospy.Publisher(g_topic_commands, Twist, queue_size=1)
     # there is a way to command a relative position/yaw motion:
     # python navigation/base_position_control.py --base_planner none --base_controller ilqr --smooth --close_loop --relative_position 1.,1.,1.57 --botname locobot
@@ -211,7 +212,7 @@ def main():
 
     # In test mode, start a timer to publish commands to the robot.
     if g_run_test_motion:
-        rospy.Timer(rospy.Duration(g_test_command_dt), test_timer_callback)
+        rospy.Timer(rospy.Duration(g_dt), test_timer_callback)
 
     rospy.spin()
 

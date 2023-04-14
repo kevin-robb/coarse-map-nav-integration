@@ -1,5 +1,8 @@
 # Parameters for the project
 
+# Rate at which to publish commands to the robot.
+dt: 0.1 # timer period in seconds.
+
 # Rostopics used throughout the project.
 topics:
   measurements: "/locobot/camera/color/image_raw"
@@ -11,6 +14,7 @@ topics:
   commands: "/locobot/mobile_base/commands/velocity"
   planned_path: "/planned_path"
 
+# Details about the coarse map.
 map:
   fname: "building1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
   downscale_ratio: 0.2 # Resize map to lower resolution. This helps A* to run faster. New side lengths will be original*downscale_ratio.
@@ -27,8 +31,6 @@ observation:
   # Coordinates on the observation image frame the vehicle's POV is.
   veh_horz_pos_ratio: 0.5 # relative position from left (0) to right (1). Use 0.5 to center it.
   veh_vert_pos_ratio: 0.0 # relative position from bottom (0) to top (1). Use 0.5 to center it.
-
-perception_node_dt: 0.1 # timer period of perception_node's main update loop (seconds). NOTE later we can characterize the runtime of the model to optimize this value.
 
 particle_filter:
   num_particles: 10 # Number of particles to track.
@@ -51,11 +53,10 @@ simulator:
     veh_yaw_initial: 0.0 # radians. 0 = facing right, increases CCW.
 
 constraints:
-  fwd: 0.2 # commanded motion in a single iteration must be between 0 and this amount (meters).
-  ang: 0.1 #0.0546 # commanded angular motion in a single iteration has its magnitude limited by this amount (radians).
+  fwd: 0.2 # commanded linear velocity must be between 0 and this amount (meters).
+  ang: 0.1 #0.0546 # commanded angular velocity has its magnitude limited by this amount (radians).
 
 
 test:
   run_debug_mode: false # Run the test mode, which will display images and print text that are normally skipped.
   save_data_for_training: false # Save measurements, true odom pose on map, and "observation" pulled from the map, all with timestamps & frame numbers to associate them. This data can be used to retrain the ML model, and also allows re-running the project to evaluate the model & localization to compare to ground truth. May also need to save commands or relative motions depending on how the localization is implemented. NOTE could use rosbags for the replaying aspect, but for training the model we still need a way to get associated measurements + "observations".
-  test_command_dt: 0.5 # Timer period of motion_planning_node in test mode.

@@ -34,7 +34,7 @@ def read_params():
         g_map_fpath = pkg_path + "/config/maps/" + config["map"]["fname"]
         g_map_downscale_ratio = config["map"]["downscale_ratio"]
         g_obs_balloon_radius = config["map"]["obstacle_balloon_radius"]
-        g_dt = config["perception_node_dt"]
+        g_dt = config["dt"]
         # Rostopics:
         global g_topic_measurements, g_topic_observations, g_topic_occ_map, g_topic_raw_map
         g_topic_measurements = config["topics"]["measurements"]

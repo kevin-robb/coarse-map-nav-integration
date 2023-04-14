@@ -39,6 +39,9 @@ def read_params():
         g_topic_occ_map = config["topics"]["occ_map"]
         g_topic_localization = config["topics"]["localization"]
         g_topic_commands = config["topics"]["commands"]
+        # Timer period.
+        global g_dt
+        g_dt = config["dt"]
 
 
 def get_observation(msg):
@@ -81,8 +84,8 @@ def get_command(msg:Twist):
     """
     Receive a commanded motion, and propagate all particles.
     """
-    rospy.loginfo("LOC: Got command. Propagating all particles by ({:}, {:})".format(msg.linear.x, msg.angular.z))
-    pf.propagate_particles(msg.linear.x, msg.angular.z)
+    rospy.loginfo("LOC: Got command. Propagating all particles by dt*({:}, {:})".format(msg.linear.x, msg.angular.z))
+    pf.propagate_particles(msg.linear.x * g_dt, msg.angular.z * g_dt)
 
 
 def main():

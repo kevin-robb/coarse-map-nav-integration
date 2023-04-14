@@ -77,7 +77,7 @@ def read_params():
         config = yaml.safe_load(file)
         global g_debug_mode, g_dt
         g_debug_mode = config["test"]["run_debug_mode"]
-        g_dt = config["perception_node_dt"]
+        g_dt = config["dt"]
         # Rostopics.
         global g_topic_commands, g_topic_localization, g_topic_observations, g_topic_occ_map, g_topic_planned_path, g_topic_goal
         g_topic_observations = config["topics"]["observations"]
@@ -97,13 +97,13 @@ def read_params():
 ################################ CALLBACKS #########################################
 def get_command(msg:Twist):
     """
-    Receive a commanded motion, which will move the robot accordingly.
+    Receive commanded velocities for this iteration, which will move the robot by v*dt.
     """
     global veh_pose_true
     # TODO Perturb with some noise.
-    # Clamp the commands at the allowed motion in a single timestep.
-    fwd_dist = clamp(msg.linear.x, 0, g_max_fwd_cmd) # meters forward
-    dtheta = clamp(msg.angular.z, -g_max_ang_cmd, g_max_ang_cmd) # radians CCW
+    # Clamp commands to allowed values (redundant since clamping is done in MOT, but just to be safe).
+    fwd_dist = g_dt * clamp(msg.linear.x, 0, g_max_fwd_cmd) # dt * meters/sec forward
+    dtheta = g_dt * clamp(msg.angular.z, -g_max_ang_cmd, g_max_ang_cmd) # dt * radians/sec CCW
     veh_pose_true[0] += fwd_dist * cos(veh_pose_true[2])
     veh_pose_true[1] += fwd_dist * sin(veh_pose_true[2])
     # Clamp the vehicle pose to remain inside the map bounds.
