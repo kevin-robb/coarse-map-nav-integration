@@ -160,3 +160,12 @@ class ObservationGenerator:
             if self.map[r, c] == 1: # this cell is free.
                 x, y = self.transform_map_px_to_m(r, c)
                 return np.array([x,y,yaw])
+            
+    def veh_pose_m_in_collision(self, vehicle_pose) -> bool:
+        """
+        Given a vehicle pose, determine if this is in collision on the map.
+        @param vehicle_pose, numpy array of [x,y,yaw] in meters and radians.
+        @return true if the vehicle pose is in collision on the occupancy grid map.
+        """
+        r, c = self.transform_map_m_to_px(vehicle_pose[0], vehicle_pose[1])
+        return self.map[r, c] != 1 # return false if this cell is free, and true otherwise.

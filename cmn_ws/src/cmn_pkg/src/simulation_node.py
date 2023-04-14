@@ -90,9 +90,10 @@ def read_params():
         global g_pf_num_particles
         g_pf_num_particles = config["particle_filter"]["num_particles"]
         # Constraints.
-        global g_max_fwd_cmd, g_max_ang_cmd
+        global g_max_fwd_cmd, g_max_ang_cmd, g_allow_motion_through_occupied_cells
         g_max_fwd_cmd = config["constraints"]["fwd"]
         g_max_ang_cmd = config["constraints"]["ang"]
+        g_allow_motion_through_occupied_cells = config["simulator"]["allow_motion_through_occupied_cells"]
 
 ################################ CALLBACKS #########################################
 def get_command(msg:Twist):
@@ -104,15 +105,22 @@ def get_command(msg:Twist):
     # Clamp commands to allowed values (redundant since clamping is done in MOT, but just to be safe).
     fwd_dist = g_dt * clamp(msg.linear.x, 0, g_max_fwd_cmd) # dt * meters/sec forward
     dtheta = g_dt * clamp(msg.angular.z, -g_max_ang_cmd, g_max_ang_cmd) # dt * radians/sec CCW
-    veh_pose_true[0] += fwd_dist * cos(veh_pose_true[2])
-    veh_pose_true[1] += fwd_dist * sin(veh_pose_true[2])
+    # Compute a proposed new vehicle pose, and check if it's allowed before moving officially.
+    veh_pose_proposed = np.copy(veh_pose_true)
+    veh_pose_proposed[0] += fwd_dist * cos(veh_pose_proposed[2])
+    veh_pose_proposed[1] += fwd_dist * sin(veh_pose_proposed[2])
     # Clamp the vehicle pose to remain inside the map bounds.
-    veh_pose_true[0] = clamp(veh_pose_true[0], obs_gen.map_x_min_meters, obs_gen.map_x_max_meters)
-    veh_pose_true[1] = clamp(veh_pose_true[1], obs_gen.map_y_min_meters, obs_gen.map_y_max_meters)
+    veh_pose_proposed[0] = clamp(veh_pose_proposed[0], obs_gen.map_x_min_meters, obs_gen.map_x_max_meters)
+    veh_pose_proposed[1] = clamp(veh_pose_proposed[1], obs_gen.map_y_min_meters, obs_gen.map_y_max_meters)
     # Keep yaw normalized to (-pi, pi).
-    veh_pose_true[2] = remainder(veh_pose_true[2] + dtheta, tau)
-
-    rospy.loginfo("SIM: Got command. Veh pose is now " + str(veh_pose_true))
+    veh_pose_proposed[2] = remainder(veh_pose_proposed[2] + dtheta, tau)
+    # Determine if this vehicle pose is allowed.
+    if not g_allow_motion_through_occupied_cells and obs_gen.veh_pose_m_in_collision(veh_pose_proposed):
+        rospy.logwarn("SIM: Command would move vehicle to invalid pose. Only allowing angular motion.")
+        veh_pose_true[2] = veh_pose_proposed[2]
+    else:
+        veh_pose_true = veh_pose_proposed
+        rospy.loginfo("SIM: Got command. Veh pose is now " + str(veh_pose_true))
 
     # Generate an observation for the new vehicle pose.
     generate_observation()
