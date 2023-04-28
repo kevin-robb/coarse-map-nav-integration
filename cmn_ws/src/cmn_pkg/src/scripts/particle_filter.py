@@ -129,6 +129,10 @@ class ParticleFilter:
         """
         new_particle_set = np.zeros((self.num_particles, self.state_size))
 
+        # Ensure weights vector is not all zeros.
+        if sum(self.particle_weights) == 0:
+            self.particle_weights = [1 for _ in range(len(self.particle_weights))]
+
         # Sample from weights to form most of the population.
         selected_indices = choices(self.all_indices, list(self.particle_weights), k=self.num_particles - self.num_to_resample_randomly)
         for i_new, i_old in enumerate(selected_indices):

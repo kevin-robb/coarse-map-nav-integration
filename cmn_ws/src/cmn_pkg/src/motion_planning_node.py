@@ -13,7 +13,9 @@ import numpy as np
 import cv2
 from cv_bridge import CvBridge
 from random import random
-from math import pi
+from math import pi, radians
+from time import time
+from random import randint, random
 
 from scripts.cmn_utilities import clamp, ObservationGenerator
 from scripts.astar import Astar
@@ -56,6 +58,16 @@ def read_params():
         # In motion test mode, only this node will run, so it will handle the timer.
         global g_dt
         g_dt = config["dt"]
+        # Params for discrete actions.
+        global g_use_discrete_actions, g_discrete_forward_dist, g_discrete_forward_skip_probability, g_test_motion_type
+        g_use_discrete_actions = config["actions"]["use_discrete_actions"]
+        g_test_motion_type = "random_discrete" if g_use_discrete_actions else "circle"
+        rospy.logwarn("Set g_test_motion_type: {:}".format(g_test_motion_type))
+        g_discrete_forward_dist = abs(config["actions"]["discrete_forward_dist"])
+        g_discrete_forward_skip_probability = config["actions"]["discrete_forward_skip_probability"]
+        if g_discrete_forward_skip_probability < 0.0 or g_discrete_forward_skip_probability > 1.0:
+            rospy.logwarn("MOT: Invalid value of discrete_forward_skip_probability. Must lie in range [0, 1]. Setting to 0.")
+            g_discrete_forward_skip_probability = 0
 
 def publish_command(fwd, ang):
     """
@@ -70,7 +82,7 @@ def publish_command(fwd, ang):
     cmd_pub.publish(msg)
 
 ######################## CALLBACKS ########################
-def test_timer_callback(event):
+def test_timer_callback(event=None):
     """
     Only runs in test mode.
     Publish desired type of test motion every iteration.
@@ -82,11 +94,12 @@ def test_timer_callback(event):
         fwd, ang = g_max_fwd_cmd, g_max_ang_cmd
     elif g_test_motion_type == "straight":
         fwd, ang = g_max_fwd_cmd, 0.0
-    elif g_test_motion_type == "random":
-        rospy.logerr("MOT: test random motion not yet implemented.")
+    elif g_test_motion_type == "random_discrete":
+        random_discrete_action()
+        return
     else:
         rospy.logerr("MOT: test mode called with invalid test_motion_type: {:}".format(g_test_motion_type))
-        exit()
+        # exit()
     # Send the motion to the robot.
     publish_command(fwd, ang)
 
@@ -104,15 +117,13 @@ def get_localization_est(msg:Vector3):
     if goal_pos_px is None:
         rospy.loginfo("MOT: No goal point, so commanding constant motion.")
         # Set a simple motion command, since we have no goal to plan towards.  
-        # fwd, ang = 0.0, 0.0 # do nothing.
-        fwd, ang = g_max_fwd_cmd, g_max_ang_cmd # drive in a small circle, limited by motion constraints.
-        # fwd, ang = g_max_fwd_cmd, 0.0 # drive in a straight line.
+        test_timer_callback()
     else:
         rospy.loginfo("MOT: Goal point exists, so planning a path there.")
         # Plan a path from this estimated position to the goal.
         fwd, ang = plan_path_to_goal(pose_est)
-    # Publish the motion command.
-    publish_command(fwd, ang)
+        # Publish the motion command.
+        publish_command(fwd, ang)
 
 def get_goal_pos(msg:Vector3):
     """
@@ -179,6 +190,63 @@ def plan_path_to_goal(veh_pose_est):
     return fwd_clamped, ang_clamped
 
 
+def discrete_turn(angle:float):
+    """
+    Turn the robot by a discrete amount, and then stop.
+    @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
+    """
+    # Determine the amount of time it will take to turn this amount at the max turn speed.
+    time_to_turn = abs(angle / g_max_ang_cmd) # rad / (rad/s) = seconds.
+    rospy.logwarn("MOT: Determined time_to_move: {:} seconds.".format(time_to_turn))
+    start_time = time()
+    # Get turn direction.
+    turn_dir_sign = angle / abs(angle)
+    # Send the command velocity for the duration.
+    while time() - start_time < time_to_turn:
+        rospy.logwarn("MOT: Elapsed time: {:} seconds.".format(time() - start_time))
+        publish_command(0, g_max_ang_cmd * turn_dir_sign)
+        rospy.sleep(0.001)
+    # When the time has elapsed, send a command to stop.
+    publish_command(0, 0)
+
+
+def discrete_motion(dist:float):
+    """
+    Move the robot forwards by a discrete distance, and then stop.
+    @param dist - distance in meters to move. Positive is forwards, negative for backwards.
+    """
+    # Determine the amount of time it will take to move the specified distance.
+    time_to_move = abs(dist / g_max_fwd_cmd) # rad / (rad/s) = seconds.
+    rospy.logwarn("MOT: Determined time_to_move: {:} seconds.".format(time_to_move))
+    start_time = time()
+    # Get direction of motion.
+    motion_sign = dist / abs(dist)
+    # Send the command velocity for the duration.
+    while time() - start_time < time_to_move:
+        rospy.logwarn("MOT: Elapsed time: {:} seconds.".format(time() - start_time))
+        publish_command(g_max_fwd_cmd * motion_sign, 0)
+        rospy.sleep(0.1)
+    # When the time has elapsed, send a command to stop.
+    publish_command(0, 0)
+
+
+# Possible discrete motions that can be commanded.
+discrete_motion_types = ["90_LEFT", "90_RIGHT", "FORWARD"]
+def random_discrete_action():
+    """
+    Choose a random action from our list of possible discrete actions, and command it.
+    """
+    action = discrete_motion_types[randint(0,len(discrete_motion_types)-1)]
+    if action == "90_LEFT":
+        discrete_turn(radians(90))
+    elif action == "90_RIGHT":
+        discrete_turn(radians(-90))
+    elif action == "FORWARD":
+        if random() > g_discrete_forward_skip_probability:
+            discrete_motion(g_discrete_forward_dist)
+
+
+
 # TODO obstacle avoidance?
 
 
@@ -190,10 +258,11 @@ def main():
 
     # Read command line args.
     if len(sys.argv) > 1:
-        rospy.logwarn("MOT: Running motion_planning_node in test mode, on its own timer.")
-        global g_run_test_motion, g_test_motion_type
+        global g_run_test_motion
         g_run_test_motion = sys.argv[1].lower() == "true"
-        g_test_motion_type = sys.argv[2]
+    # if len(sys.argv) > 2:
+    #     global g_test_motion_type
+    #     g_test_motion_type = sys.argv[2]
 
     # Subscribe to localization est.
     rospy.Subscriber(g_topic_localization, Vector3, get_localization_est, queue_size=1)
@@ -212,6 +281,7 @@ def main():
 
     # In test mode, start a timer to publish commands to the robot.
     if g_run_test_motion:
+        rospy.logwarn("MOT: Running motion_planning_node in test mode, on its own timer.")
         rospy.Timer(rospy.Duration(g_dt), test_timer_callback)
 
     rospy.spin()

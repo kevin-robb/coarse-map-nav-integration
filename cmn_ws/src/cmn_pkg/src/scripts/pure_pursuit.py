@@ -13,11 +13,11 @@ class PurePursuit:
     use_finite_lookahead_dist = True # if false, rather than computing a lookahead point, just use the goal point.
     lookahead_dist_init = 0.2 # meters.
     lookahead_dist_max = 2 # meters.
-    k_p = 0.5 # proportional gain.
+    k_p = 1.0 # proportional gain.
     k_i = 0.0 # integral gain.
     k_d = 0.0 # derivative gain.
-    k_fwd_lin = 0.02 # mult. gain on fwd vel.
-    k_fwd_power = 12 # exponential term in fwd vel calculation.
+    k_fwd_lin = 1 # mult. gain on fwd vel.
+    k_fwd_power = 5 # exponential term in fwd vel calculation.
     k_fwd_add = 0.0 # additive term in fwd vel calculation.
     # Path to follow.
     path_meters = []
