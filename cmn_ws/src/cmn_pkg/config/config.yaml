@@ -22,16 +22,8 @@ save_data_for_training: false
 
 # Rostopics used throughout the project.
 topics:
-  measurements: "/locobot/camera/color/image_raw"
-  observations: "/observation"
-  occ_map: "/map/occ"
-  raw_map: "/map/raw"
-  localization: "/state/est"
-  ground_truth_pose: "/state/true" # Only used during simulation.
-  goal: "/goal"
-  discrete_actions: "/action/discrete" # Only used in discrete run mode.
+  measurements: "/locobot/camera/color/image_raw" # Topic on which turtlebot publishes realsense images.
   commands: "/locobot/mobile_base/commands/velocity" # Topic on which turtlebot receives velocity commands.
-  planned_path: "/planned_path"
 
 # Details about the coarse map.
 map:

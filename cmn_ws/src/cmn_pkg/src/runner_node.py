@@ -6,13 +6,12 @@ This node will handle all necessary steps that would otherwise be done by the re
 """
 
 import rospy
-from geometry_msgs.msg import Twist, Vector3
+from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float32MultiArray, String
 import rospkg, yaml
 from cv_bridge import CvBridge
 
-from scripts.cmn_utilities import CoarseMapProcessor, Simulator
+from cmn_pkg.src.scripts.map_handler import CoarseMapProcessor, Simulator
 from scripts.motion_planner import DiscreteMotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
@@ -162,21 +161,14 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        # In motion test mode, only this node will run, so it will handle the timer.
         global g_dt, g_run_mode, g_use_ground_truth_map_to_generate_observations
         g_dt = config["dt"]
         g_run_mode = config["run_mode"]
         g_use_ground_truth_map_to_generate_observations = config["use_ground_truth_map_to_generate_observations"]
         # Rostopics.
-        global g_topic_measurements, g_topic_commands, g_topic_localization, g_topic_occ_map, g_topic_raw_map, g_topic_planned_path, g_topic_goal, g_topic_discrete_acions
+        global g_topic_measurements, g_topic_commands
         g_topic_measurements = config["topics"]["measurements"]
-        g_topic_occ_map = config["topics"]["occ_map"]
-        g_topic_raw_map = config["topics"]["raw_map"]
-        g_topic_localization = config["topics"]["localization"]
-        g_topic_goal = config["topics"]["goal"]
         g_topic_commands = config["topics"]["commands"]
-        g_topic_discrete_acions = config["topics"]["discrete_actions"]
-        g_topic_planned_path = config["topics"]["planned_path"]
 
 ######################## CALLBACKS ########################
 def get_pano_meas():
@@ -230,16 +222,7 @@ def main():
     # Publish control commands (velocities in m/s and rad/s).
     cmd_vel_pub = rospy.Publisher(g_topic_commands, Twist, queue_size=1)
     dmp.set_vel_pub(cmd_vel_pub)
-    discrete_action_pub = rospy.Publisher(g_topic_discrete_acions, String, queue_size=1)
-    dmp.set_discrete_action_pub(discrete_action_pub)
 
-    # Publish the coarse map for other nodes to use.
-    occ_map_pub = rospy.Publisher(g_topic_occ_map, Image, queue_size=1)
-    raw_map_pub = rospy.Publisher(g_topic_raw_map, Image, queue_size=1)
-    # Wait to make sure the other nodes are ready to receive the map.
-    rospy.sleep(1)
-    occ_map_pub.publish(map_proc.get_occ_map_msg())
-    raw_map_pub.publish(map_proc.get_raw_map_msg())
     # Set the map for utility classes to use.
     sim.set_map(map_proc.occ_map)
     dmp.set_map(map_proc.occ_map)

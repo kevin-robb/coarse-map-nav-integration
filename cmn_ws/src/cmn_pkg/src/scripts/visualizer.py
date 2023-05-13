@@ -1,20 +1,12 @@
 #!/usr/bin/env python3
 
 import rospy
-from sensor_msgs.msg import Image
-from geometry_msgs.msg import Vector3, Twist
-from std_msgs.msg import Float32MultiArray
 import rospkg, yaml
-import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.backend_bases import MouseButton
 import cv2
-from cv_bridge import CvBridge
-from math import remainder, tau, sin, cos, pi, ceil
-
-from scripts.cmn_utilities import clamp, MapFrameManager, Simulator
-# from scripts.cmn_sim import Simulator
+from math import sin, cos
 
 ### GLOBAL VARS ###
 g_goal_cell_px = None

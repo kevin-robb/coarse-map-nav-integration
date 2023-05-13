@@ -4,16 +4,13 @@
 Functions that will be useful in more than one node in this project.
 """
 
-import rospkg, yaml, cv2, rospy
-import numpy as np
-from math import sin, cos, remainder, tau, ceil, radians
-from random import random, randrange
-from random import randint
+import rospkg, yaml, rospy
+from math import radians
+from random import random, randint
 from time import time
 from geometry_msgs.msg import Twist, Vector3
-from std_msgs.msg import String, Float32MultiArray
 
-from scripts.cmn_utilities import clamp, MapFrameManager
+from cmn_pkg.src.scripts.map_handler import clamp, MapFrameManager
 from scripts.astar import Astar
 from scripts.pure_pursuit import PurePursuit
 
@@ -177,8 +174,6 @@ class DiscreteMotionPlanner(MotionPlanner):
     """
     # Define allowable discrete actions.
     discrete_actions = ["90_LEFT", "90_RIGHT", "FORWARD"]
-    # Publisher that will be defined by a ROS node and set.
-    discrete_action_pub = None
 
     def __init__(self):
         self.read_params()
@@ -201,12 +196,6 @@ class DiscreteMotionPlanner(MotionPlanner):
             if self.discrete_forward_skip_probability < 0.0 or self.discrete_forward_skip_probability > 1.0:
                 rospy.logwarn("DMP: Invalid value of discrete_forward_skip_probability. Must lie in range [0, 1]. Setting to 0.")
                 self.discrete_forward_skip_probability = 0
-
-    def set_discrete_action_pub(self, pub):
-        """
-        Set our publisher for discrete actions.
-        """
-        self.discrete_action_pub = pub
 
     def cmd_discrete_action(self, action:str):
         """

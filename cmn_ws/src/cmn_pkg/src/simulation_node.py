@@ -18,10 +18,9 @@ from matplotlib import gridspec
 from matplotlib.backend_bases import MouseButton
 import cv2
 from cv_bridge import CvBridge
-from math import remainder, tau, sin, cos, pi, ceil
+from math import sin, cos
 
-from scripts.cmn_utilities import clamp, MapFrameManager, Simulator
-# from scripts.cmn_sim import Simulator
+from cmn_pkg.src.scripts.map_handler import Simulator
 
 ############ GLOBAL VARIABLES ###################
 # ROS stuff.

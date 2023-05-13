@@ -9,7 +9,6 @@ import numpy as np
 from math import sin, cos, remainder, tau, ceil
 from random import random, randrange
 from cv_bridge import CvBridge, CvBridgeError
-from sensor_msgs.msg import Image
 
 from scripts.rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
 

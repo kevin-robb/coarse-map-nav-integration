@@ -1,10 +1,4 @@
 <launch>
-    <!-- simulation node tracks ground-truth robot pose on the map and produces best possible observations for testing localization -->
-    <node pkg="cmn_pkg" type="simulation_node.py" name="simulation_node" output="screen" />
-    <!-- perception node reads the map from file, processes it, and sends it. In this mode, the perception node is only run for the map processing. -->
-    <node pkg="cmn_pkg" type="perception_node.py" name="perception_node" output="screen" />
-    <!-- localization node uses the observation to estimate vehicle pose on map -->
-    <node pkg="cmn_pkg" type="localization_node.py" name="localization_node" output="screen" />
-    <!-- motion planning & control node receives the map -->
-    <node pkg="cmn_pkg" type="motion_planning_node.py" name="motion_planning_node" output="screen" />
+    <!-- Node that drives the project -->
+    <node pkg="cmn_pkg" type="runner_node.py" name="runner_node" output="screen" />
 </launch>
