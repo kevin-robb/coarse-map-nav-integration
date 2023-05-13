@@ -3,15 +3,24 @@
 # Rate at which to publish commands to the robot.
 dt: 0.1 # timer period in seconds.
 
+# Mode to use when running. options: discrete, continuous.
+run_mode: "discrete"
+# Set how observations will be generated.
+# - If true, treat the coarse map as ground truth and use vehicle pose on it to generate observations.
+# - If false, use the ML model to generate observations from sensor data.
+use_ground_truth_map_to_generate_observations: true
+
 # Rostopics used throughout the project.
 topics:
   measurements: "/locobot/camera/color/image_raw"
   observations: "/observation"
   occ_map: "/map/occ"
   raw_map: "/map/raw"
-  localization: "/state_est"
+  localization: "/state/est"
+  ground_truth_pose: "/state/true" # Only used during simulation.
   goal: "/goal"
-  commands: "/locobot/mobile_base/commands/velocity"
+  discrete_actions: "/action/discrete" # Only used in discrete run mode.
+  commands: "/locobot/mobile_base/commands/velocity" # Topic on which turtlebot receives velocity commands.
   planned_path: "/planned_path"
 
 # Details about the coarse map.
@@ -38,7 +47,6 @@ particle_filter:
   random_sampling_rate: 0.1 # Proportion in range [0, 1] of population that will be sampled randomly instead of from the previous generation.
 
 actions:
-  use_discrete_actions: true # if true, only command 90deg pivots and short forward motions. if false, use continuous action space and command any 2D twist.
   discrete_forward_dist: 0.5 # meters forward to move for discrete motion action.
   discrete_forward_skip_probability: 0.1 # probability that a forward action will be skipped instead of commanded to the robot.
 

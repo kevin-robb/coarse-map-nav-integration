@@ -99,7 +99,6 @@ def get_vel_command(msg:Twist):
     # Generate an observation for the new vehicle pose.
     generate_observation()
 
-
 def get_occ_map(msg):
     """
     Get the processed occupancy grid map to use as the "ground truth" map.
@@ -117,7 +116,6 @@ def get_occ_map(msg):
     To kick-start this cycle, we will wait until the map has been processed, and then assume we've just received a zero command.
     """
     generate_observation()
-
 
 def get_localization_est(msg):
     """
