@@ -113,6 +113,8 @@ class Visualizer:
         """
         Add vehicle pose relative to observation region for clarity.
         """
+        if not self.enabled:
+            return
         # This is static, so only need to plot it once.
         if "veh_pose_obs" in self.plots.keys():
             return
@@ -144,6 +146,8 @@ class Visualizer:
         @param occ_map Image of the map.
         """
         self.occ_map = occ_map
+        if not self.enabled:
+            return
         # Add the map to our figure.
         self.ax0.imshow(occ_map, cmap="gray", vmin=0, vmax=1)
 
@@ -177,10 +181,10 @@ class Visualizer:
             return
         
         # First, check if a new goal cell has been chosen by the user clicking the plot.
+        global g_goal_cell_px
         if g_goal_cell_px is not None:
             self.goal_cell = g_goal_cell_px
             # Wipe it so we don't check constantly.
-            global g_goal_cell_px
             g_goal_cell_px = None
 
         if self.veh_pose_true is not None:

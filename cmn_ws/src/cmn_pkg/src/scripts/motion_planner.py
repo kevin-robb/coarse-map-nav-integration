@@ -10,7 +10,7 @@ from random import random, randint
 from time import time
 from geometry_msgs.msg import Twist, Vector3
 
-from cmn_pkg.src.scripts.map_handler import clamp, MapFrameManager
+from scripts.map_handler import clamp, MapFrameManager
 from scripts.astar import Astar
 from scripts.pure_pursuit import PurePursuit
 

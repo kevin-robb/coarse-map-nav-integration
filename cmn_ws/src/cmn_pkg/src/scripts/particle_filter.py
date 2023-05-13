@@ -10,7 +10,7 @@ import numpy as np
 from math import sin, cos, remainder, tau
 from random import choices
 
-from cmn_pkg.src.scripts.map_handler import MapFrameManager
+from scripts.map_handler import MapFrameManager
 
 class ParticleFilter:
     # Config params.

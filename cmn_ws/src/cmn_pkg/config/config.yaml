@@ -6,7 +6,7 @@ dt: 0.1 # timer period in seconds.
 # Mode to use when running. options: discrete, continuous.
 # - discrete: Panoramic measurements, DBF for localization, discrete actions only.
 # - continuous: Single-image measurements, PF for localization, continuous velocity commands.
-run_mode: "discrete"
+run_mode: "continuous"
 
 # Set how observations will be generated.
 # - true: treat the coarse map as ground truth and use vehicle pose on it to generate observations.
@@ -14,7 +14,7 @@ run_mode: "discrete"
 use_ground_truth_map_to_generate_observations: true
 
 # Set whether the live visualization will attempt to run.
-enable_live_viz: true
+enable_live_viz: false
 
 # Flag to enable collection of training data for the model. Requires the coarse map be set to a high-fidelity map (i.e., from cartographer in the same environment).
 # Save measurements, true odom pose on map, and "observation" pulled from the map, all with timestamps & frame numbers to associate them. This data can be used to retrain the ML model, and also allows re-running the project to evaluate the model & localization to compare to ground truth. May also need to save commands or relative motions depending on how the localization is implemented. NOTE could use rosbags for the replaying aspect, but for training the model we still need a way to get associated measurements + "observations".

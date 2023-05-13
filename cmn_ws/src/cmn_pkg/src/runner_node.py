@@ -11,7 +11,7 @@ from sensor_msgs.msg import Image
 import rospkg, yaml
 from cv_bridge import CvBridge
 
-from cmn_pkg.src.scripts.map_handler import CoarseMapProcessor, Simulator
+from scripts.map_handler import CoarseMapProcessor, Simulator
 from scripts.motion_planner import DiscreteMotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
