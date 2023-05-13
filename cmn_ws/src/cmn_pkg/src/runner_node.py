@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
 
-"""
-Node to mimic the discrete state space and action space used in the original Habitat simulation.
-This node will handle all necessary steps that would otherwise be done by the rest of the nodes together.
-"""
-
 import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
@@ -20,13 +15,24 @@ from scripts.visualizer import Visualizer
 bridge = CvBridge()
 # Instances of utility classes defined in src/scripts folder.
 map_proc = CoarseMapProcessor()
-sim = Simulator()
-dmp = DiscreteMotionPlanner()
-pf = ParticleFilter()
+sim = Simulator() # Subset of MapFrameManager that will allow us to do coordinate transforms.
+dmp = DiscreteMotionPlanner() # Subset of MotionPlanner that can be used to plan paths and command continuous or discrete motions.
+pf = ParticleFilter() # PF for continuous state-space localization.
 viz = Visualizer()
 # RealSense measurements buffer.
 most_recent_RS_meas = None
 #################################################
+
+def run_loop(event=None):
+    """
+    Choose which run loop to use.
+    """
+    if g_run_mode == "discrete":
+        run_loop_discrete()
+    elif g_run_mode == "continuous":
+        run_loop_continuous()
+    else:
+        rospy.logerr("run_loop called with invalid run_mode {:}.".format(g_run_mode))
 
 def run_loop_discrete(event=None):
     """
@@ -36,14 +42,12 @@ def run_loop_discrete(event=None):
     localizes with a discrete bayesian filter,
     and commands discrete actions.
     """
-    # Get a panoramic measurement.
-    pano_meas = get_pano_meas()
-
-    # Get an observation from this measurement.
     if g_use_ground_truth_map_to_generate_observations:
         # TODO sim
         observation = None
     else:
+        # Get a panoramic measurement.
+        pano_meas = get_pano_meas()
         # TODO Pass this panoramic measurement through the model to obtain an observation.
         observation = get_observation_from_pano_meas(pano_meas)
 
@@ -69,17 +73,16 @@ def run_loop_continuous(event=None):
     localizes with a particle filter,
     and commands continuous velocities.
     """
-    # Get an image from the RealSense.
-    meas = pop_from_RS_buffer()
-    
-    # Get an observation from this measurement.
     observation, rect = None, None
     if g_use_ground_truth_map_to_generate_observations:
         # Do not attempt to use the utilities class until the map has been processed.
         while not sim.initialized:
+            rospy.logwarn("Waiting for sim to be initialized!")
             rospy.sleep(0.1)
         observation, rect = sim.get_true_observation()
     else:
+        # Get an image from the RealSense.
+        meas = pop_from_RS_buffer()
         # TODO Pass this measurement through the ML model to obtain an observation.
         observation = None # i.e., get_observation_from_meas(meas)
 
@@ -195,6 +198,7 @@ def pop_from_RS_buffer():
     """
     global most_recent_RS_meas
     while most_recent_RS_meas is None:
+        rospy.logwarn("Waiting on measurement from RealSense!")
         rospy.sleep(0.01)
     # Convert from ROS Image message to an OpenCV image.
     cv_img_meas = bridge.imgmsg_to_cv2(most_recent_RS_meas, desired_encoding='passthrough')
@@ -214,7 +218,6 @@ def main():
     rospy.init_node('runner_node')
 
     read_params()
-
     # Subscribe to sensor images from RealSense.
     # TODO may want to check /locobot/camera/color/camera_info
     rospy.Subscriber(g_topic_measurements, Image, get_RS_image, queue_size=1)
@@ -231,11 +234,7 @@ def main():
     viz.set_map(sim.map) # Use the map after sim's pre-processing.
     viz.set_veh_pose_in_obs_region(sim.veh_px_vert_from_bottom_on_obs, sim.veh_px_horz_from_center_on_obs, sim.obs_width_px, sim.obs_resolution, sim.map_downscale_ratio)
 
-    if g_run_mode == "discrete":
-        rospy.Timer(rospy.Duration(g_dt), run_loop_discrete)
-    elif g_run_mode == "continuous":
-        rospy.Timer(rospy.Duration(g_dt), run_loop_continuous)
-
+    rospy.Timer(rospy.Duration(g_dt), run_loop)
     rospy.spin()
 
 
