@@ -4,11 +4,21 @@
 dt: 0.1 # timer period in seconds.
 
 # Mode to use when running. options: discrete, continuous.
+# - discrete: Panoramic measurements, DBF for localization, discrete actions only.
+# - continuous: Single-image measurements, PF for localization, continuous velocity commands.
 run_mode: "discrete"
+
 # Set how observations will be generated.
-# - If true, treat the coarse map as ground truth and use vehicle pose on it to generate observations.
-# - If false, use the ML model to generate observations from sensor data.
+# - true: treat the coarse map as ground truth and use vehicle pose on it to generate observations.
+# - false: use the ML model to generate observations from sensor data.
 use_ground_truth_map_to_generate_observations: true
+
+# Set whether the live visualization will attempt to run.
+enable_live_viz: true
+
+# Flag to enable collection of training data for the model. Requires the coarse map be set to a high-fidelity map (i.e., from cartographer in the same environment).
+# Save measurements, true odom pose on map, and "observation" pulled from the map, all with timestamps & frame numbers to associate them. This data can be used to retrain the ML model, and also allows re-running the project to evaluate the model & localization to compare to ground truth. May also need to save commands or relative motions depending on how the localization is implemented. NOTE could use rosbags for the replaying aspect, but for training the model we still need a way to get associated measurements + "observations".
+save_data_for_training: false
 
 # Rostopics used throughout the project.
 topics:
@@ -30,6 +40,7 @@ map:
   resolution: 0.01 # Assumed map resolution, in meters/pixel. This will later be estimated as part of the filter to allow a map with unknown scale to be used.
   occ_thresh: 200 # Integer in range [0,255]. All cells with grayscale value < this will be considered occupied.
   obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
+  show_images_during_pre_proc: false # If true, display map at each stage of pre-processing.
 
 # Config params defining how the observation output from the perception model relates to the robot.
 # These should be known, since they are determined by the observation "ground truth" outputs used to train the model in the first place.
@@ -55,11 +66,12 @@ path_planning:
 
 # Configs for running simulator node for basic testing.
 simulator:
-  ground_truth_map:
-    fname: "igvc1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
-    resolution: 0.01 # Map resolution in meters/pixel.
-    occ_thresh: 200 # Integer in range [0,255]. All cells with grayscale value < this will be considered occupied.
-    obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
+  # ground_truth_map:
+  #   use_diff_map_than_coarse_map: false # if true, use the following params to setup the ground truth map. If false, the coarse map will be used.
+  #   fname: "igvc1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
+  #   resolution: 0.01 # Map resolution in meters/pixel.
+  #   occ_thresh: 200 # Integer in range [0,255]. All cells with grayscale value < this will be considered occupied.
+  #   obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
   ground_truth_pose:
     veh_x_initial: 0.0 # meters from left.
     veh_y_initial: 0.0 # meters from bottom.
@@ -68,8 +80,5 @@ simulator:
 
 constraints:
   fwd: 0.2 # commanded linear velocity must be between 0 and this amount (meters).
-  ang: 0.1 #0.0546 # commanded angular velocity has its magnitude limited by this amount (radians).
+  ang: 0.1 # commanded angular velocity has its magnitude limited by this amount (radians).
 
-test:
-  run_debug_mode: false # Run the test mode, which will display images and print text that are normally skipped.
-  save_data_for_training: false # Save measurements, true odom pose on map, and "observation" pulled from the map, all with timestamps & frame numbers to associate them. This data can be used to retrain the ML model, and also allows re-running the project to evaluate the model & localization to compare to ground truth. May also need to save commands or relative motions depending on how the localization is implemented. NOTE could use rosbags for the replaying aspect, but for training the model we still need a way to get associated measurements + "observations".

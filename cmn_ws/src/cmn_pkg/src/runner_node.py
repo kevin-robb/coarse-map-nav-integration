@@ -12,19 +12,19 @@ from std_msgs.msg import Float32MultiArray, String
 import rospkg, yaml
 from cv_bridge import CvBridge
 
-from scripts.cmn_utilities import ObservationGenerator, CoarseMapProcessor
+from scripts.cmn_utilities import CoarseMapProcessor, Simulator
 from scripts.motion_planner import DiscreteMotionPlanner
 from scripts.particle_filter import ParticleFilter
+from scripts.visualizer import Visualizer
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
 # Instances of utility classes defined in src/scripts folder.
 map_proc = CoarseMapProcessor()
-obs_gen = ObservationGenerator()
+sim = Simulator()
 dmp = DiscreteMotionPlanner()
 pf = ParticleFilter()
-# Flag to publish everything for the visualization.
-g_pub_for_viz = False
+viz = Visualizer()
 # RealSense measurements buffer.
 most_recent_RS_meas = None
 #################################################
@@ -55,8 +55,12 @@ def run_loop_discrete(event=None):
     robot_pose_estimate = None
     # TODO Determine path from estimated pose to the goal, using the coarse map, and determine a discrete action to command.
     # TODO for now just command random discrete action.
-    dmp.cmd_random_discrete_action()
-    # Proceed to the next iteration, where another measurement will be taken.
+    fwd, ang = dmp.cmd_random_discrete_action()
+
+    if g_use_ground_truth_map_to_generate_observations:
+        # Propagate the true vehicle pose by this discrete action.
+        sim.propagate_with_dist(fwd, ang)
+
 
 def run_loop_continuous(event=None):
     """
@@ -70,36 +74,60 @@ def run_loop_continuous(event=None):
     meas = pop_from_RS_buffer()
     
     # Get an observation from this measurement.
+    observation, rect = None, None
     if g_use_ground_truth_map_to_generate_observations:
-        # TODO sim
-        observation = None
+        # Do not attempt to use the utilities class until the map has been processed.
+        while not sim.initialized:
+            rospy.sleep(0.1)
+        observation, rect = sim.get_true_observation()
     else:
-        # TODO Pass this measurement through the model to obtain an observation.
+        # TODO Pass this measurement through the ML model to obtain an observation.
         observation = None # i.e., get_observation_from_meas(meas)
 
     # Use the particle filter to get a localization estimate from this observation.
-    # Update the particle filter.
     pf_estimate = pf.update_with_observation(observation)
 
-    if g_pub_for_viz:
-        # Convert pf estimate into a message and publish it (for viz).
-        loc_est = Vector3(pf_estimate[0], pf_estimate[1], pf_estimate[2])
-        localization_pub.publish(loc_est)
+    if viz.enabled:
+        # Update data for the viz.
+        viz.set_observation(observation, rect)
+        # Convert meters to pixels using our map transform class.
+        row, col = sim.transform_map_m_to_px(pf_estimate[0], pf_estimate[1])
+        viz.set_estimated_veh_pose_px(row, col, pf_estimate[2])
 
-        # Publish the full particle set (for viz).
-        pf_set_msg = Float32MultiArray()
-        pf_set_msg.data = list(pf.particle_set[:,0]) + list(pf.particle_set[:,1])
-        particle_set_pub.publish(pf_set_msg)
+        # Update ground-truth data if we're running the sim.
+        if g_use_ground_truth_map_to_generate_observations:
+            # Convert meters to pixels using our map transform class.
+            row, col = sim.transform_map_m_to_px(sim.veh_pose_true[0], sim.veh_pose_true[1])
+            viz.set_true_veh_pose_px(row, col, sim.veh_pose_true[2])
+
+        # Convert particle set to pixels as well.
+        particle_set_px = pf.particle_set
+        for i in range(pf.num_particles):
+            particle_set_px[i,0], particle_set_px[i,0] = sim.transform_map_m_to_px(pf.particle_set[i,0], pf.particle_set[i,0])
+        viz.set_particle_set(particle_set_px)
 
     # Run the PF resampling step.
     pf.resample()
 
+    # Check if a new goal cell has been set.
+    if viz.goal_cell is not None:
+        dmp.set_goal_point(viz.goal_cell)
+
     # Choose velocity commands for the robot based on the pose estimate.
     fwd, ang = dmp.plan_path_to_goal(pf_estimate)
     dmp.pub_velocity_cmd(fwd, ang)
+    sim.propagate_with_vel(fwd, ang) # Apply to the ground truth vehicle pose.
+
+    if viz.enabled:
+        # Update data for the viz.
+        viz.set_planned_path(dmp.path_px_reversed)
 
     # Propagate all particles by the commanded motion.
     pf.propagate_particles(fwd * g_dt, ang * g_dt)
+
+    if viz.enabled:
+        # Update the viz.
+        viz.update()
 
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
@@ -134,8 +162,6 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        global g_debug_mode, g_do_path_planning
-        g_debug_mode = config["test"]["run_debug_mode"]
         # In motion test mode, only this node will run, so it will handle the timer.
         global g_dt, g_run_mode, g_use_ground_truth_map_to_generate_observations
         g_dt = config["dt"]
@@ -192,13 +218,6 @@ def get_RS_image(msg):
     global most_recent_RS_meas
     most_recent_RS_meas = msg
 
-def get_goal_pos(msg:Vector3):
-    """
-    Get goal position in pixels.
-    For now, this is obtained from the user clicking on the map in the sim viz.
-    """
-    dmp.set_goal_point((int(msg.x), int(msg.y)))
-
 def main():
     rospy.init_node('runner_node')
 
@@ -214,20 +233,6 @@ def main():
     discrete_action_pub = rospy.Publisher(g_topic_discrete_acions, String, queue_size=1)
     dmp.set_discrete_action_pub(discrete_action_pub)
 
-    # Subscribe to goal position in pixels on the map. This is obtained by the user clicking on the viz
-    rospy.Subscriber(g_topic_goal, Vector3, get_goal_pos, queue_size=1)
-
-    # Publishers for viz.
-    if g_pub_for_viz:
-        global path_pub, localization_pub, particle_set_pub
-        # Publish planned path to the goal.
-        path_pub = rospy.Publisher(g_topic_planned_path, Float32MultiArray, queue_size=1)
-        dmp.set_path_pub(path_pub)
-        # Publish localization estimate.
-        localization_pub = rospy.Publisher(g_topic_localization, Vector3, queue_size=1)
-        # Publish the full particle set (for viz only).
-        particle_set_pub = rospy.Publisher(g_topic_localization + "/set", Float32MultiArray, queue_size=1)
-
     # Publish the coarse map for other nodes to use.
     occ_map_pub = rospy.Publisher(g_topic_occ_map, Image, queue_size=1)
     raw_map_pub = rospy.Publisher(g_topic_raw_map, Image, queue_size=1)
@@ -236,9 +241,12 @@ def main():
     occ_map_pub.publish(map_proc.get_occ_map_msg())
     raw_map_pub.publish(map_proc.get_raw_map_msg())
     # Set the map for utility classes to use.
-    obs_gen.set_map(map_proc.occ_map)
+    sim.set_map(map_proc.occ_map)
     dmp.set_map(map_proc.occ_map)
     pf.set_map(map_proc.occ_map)
+    # Set things in viz that depend on coord systems.
+    viz.set_map(sim.map) # Use the map after sim's pre-processing.
+    viz.set_veh_pose_in_obs_region(sim.veh_px_vert_from_bottom_on_obs, sim.veh_px_horz_from_center_on_obs, sim.obs_width_px, sim.obs_resolution, sim.map_downscale_ratio)
 
     if g_run_mode == "discrete":
         rospy.Timer(rospy.Duration(g_dt), run_loop_discrete)

@@ -25,7 +25,7 @@ def clamp(val:float, min_val:float, max_val:float):
     return min(max(min_val, val), max_val)
 
 
-class ObservationGenerator:
+class MapFrameManager:
     """
     Class to handle map/vehicle coordinate transforms.
     Also uses the rotated_rectangle_crop_opencv functions to crop out an observation region corresponding to a particular vehicle pose.
@@ -176,7 +176,7 @@ class ObservationGenerator:
         r, c = self.transform_map_m_to_px(vehicle_pose[0], vehicle_pose[1])
         return self.map[r, c] != 1 # return false if this cell is free, and true otherwise.
 
-class Simulator(ObservationGenerator):
+class Simulator(MapFrameManager):
     """
     Class to support running the project in simulation, without the robot providing real data.
     """
@@ -236,12 +236,6 @@ class Simulator(ObservationGenerator):
             self.veh_pose_true = veh_pose_proposed
             rospy.loginfo("SIM: Got command. Veh pose is now " + str(self.veh_pose_true))
 
-    def get_true_veh_pose(self):
-        """
-        @return the ground-truth vehicle pose in (meters, meters, radians).
-        """
-        return self.veh_pose_true
-
     def get_true_observation(self):
         """
         @return the ground-truth observation, using our ground-truth map and vehicle pose.
@@ -276,7 +270,7 @@ class CoarseMapProcessor:
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
             # Map params.
-            self.show_map_images = config["test"]["run_debug_mode"]
+            self.show_map_images = config["map"]["show_images_during_pre_proc"]
             self.map_fpath = pkg_path + "/config/maps/" + config["map"]["fname"]
             self.obs_balloon_radius = config["map"]["obstacle_balloon_radius"]
             # NOTE the scale will eventually be unknown and thus non-constant as it is estimated at runtime.

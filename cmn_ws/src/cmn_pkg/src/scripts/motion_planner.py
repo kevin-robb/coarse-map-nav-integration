@@ -13,7 +13,7 @@ from time import time
 from geometry_msgs.msg import Twist, Vector3
 from std_msgs.msg import String, Float32MultiArray
 
-from scripts.cmn_utilities import clamp, ObservationGenerator
+from scripts.cmn_utilities import clamp, MapFrameManager
 from scripts.astar import Astar
 from scripts.pure_pursuit import PurePursuit
 
@@ -22,13 +22,12 @@ class MotionPlanner:
     """
     Class to send commands to the robot.
     """
-    # Publishers that will be defined by a ROS node and set.
+    # Publisher that will be defined by a ROS node and set.
     cmd_vel_pub = None
-    path_pub = None
 
     # Instances of utility classes.
     astar = Astar() # For path planning.
-    obs_gen = ObservationGenerator() # For coordinate transforms between localization estimate and the map frame.
+    mfm = MapFrameManager() # For coordinate transforms between localization estimate and the map frame.
     # Goal cell in pixels on the map.
     goal_pos_px = None
 
@@ -36,6 +35,9 @@ class MotionPlanner:
     test_motion_types = ["NONE", "RANDOM", "CIRCLE", "STRAIGHT"]
     # Currently active test motion type. None if inactive.
     cur_test_motion_type = None
+
+    # Most recently planned path. Can be accessed for viz. Will be None until a path is successfully planned.
+    path_px_reversed = None
 
 
     def __init__(self):
@@ -63,12 +65,6 @@ class MotionPlanner:
         Set our publisher for velocity commands, which are sent to the robot and used for updating viz.
         """
         self.cmd_vel_pub = pub
-
-    def set_path_pub(self, pub):
-        """
-        Set our publisher for the planned path, which is used only for viz.
-        """
-        self.path_pub = pub
 
     def pub_velocity_cmd(self, fwd, ang):
         """
@@ -115,9 +111,9 @@ class MotionPlanner:
         """
         Set the occupancy grid map which will be used for path planning.
         """
-        self.obs_gen.set_map(occ_map)
-        # NOTE some processing happens in set_map, so use the result that was saved to keep A* and obs_gen in sync w/o duplicate operations.
-        self.astar.map = self.obs_gen.map
+        self.mfm.set_map(occ_map)
+        # NOTE some processing happens in set_map, so use the result that was saved to keep A* and mfm in sync w/o duplicate operations.
+        self.astar.map = self.mfm.map
 
     def set_goal_point(self, goal_cell):
         """
@@ -137,26 +133,26 @@ class MotionPlanner:
             return 0.0, 0.0
         
         # Convert vehicle pose from meters to pixels.
-        veh_r, veh_c = self.obs_gen.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
+        veh_r, veh_c = self.mfm.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
 
         if self.do_path_planning:
             # Generate (reverse) path with A*.
-            path_px_rev = self.astar.run_astar(veh_r, veh_c, self.goal_pos_px[0], self.goal_pos_px[1])
+            self.path_px_reversed = self.astar.run_astar(veh_r, veh_c, self.goal_pos_px[0], self.goal_pos_px[1])
             # Check if A* failed to find a path.
-            if path_px_rev is None:
+            if self.path_px_reversed is None:
                 rospy.logerr("MOT: No path found by A*. Publishing zeros for motion command.")
                 return 0.0, 0.0
         else:
             # Just use the goal point as the "path" and naively steer directly towards it.
-            path_px_rev = [self.goal_pos_px, (veh_r, veh_c)]
+            self.path_px_reversed = [self.goal_pos_px, (veh_r, veh_c)]
             
-        # rospy.loginfo("MOT: Planned path from A*: " + str(path_px_rev))
+        # rospy.loginfo("MOT: Planned path from A*: " + str(self.path_px_reversed))
         # Turn this path from px to meters and un-reverse it.
         path = []
-        for i in range(len(path_px_rev)-1, -1, -1):
-            path.append(self.obs_gen.transform_map_px_to_m(path_px_rev[i][0], path_px_rev[i][1]))
+        for i in range(len(self.path_px_reversed)-1, -1, -1):
+            path.append(self.mfm.transform_map_px_to_m(self.path_px_reversed[i][0], self.path_px_reversed[i][1]))
             # Check if the path contains any occluded cells.
-            if self.obs_gen.map[path_px_rev[i][0], path_px_rev[i][1]] == 0:
+            if self.mfm.map[self.path_px_reversed[i][0], self.path_px_reversed[i][1]] == 0:
                 rospy.logwarn("MOT: Path contains an occluded cell.")
 
         # Set the path for pure pursuit, and generate a command.
@@ -168,11 +164,6 @@ class MotionPlanner:
         ang_clamped = clamp(ang, -self.max_ang_cmd, self.max_ang_cmd)
         if fwd != fwd_clamped or ang != ang_clamped:
             rospy.logwarn("MOT: Clamped pure pursuit output from ({:.2f}, {:.2f}) to ({:.2f}, {:.2f}).".format(fwd, ang, fwd_clamped, ang_clamped))
-
-        if self.path_pub is not None:
-            # Publish the path in pixels for the viz to display.
-            path_as_list = [path_px_rev[i][0] for i in range(len(path_px_rev))] + [path_px_rev[i][1] for i in range(len(path_px_rev))]
-            self.path_pub.publish(Float32MultiArray(data=path_as_list))
 
         # Return the commanded motion to be published.
         return fwd_clamped, ang_clamped
@@ -221,26 +212,32 @@ class DiscreteMotionPlanner(MotionPlanner):
         """
         Command a discrete action.
         @param action - str representing a defined discrete action.
+        @return fwd, ang distances moved, which will allow us to propagate our simulated robot pose.
         """
         if action not in self.discrete_actions:
             rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))
-            return
-
-        # Publish the commanded action so viz/sim can propagate the veh pose properly.
-        self.discrete_action_pub.publish(String(action))
+            return 0.0, 0.0
 
         if action == "90_LEFT":
             self.cmd_discrete_ang_motion(radians(90))
+            return 0.0, radians(90)
         elif action == "90_RIGHT":
             self.cmd_discrete_ang_motion(radians(-90))
+            return 0.0, radians(-90)
         elif action == "FORWARD":
+            # Forward motions have a chance to not occur when commanded.
+            if random() < self.discrete_forward_skip_probability:
+                rospy.logwarn("DMP: Fwd motion requested, but skipping.")
+                return 0.0, 0.0
             self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
+            return self.discrete_forward_dist, 0.0
     
     def cmd_random_discrete_action(self):
         """
         Choose a random action from our list of possible discrete actions, and command it.
+        @return fwd, ang distances moved, which will allow us to propagate our simulated robot pose.
         """
-        self.cmd_discrete_action(self.discrete_actions[randint(0,len(self.discrete_actions)-1)])
+        return self.cmd_discrete_action(self.discrete_actions[randint(0,len(self.discrete_actions)-1)])
 
     def cmd_discrete_ang_motion(self, angle:float):
         """
@@ -267,10 +264,6 @@ class DiscreteMotionPlanner(MotionPlanner):
         Move the robot forwards by a discrete distance, and then stop.
         @param dist - distance in meters to move. Positive is forwards, negative for backwards.
         """
-        # Forward motions have a chance to not occur when commanded.
-        if random() < self.discrete_forward_skip_probability:
-            rospy.logwarn("DMP: Fwd motion requested, but skipping.")
-            return
         # Determine the amount of time it will take to move the specified distance.
         time_to_move = abs(dist / self.max_fwd_cmd) # rad / (rad/s) = seconds.
         rospy.logwarn("DMP: Determined time_to_move: {:} seconds.".format(time_to_move))

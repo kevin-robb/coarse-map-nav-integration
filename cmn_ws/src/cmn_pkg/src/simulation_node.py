@@ -20,7 +20,7 @@ import cv2
 from cv_bridge import CvBridge
 from math import remainder, tau, sin, cos, pi, ceil
 
-from scripts.cmn_utilities import clamp, ObservationGenerator, Simulator
+from scripts.cmn_utilities import clamp, MapFrameManager, Simulator
 # from scripts.cmn_sim import Simulator
 
 ############ GLOBAL VARIABLES ###################
@@ -75,8 +75,7 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        global g_debug_mode, g_dt
-        g_debug_mode = config["test"]["run_debug_mode"]
+        global g_dt
         g_dt = config["dt"]
         # Rostopics.
         global g_topic_commands, g_topic_localization, g_topic_observations, g_topic_occ_map, g_topic_planned_path, g_topic_goal
@@ -155,7 +154,7 @@ def update_plot(obs_img, rect):
     @param rect, bounding box of obs_img in the overall map.
     """
     # Add the new (ground truth) vehicle pose to the viz.
-    veh_pose_true = sim.get_true_veh_pose()
+    veh_pose_true = sim.veh_pose_true
     veh_row, veh_col = sim.transform_map_m_to_px(veh_pose_true[0], veh_pose_true[1])
     remove_plot("veh_pose_true")
     plots["veh_pose_true"] = ax0.arrow(veh_col, veh_row, 0.5*cos(veh_pose_true[2]), -0.5*sin(veh_pose_true[2]), color="blue", width=1.0, label="True Vehicle Pose")

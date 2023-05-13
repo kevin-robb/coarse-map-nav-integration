@@ -10,7 +10,7 @@ import numpy as np
 from math import sin, cos, remainder, tau
 from random import choices
 
-from scripts.cmn_utilities import ObservationGenerator
+from scripts.cmn_utilities import MapFrameManager
 
 class ParticleFilter:
     # Config params.
@@ -18,7 +18,7 @@ class ParticleFilter:
     state_size = None
     num_to_resample_randomly = None
     # Utility class.
-    obs_gen = None
+    mfm = None
     # Ongoing state.
     particle_set = None
     particle_weights = None
@@ -52,7 +52,7 @@ class ParticleFilter:
         self.best_estimate = np.zeros(self.state_size)
 
         # Init the utilities class for doing coord transforms and observation comparisons.
-        self.obs_gen = ObservationGenerator()
+        self.mfm = MapFrameManager()
 
 
     def set_map(self, map):
@@ -60,7 +60,7 @@ class ParticleFilter:
         Get the occupancy grid map, and save it to use each iteration.
         @param map, a 2D array containing the processed occupancy grid map.
         """
-        self.obs_gen.set_map(map)
+        self.mfm.set_map(map)
 
 
     def propagate_particles(self, fwd, ang):
@@ -90,7 +90,7 @@ class ParticleFilter:
         """
         for i in range(self.num_particles):
             # For a certain particle, extract the region it would have given as an observation.
-            obs_img_expected, _ = self.obs_gen.extract_observation_region(self.particle_set[i,:])
+            obs_img_expected, _ = self.mfm.extract_observation_region(self.particle_set[i,:])
             # Compare this to the actual observation to evaluate this particle's likelihood.
             self.particle_weights[i] = self.compute_measurement_likelihood(obs_img_expected, observation)
             # NOTE these likelihoods are intentionally NOT normalized.
@@ -143,8 +143,8 @@ class ParticleFilter:
         # Randomly generate small portion of population to prevent particle depletion.
         for i in range(self.num_particles - self.num_to_resample_randomly, self.num_particles):
             # Do not attempt to use the utilities class until the map has been processed.
-            if self.obs_gen.initialized:
-                new_particle_set[i,:] = self.obs_gen.generate_random_valid_veh_pose()
+            if self.mfm.initialized:
+                new_particle_set[i,:] = self.mfm.generate_random_valid_veh_pose()
             else:
                 new_particle_set[i,:] = np.zeros(self.state_size)
 
