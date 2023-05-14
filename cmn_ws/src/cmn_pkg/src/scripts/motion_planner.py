@@ -13,7 +13,15 @@ from geometry_msgs.msg import Twist, Vector3
 from scripts.map_handler import clamp, MapFrameManager
 from scripts.astar import Astar
 from scripts.pure_pursuit import PurePursuit
+from scripts.basic_types import PoseMeters, PosePixels
 
+"""
+Ideas to try:
+    - medial axis graph path planning
+    - only allow motion along voronoi lines that stay as far from obstacles as possible
+    - allow the vehicle to be in collision since the coarse map could be inaccurate or have extraneous info
+    - perhaps a base heuristic of removing small connected components in map to remove furniture and stuff.
+"""
 
 class MotionPlanner:
     """
@@ -24,9 +32,9 @@ class MotionPlanner:
 
     # Instances of utility classes.
     astar = Astar() # For path planning.
-    mfm = MapFrameManager() # For coordinate transforms between localization estimate and the map frame.
+    mfm = None # For coordinate transforms between localization estimate and the map frame. Will be set after init by runner.
     # Goal cell in pixels on the map.
-    goal_pos_px = None
+    goal_pos_px = None # PosePixels instance.
 
     # Types of motion that can be commanded to the robot when in test mode.
     test_motion_types = ["NONE", "RANDOM", "CIRCLE", "STRAIGHT"]
@@ -34,7 +42,7 @@ class MotionPlanner:
     cur_test_motion_type = None
 
     # Most recently planned path. Can be accessed for viz. Will be None until a path is successfully planned.
-    path_px_reversed = None
+    path_px_reversed = None # List of PosePixels objects.
 
 
     def __init__(self):
@@ -104,25 +112,32 @@ class MotionPlanner:
         # Send the motion to the robot.
         self.pub_velocity_cmd(fwd, ang)
 
-    def set_map(self, occ_map):
+    def set_map_frame_manager(self, mfm:MapFrameManager):
         """
-        Set the occupancy grid map which will be used for path planning.
+        Set our reference to the map frame manager, which allows us to use the map and coordinate transform functions to help with path planning.
+        @param mfg MapFrameManager instance that has already been initialized with a map.
         """
-        self.mfm.set_map(occ_map)
-        # NOTE some processing happens in set_map, so use the result that was saved to keep A* and mfm in sync w/o duplicate operations.
+        self.mfm = mfm
+        # Save the map in A* to use as well.
         self.astar.map = self.mfm.map
 
-    def set_goal_point(self, goal_cell):
+    def set_goal_point_random(self):
+        """
+        Select a random free cell on the map to use as the goal.
+        """
+        self.goal_pos_px = self.mfm.choose_random_free_cell()
+
+    def set_goal_point(self, goal_cell:PosePixels):
         """
         Set the goal point in pixels on the map, which we will try to go to.
         """
-        rospy.loginfo("MP: Got goal cell ({:}, {:})".format(int(goal_cell[0]), int(goal_cell[1])))
+        rospy.loginfo("MP: Got goal cell ({:}, {:})".format(int(goal_cell.r), int(goal_cell.c)))
         self.goal_pos_px = goal_cell
 
-    def plan_path_to_goal(self, veh_pose_est):
+    def plan_path_to_goal(self, veh_pose_est:PoseMeters):
         """
         Use A* to generate a path to the current goal cell, starting at the current localization estimate.
-        @param veh_pose_est, 3x1 numpy array of localization estimate (x,y,yaw) in meters.
+        @param veh_pose_est - PoseMeters instance of localization estimate (x,y,yaw).
         @return fwd, ang - velocities to command.
         """
         if self.goal_pos_px is None:
@@ -130,26 +145,26 @@ class MotionPlanner:
             return 0.0, 0.0
         
         # Convert vehicle pose from meters to pixels.
-        veh_r, veh_c = self.mfm.transform_map_m_to_px(veh_pose_est[0], veh_pose_est[1])
+        veh_pose_est_px = self.mfm.transform_pose_m_to_px(veh_pose_est)
 
         if self.do_path_planning:
             # Generate (reverse) path with A*.
-            self.path_px_reversed = self.astar.run_astar(veh_r, veh_c, self.goal_pos_px[0], self.goal_pos_px[1])
+            self.path_px_reversed = self.astar.run_astar(veh_pose_est_px, self.goal_pos_px)
             # Check if A* failed to find a path.
             if self.path_px_reversed is None:
                 rospy.logerr("MOT: No path found by A*. Publishing zeros for motion command.")
                 return 0.0, 0.0
         else:
             # Just use the goal point as the "path" and naively steer directly towards it.
-            self.path_px_reversed = [self.goal_pos_px, (veh_r, veh_c)]
+            self.path_px_reversed = [self.goal_pos_px, veh_pose_est_px]
             
         # rospy.loginfo("MOT: Planned path from A*: " + str(self.path_px_reversed))
-        # Turn this path from px to meters and un-reverse it.
+        # Turn this path from PosePixels to PoseMeters and un-reverse it.
         path = []
         for i in range(len(self.path_px_reversed)-1, -1, -1):
-            path.append(self.mfm.transform_map_px_to_m(self.path_px_reversed[i][0], self.path_px_reversed[i][1]))
+            path.append(self.mfm.transform_pose_px_to_m(self.path_px_reversed[i]))
             # Check if the path contains any occluded cells.
-            if self.mfm.map[self.path_px_reversed[i][0], self.path_px_reversed[i][1]] == 0:
+            if self.mfm.map[self.path_px_reversed[i].r, self.path_px_reversed[i].c] == 0:
                 rospy.logwarn("MOT: Path contains an occluded cell.")
 
         # Set the path for pure pursuit, and generate a command.

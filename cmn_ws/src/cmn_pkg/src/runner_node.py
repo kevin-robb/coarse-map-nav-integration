@@ -10,6 +10,7 @@ from scripts.map_handler import CoarseMapProcessor, Simulator
 from scripts.motion_planner import DiscreteMotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
+from scripts.basic_types import PoseMeters, PosePixels
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
@@ -93,20 +94,12 @@ def run_loop_continuous(event=None):
         # Update data for the viz.
         viz.set_observation(observation, rect)
         # Convert meters to pixels using our map transform class.
-        row, col = sim.transform_map_m_to_px(pf_estimate[0], pf_estimate[1])
-        viz.set_estimated_veh_pose_px(row, col, pf_estimate[2])
-
+        viz.set_estimated_veh_pose_px(sim.transform_pose_m_to_px(pf_estimate))
         # Update ground-truth data if we're running the sim.
         if g_use_ground_truth_map_to_generate_observations:
-            # Convert meters to pixels using our map transform class.
-            row, col = sim.transform_map_m_to_px(sim.veh_pose_true[0], sim.veh_pose_true[1])
-            viz.set_true_veh_pose_px(row, col, sim.veh_pose_true[2])
-
+            viz.set_true_veh_pose_px(sim.transform_pose_m_to_px(sim.veh_pose_true))
         # Convert particle set to pixels as well.
-        particle_set_px = pf.particle_set
-        for i in range(pf.num_particles):
-            particle_set_px[i,0], particle_set_px[i,0] = sim.transform_map_m_to_px(pf.particle_set[i,0], pf.particle_set[i,0])
-        viz.set_particle_set(particle_set_px)
+        viz.set_particle_set(pf.get_particle_set_px())
 
     # Run the PF resampling step.
     pf.resample()
@@ -226,13 +219,14 @@ def main():
     cmd_vel_pub = rospy.Publisher(g_topic_commands, Twist, queue_size=1)
     dmp.set_vel_pub(cmd_vel_pub)
 
-    # Set the map for utility classes to use.
+    # Init the sim (subclass of MapFrameManager) with the map.
     sim.set_map(map_proc.occ_map)
-    dmp.set_map(map_proc.occ_map)
-    pf.set_map(map_proc.occ_map)
-    # Set things in viz that depend on coord systems.
-    viz.set_map(sim.map) # Use the map after sim's pre-processing.
-    viz.set_veh_pose_in_obs_region(sim.veh_px_vert_from_bottom_on_obs, sim.veh_px_horz_from_center_on_obs, sim.obs_width_px, sim.obs_resolution, sim.map_downscale_ratio)
+    # Give reference to sim so other classes can use the map and perform coordinate transforms.
+    dmp.set_map_frame_manager(sim)
+    pf.set_map_frame_manager(sim)
+    viz.set_map_frame_manager(sim)
+    # Select a random goal point. This can be overridden by clicking on the plot to set a new goal.
+    dmp.set_goal_point_random()
 
     rospy.Timer(rospy.Duration(g_dt), run_loop)
     rospy.spin()

@@ -8,6 +8,9 @@ from matplotlib.backend_bases import MouseButton
 import cv2
 from math import sin, cos
 
+from scripts.basic_types import PoseMeters, PosePixels
+from scripts.map_handler import MapFrameManager
+
 ### GLOBAL VARS ###
 g_goal_cell_px = None
 ###################
@@ -19,7 +22,7 @@ def on_click(event):
     if event.button is MouseButton.LEFT:
         # Record clicked point as new goal for path planning.
         global g_goal_cell_px
-        g_goal_cell_px = (event.ydata, event.xdata)
+        g_goal_cell_px = PosePixels(event.ydata, event.xdata)
         rospy.loginfo("VIZ: Recording new goal point ({:}, {:}).".format(event.ydata, event.xdata))
     elif event.button is MouseButton.RIGHT:
         # kill the node.
@@ -40,11 +43,13 @@ class Visualizer:
     occ_map = None # Occupancy grid map that will be displayed in the background of the main viz window.
     observation = None # Most recent observation image.
     observation_region = None # Area in front of robot being used to generate observations.
-    veh_pose_true = None # Most recent ground-truth vehicle pose. (3x1 numpy array of (x,y,yaw)^T)
-    veh_pose_estimate = None # Most recent localization estimate of the vehicle pose. (3x1 numpy array of (x,y,yaw)^T)
+    veh_pose_true = None # Most recent ground-truth vehicle pose.
+    veh_pose_estimate = None # Most recent localization estimate of the vehicle pose.
     particle_set = None # Set of all particles currently in the particle filter. Only set if the PF is being used. (Nx3 numpy array)
-    planned_path = None # Full path being planned by the motion controller, in form [(row1,col1),...,(rowN,colN)]
-    goal_cell = None # Current goal cell in pixels.
+    planned_path = None # Full path being planned by the motion controller, as list of PosePixels.
+    goal_cell = None # Current goal cell in pixels. Instance of PosePixels.
+
+    mfm = None # Reference to MapFrameManager allows access to important configs that get computed during map setup.
 
     def __init__(self):
         """
@@ -109,67 +114,69 @@ class Visualizer:
         self.observation = obs_img
         self.observation_region = obs_rect
 
-    def set_veh_pose_in_obs_region(self, veh_px_vert_from_bottom_on_obs, veh_px_horz_from_center_on_obs, obs_width_px, obs_resolution, map_downscale_ratio):
+    def set_map_frame_manager(self, mfm:MapFrameManager):
+        """
+        Set our reference to the map frame manager, which allows us to use the map and coordinate transform functions.
+        @param mfg MapFrameManager instance that has already been initialized with a map.
+        """
+        self.mfm = mfm
+        # Setup the map on the figure.
+        self.occ_map = mfm.map
+        # Stop here if visualization is disabled.
+        if not self.enabled:
+            return
+        # Add the map to our figure.
+        self.ax0.imshow(mfm.map, cmap="gray", vmin=0, vmax=1)
+
+        # Add vehicle pose relative to observation region, now that we've set mfm and have the needed configs.
+        self.set_veh_pose_in_obs_region()
+
+    def set_veh_pose_in_obs_region(self):
         """
         Add vehicle pose relative to observation region for clarity.
         """
-        if not self.enabled:
+        if not self.mfm.initialized:
             return
         # This is static, so only need to plot it once.
         if "veh_pose_obs" in self.plots.keys():
             return
         # Determine cell location from config vals.
-        col = veh_px_vert_from_bottom_on_obs-0.5
-        row = obs_width_px // 2 + veh_px_horz_from_center_on_obs
+        col = self.mfm.veh_px_vert_from_bottom_on_obs-0.5
+        row = self.mfm.obs_width_px // 2 + self.mfm.veh_px_horz_from_center_on_obs
         # NOTE since it's plotted sideways, robot pose is always facing to the right.
-        d_col = 0.5*obs_resolution
+        d_col = 0.5*self.mfm.obs_resolution
         d_row = 0.0
         # Size depends on relative resolutions of observation and map.
-        wid = 0.01/obs_resolution/map_downscale_ratio
-
+        wid = 0.01/self.mfm.obs_resolution/self.mfm.map_downscale_ratio
         # Plot it.
         self.plots["veh_pose_obs"] = self.ax1.arrow(col, row, d_col, d_row, color="blue", width=wid, zorder = 2)
 
-    def set_true_veh_pose_px(self, row, col, angle):
+    def set_true_veh_pose_px(self, pose_px:PosePixels):
         """
         Set a new true vehicle pose, which will be displayed on the viz from now on.
         @note We only have this when running in simulation.
-        @param row, col - Cell location on map.
-        @param angle - Orientation (yaw) in radians.
+        @param pose_px
         """
-        self.veh_pose_true = [row, col, angle]
+        self.veh_pose_true = pose_px
 
-    def set_map(self, occ_map):
-        """
-        Set the occupancy grid map which will be displayed in the background of the viz's main window.
-        @note This should be called after allowing the Simulator instance to process the map; otherwise, coordinate systems will not align in the plot.
-        @param occ_map Image of the map.
-        """
-        self.occ_map = occ_map
-        if not self.enabled:
-            return
-        # Add the map to our figure.
-        self.ax0.imshow(occ_map, cmap="gray", vmin=0, vmax=1)
-
-    def set_estimated_veh_pose_px(self, row, col, angle):
+    def set_estimated_veh_pose_px(self, pose_px:PosePixels):
         """
         Set a new estimated vehicle pose, which will be displayed on the viz from now on.
-        @param row, col - Cell location on map.
-        @param angle - Orientation (yaw) in radians.
+        @param pose_px
         """
-        self.veh_pose_estimate = [row, col, angle]
+        self.veh_pose_estimate = pose_px
 
-    def set_particle_set(self, particle_set):
+    def set_particle_set(self, particle_set_px):
         """
         Get the full set of particle positions from the current PF iteration.
-        @param particle_set numpy array of dimension num_particles x 3, where each row is a vehicle pose's (row,col,yaw).
+        @param particle_set_px - List of PosePixels.
         """
-        self.particle_set = particle_set
+        self.particle_set = particle_set_px
 
     def set_planned_path(self, path):
         """
         Get the full planned path, and save it to display on viz.
-        @param path List of (row, col) cell values making up the path.
+        @param path List of PosePixels making up the path.
         """
         self.planned_path = path
 
@@ -190,23 +197,25 @@ class Visualizer:
         if self.veh_pose_true is not None:
             # Add the new (ground truth) vehicle pose to the viz.
             self.remove_plot("veh_pose_true")
-            self.plots["veh_pose_true"] = self.ax0.arrow(self.veh_pose_true[1], self.veh_pose_true[0], 0.5*cos(self.veh_pose_true[2]), -0.5*sin(self.veh_pose_true[2]), color="blue", width=1.0, label="True Vehicle Pose")
+            self.plots["veh_pose_true"] = self.ax0.arrow(self.veh_pose_true.c, self.veh_pose_true.r, 0.5*cos(self.veh_pose_true.yaw), -0.5*sin(self.veh_pose_true.yaw), color="blue", width=1.0, label="True Vehicle Pose")
 
         if self.veh_pose_estimate is not None:
             # Add the most recent localization estimate to the viz.
             self.remove_plot("veh_pose_est")
-            self.plots["veh_pose_est"] = self.ax0.arrow(self.veh_pose_estimate[1], self.veh_pose_estimate[0], 0.5*cos(self.veh_pose_estimate[2]), -0.5*sin(self.veh_pose_estimate[2]), color="green", width=1.0, zorder = 3, label="PF Estimate")
+            self.plots["veh_pose_est"] = self.ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, 0.5*cos(self.veh_pose_estimate.yaw), -0.5*sin(self.veh_pose_estimate.yaw), color="green", width=1.0, zorder = 3, label="PF Estimate")
 
         if self.particle_set is not None:
             # Plot the set of particles in the PF.
             self.remove_plot("particle_set")
-            self.plots["particle_set"] = self.ax0.scatter(self.particle_set[:,1], self.particle_set[:,0], s=10, color="red", zorder=0, label="All Particles")
+            particles_r = [self.particle_set[i].r for i in range(len(self.particle_set))]
+            particles_c = [self.particle_set[i].c for i in range(len(self.particle_set))]
+            self.plots["particle_set"] = self.ax0.scatter(particles_c, particles_r, s=10, color="red", zorder=0, label="All Particles")
         
         if self.planned_path is not None:
             # Plot the full path the motion controller is attempting to follow.
             self.remove_plot("planned_path")
-            path_r = [self.planned_path[i][0] for i in range(len(self.planned_path))]
-            path_c = [self.planned_path[i][1] for i in range(len(self.planned_path))]
+            path_r = [self.planned_path[i].r for i in range(len(self.planned_path))]
+            path_c = [self.planned_path[i].c for i in range(len(self.planned_path))]
             self.plots["planned_path"] = self.ax0.scatter(path_c, path_r, s=3, color="purple", zorder=1, label="Planned Path")
 
         if self.observation_region is not None:

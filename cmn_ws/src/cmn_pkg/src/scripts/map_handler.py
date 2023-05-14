@@ -6,11 +6,12 @@ Functions that will be useful in more than one node in this project.
 
 import rospkg, yaml, cv2, rospy
 import numpy as np
-from math import sin, cos, remainder, tau, ceil
+from math import sin, cos, remainder, tau, ceil, pi
 from random import random, randrange
 from cv_bridge import CvBridge, CvBridgeError
 
 from scripts.rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
+from scripts.basic_types import PoseMeters, PosePixels
 
 #### GLOBAL VARIABLES ####
 bridge = CvBridge()
@@ -33,7 +34,9 @@ class MapFrameManager:
     initialized = False
     map = None # 2D numpy array of the global map
     map_resolution = None # float, meters/pixel for the map.
-    # Occupancy map values.
+
+    # Config flags. If using discrete state space, robot's yaw must be axis-aligned.
+    use_discrete_state_space = False
 
     def __init__(self):
         """
@@ -51,6 +54,7 @@ class MapFrameManager:
         # Open the yaml and get the relevant params.
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
+            self.use_discrete_state_space = True if config["run_mode"] == "discrete" else False
             # Map params. NOTE this will eventually be unknown and thus non-constant as it is estimated.
             self.map_resolution = config["map"]["resolution"]
             self.map_downscale_ratio = config["map"]["downscale_ratio"]
@@ -88,6 +92,14 @@ class MapFrameManager:
         self.map = cv2.copyMakeBorder(map, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
         self.initialized = True
 
+    def transform_pose_px_to_m(self, pose_px:PosePixels) -> PoseMeters:
+        """
+        Convert a pose from pixels to meters.
+        """
+        x, y = self.transform_map_px_to_m(pose_px.r, pose_px.c)
+        # Return new values, preserving yaw.
+        return PoseMeters(x, y, pose_px.yaw)
+
     def transform_map_px_to_m(self, row:int, col:int):
         """
         Given coordinates of a cell on the ground-truth map, compute the equivalent position in meters.
@@ -105,6 +117,14 @@ class MapFrameManager:
         x = self.map_resolution * col_offset
         y = self.map_resolution * -row_offset
         return x, y
+
+    def transform_pose_m_to_px(self, pose_m:PoseMeters) -> PosePixels:
+        """
+        Convert a pose from meters to pixels.
+        """
+        r, c = self.transform_map_m_to_px(pose_m.x, pose_m.y)
+        # Return new values, preserving yaw.
+        return PosePixels(r, c, pose_m.yaw)
 
     def transform_map_m_to_px(self, x:float, y:float):
         """
@@ -124,55 +144,68 @@ class MapFrameManager:
         col = int(clamp(col, 0, self.map.shape[1]-1))
         return row, col
 
-    def extract_observation_region(self, vehicle_pose):
+    def extract_observation_region(self, veh_pose_m:PoseMeters):
         """
         Crop out the map region for the observation corresponding to the given vehicle pose.
-        @param vehicle_pose, numpy array of [x,y,yaw] in meters and radians.
+        @param veh_pose_m PoseMeters instance containing x, y, and yaw representing a vehicle pose.
+        @return tuple containing (observation image, bounding box region in map frame)
         """
         # Compute vehicle pose in pixels.
-        veh_row, veh_col = self.transform_map_m_to_px(vehicle_pose[0], vehicle_pose[1])
-
+        veh_pose_px = self.transform_pose_m_to_px(veh_pose_m)
         # Project ahead of vehicle pose to determine center of observation region.
-        center_col = veh_col + (self.obs_height_px_on_map / 2 - self.veh_px_vert_from_bottom_on_map) * cos(vehicle_pose[2])
-        center_row = veh_row - (self.obs_height_px_on_map / 2 - self.veh_px_vert_from_bottom_on_map) * sin(vehicle_pose[2])
+        center_col = veh_pose_px.c + (self.obs_height_px_on_map / 2 - self.veh_px_vert_from_bottom_on_map) * cos(veh_pose_px.yaw)
+        center_row = veh_pose_px.r - (self.obs_height_px_on_map / 2 - self.veh_px_vert_from_bottom_on_map) * sin(veh_pose_px.yaw)
         center = (center_col, center_row)
         # Create the rotated rectangle.
-        angle = -np.rad2deg(vehicle_pose[2])
+        angle = -np.rad2deg(veh_pose_px.yaw)
         rect = (center, (self.obs_height_px_on_map, self.obs_width_px_on_map), angle)
-
         # Crop out the rotated rectangle and reorient it.
         obs_img = crop_rotated_rectangle(image = self.map, rect = rect)
-
+        # If area was partially outside the image, this will return None.
+        if obs_img is None:
+            rospy.logerr("MFM: Could not generate observation image.")
+            return None, None
         # Resize observation to desired resolution.
         obs_img = cv2.resize(obs_img, (self.obs_height_px, self.obs_width_px))
-
         # Return both the image and the rect points for the viz to use for plotting.
         return obs_img, rect
     
-    def generate_random_valid_veh_pose(self):
+    def choose_random_free_cell(self) -> PosePixels:
         """
-        Generate a vehicle pose at random.
-        Ensure this position is within map bounds, and is located in free space.
-        @return 3x1 numpy array of the created pose.
+        Choose a random free cell on the map to return.
+        @return PosePixels
         """
-        # Choose any yaw at random, with no validity condition.
-        yaw = remainder(random() * tau, tau)
-        # Generate a particle at random on the map, and ensure it's in a valid cell.
+        # Keep choosing random cells until one is free.
         while True:
-            # Choose a random vehicle cell in px so we can first check if it's occluded.
             r = randrange(0, self.map.shape[0])
             c = randrange(0, self.map.shape[1])
             if self.map[r, c] == 1: # this cell is free.
-                x, y = self.transform_map_px_to_m(r, c)
-                return np.array([x,y,yaw])
+                return PosePixels(r, c)
+
+    def generate_random_valid_veh_pose(self) -> PoseMeters:
+        """
+        Generate a vehicle pose at random.
+        Ensure this position is within map bounds, and is located in free space.
+        @return PoseMeters of the created pose.
+        """
+        if self.use_discrete_state_space:
+            # Choose yaw randomly from cardinal directions.
+            angles = [0.0, pi/2, pi, -pi/2]
+            yaw = angles[randrange(0, len(angles))]
+        else:
+            # Choose any yaw at random, with no validity condition.
+            yaw = remainder(random() * tau, tau)
+        # Choose a random vehicle cell in px so we can first check if it's occluded.
+        free_cell = self.choose_random_free_cell()
+        return PoseMeters(free_cell.r, free_cell.c, yaw)
             
-    def veh_pose_m_in_collision(self, vehicle_pose) -> bool:
+    def veh_pose_m_in_collision(self, veh_pose_m:PoseMeters) -> bool:
         """
         Given a vehicle pose, determine if this is in collision on the map.
-        @param vehicle_pose, numpy array of [x,y,yaw] in meters and radians.
+        @param veh_pose_m - PoseMeters instance containing x,y,yaw.
         @return true if the vehicle pose is in collision on the occupancy grid map.
         """
-        r, c = self.transform_map_m_to_px(vehicle_pose[0], vehicle_pose[1])
+        r, c = self.transform_map_m_to_px(veh_pose_m.x, veh_pose_m.y)
         return self.map[r, c] != 1 # return false if this cell is free, and true otherwise.
 
 class Simulator(MapFrameManager):
@@ -180,7 +213,7 @@ class Simulator(MapFrameManager):
     Class to support running the project in simulation, without the robot providing real data.
     """
     # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
-    veh_pose_true = np.array([0.0, 0.0, 0.0])
+    veh_pose_true = None
 
     def __init__(self):
         self.read_params()
@@ -198,6 +231,15 @@ class Simulator(MapFrameManager):
             self.max_fwd_cmd = config["constraints"]["fwd"]
             self.max_ang_cmd = config["constraints"]["ang"]
             self.allow_motion_through_occupied_cells = config["simulator"]["allow_motion_through_occupied_cells"]
+
+    def set_map(self, map):
+        """
+        Use the MapFrameManager's set_map function to assign the map and setup all validity conditions such as bounds and free cells.
+        Also initialize the simulator's state.
+        """
+        super().set_map(map)
+        # Initialize the ground truth vehicle pose randomly on the map.
+        self.veh_pose_true = self.generate_random_valid_veh_pose()
 
     def propagate_with_vel(self, lin:float, ang:float):
         """
@@ -219,21 +261,21 @@ class Simulator(MapFrameManager):
         """
         # TODO Perturb with some noise.
         # Compute a proposed new vehicle pose, and check if it's allowed before moving officially.
-        veh_pose_proposed = np.copy(self.veh_pose_true)
-        veh_pose_proposed[0] += lin * cos(veh_pose_proposed[2])
-        veh_pose_proposed[1] += lin * sin(veh_pose_proposed[2])
+        veh_pose_proposed = self.veh_pose_true # make a copy.
+        veh_pose_proposed.x += lin * cos(veh_pose_proposed.yaw)
+        veh_pose_proposed.y += lin * sin(veh_pose_proposed.yaw)
         # Clamp the vehicle pose to remain inside the map bounds.
-        veh_pose_proposed[0] = clamp(veh_pose_proposed[0], self.map_x_min_meters, self.map_x_max_meters)
-        veh_pose_proposed[1] = clamp(veh_pose_proposed[1], self.map_y_min_meters, self.map_y_max_meters)
+        veh_pose_proposed.x = clamp(veh_pose_proposed.x, self.map_x_min_meters, self.map_x_max_meters)
+        veh_pose_proposed.x = clamp(veh_pose_proposed.y, self.map_y_min_meters, self.map_y_max_meters)
         # Keep yaw normalized to (-pi, pi).
-        veh_pose_proposed[2] = remainder(veh_pose_proposed[2] + ang, tau)
+        veh_pose_proposed.yaw = remainder(veh_pose_proposed.yaw + ang, tau)
         # Determine if this vehicle pose is allowed.
         if not self.allow_motion_through_occupied_cells and self.veh_pose_m_in_collision(veh_pose_proposed):
             rospy.logwarn("SIM: Command would move vehicle to invalid pose. Only allowing angular motion.")
-            self.veh_pose_true[2] = veh_pose_proposed[2]
+            self.veh_pose_true.yaw = veh_pose_proposed.yaw
         else:
             self.veh_pose_true = veh_pose_proposed
-            rospy.loginfo("SIM: Got command. Veh pose is now " + str(self.veh_pose_true))
+            rospy.loginfo("SIM: Allowing command. Veh pose is now " + str(self.veh_pose_true))
 
     def get_true_observation(self):
         """

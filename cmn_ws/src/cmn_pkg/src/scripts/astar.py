@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 
-"""
-Set of static functions to perform A* path planning.
-"""
 import rospy
-from math import cos, sin
+
+from scripts.basic_types import PosePixels
 
 class Astar:
     include_diagonals = False
@@ -12,24 +10,15 @@ class Astar:
     # Neighbors for comparison and avoiding re-computations.
     nbrs = [(0, -1), (0, 1), (-1, 0), (1, 0)] + ([(-1, -1), (-1, 1), (1, -1), (1, 1)] if include_diagonals else [])
 
-    """
-    medial axis graph path planning
-    only allow motion along voronoi lines that stay as far from obstacles as possible
-
-    allow the vehicle to be in collision since the coarse map could be inaccurate or have extraneous info
-
-    perhaps a base heuristic of removing small connected components in map to remove furniture and stuff.
-    """
-
-    def run_astar(self, start_row, start_col, goal_row, goal_col):
+    def run_astar(self, start_pose_px:PosePixels, goal_pose_px:PosePixels):
         """
         Use A* to generate a path from the current pose to the goal position.
-        1 map grid cell = 0.1x0.1 units in ekf coords.
-        map (0,0) = ekf (-10,10).
+        @param start_pose_px, goal_pose_px PosePixels of start and end of path.
+        @return List of PosePixels describing the path in reverse (i.e., from goal to start).
         """
-        # Define start and goal nodes.
-        start_cell = Cell((start_row, start_col))
-        goal_cell = Cell((goal_row, goal_col))
+        # Define start and goal nodes as Cells.
+        start_cell = Cell(start_pose_px)
+        goal_cell = Cell(goal_pose_px)
         # make sure starting pose is on the map and not in collision.
         if start_cell.r < 0 or start_cell.c < 0 or start_cell.r >= self.map.shape[0] or start_cell.c >= self.map.shape[1]:
             rospy.logerr("A*: Starting position not within map bounds. Exiting without computing a path.")
@@ -58,7 +47,7 @@ class Astar:
                 # recurse up thru parents to get reverse of path from start to goal.
                 path_to_start = []
                 while cur_cell.parent is not None:
-                    path_to_start.append((cur_cell.r, cur_cell.c))
+                    path_to_start.append(PosePixels(cur_cell.r, cur_cell.c))
                     cur_cell = cur_cell.parent
                 return path_to_start
             # add this node to the closed list.
@@ -91,7 +80,7 @@ class Astar:
                     # chebyshev heuristic
                     nbr.set_cost(h=max(abs(goal_cell.r - nbr.r), abs(goal_cell.c - nbr.c)))
                 else:
-                    # euclidean heuristic. (keep squared to save unnecessary computation.)
+                    # euclidean heuristic. (keep squared to save unnecessary computation of square roots.)
                     nbr.set_cost(h=(goal_cell.r - nbr.r)**2 + (goal_cell.c - nbr.c)**2)
                 # add cell to open list.
                 open_list.append(nbr)
@@ -99,9 +88,13 @@ class Astar:
 
 
 class Cell:
-    def __init__(self, pos, parent=None):
-        self.r = int(pos[0])
-        self.c = int(pos[1])
+    """
+    Simple representation of nodes to help with A*.
+    """
+
+    def __init__(self, pose_px:PosePixels, parent=None):
+        self.r = int(pose_px.r)
+        self.c = int(pose_px.c)
         self.parent = parent
         self.g = 0 if parent is None else parent.g + 1
         self.f = 0

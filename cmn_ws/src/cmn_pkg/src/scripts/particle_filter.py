@@ -11,6 +11,7 @@ from math import sin, cos, remainder, tau
 from random import choices
 
 from scripts.map_handler import MapFrameManager
+from scripts.basic_types import PoseMeters, PosePixels
 
 class ParticleFilter:
     # Config params.
@@ -51,19 +52,14 @@ class ParticleFilter:
         self.particle_weights = np.zeros(self.num_particles)
         self.best_estimate = np.zeros(self.state_size)
 
-        # Init the utilities class for doing coord transforms and observation comparisons.
-        self.mfm = MapFrameManager()
-
-
-    def set_map(self, map):
+    def set_map_frame_manager(self, mfm:MapFrameManager):
         """
-        Get the occupancy grid map, and save it to use each iteration.
-        @param map, a 2D array containing the processed occupancy grid map.
+        Set our reference to the map frame manager, which allows us to use the map and coordinate transform functions.
+        @param mfg MapFrameManager instance that has already been initialized with a map.
         """
-        self.mfm.set_map(map)
+        self.mfm = mfm
 
-
-    def propagate_particles(self, fwd, ang):
+    def propagate_particles(self, fwd:float, ang:float):
         """
         Given a relative motion since last iteration, apply this to all particles.
         @param fwd, commanded forward motion in meters.
@@ -82,18 +78,20 @@ class ParticleFilter:
             self.best_estimate[2] = remainder(self.best_estimate[2] + ang, tau)
 
 
-    def update_with_observation(self, observation):
+    def update_with_observation(self, observation) -> PoseMeters:
         """
         Use an observation to evaluate the likelihood of all particles, and update the filter estimate.
         @param observation, 2D numpy array of the observation for this iteration.
-        @return 3x1 numpy vector of best particle estimate (x,y,yaw).
+        @return PoseMeters of best particle estimate (x,y,yaw).
         """
-        for i in range(self.num_particles):
-            # For a certain particle, extract the region it would have given as an observation.
-            obs_img_expected, _ = self.mfm.extract_observation_region(self.particle_set[i,:])
-            # Compare this to the actual observation to evaluate this particle's likelihood.
-            self.particle_weights[i] = self.compute_measurement_likelihood(obs_img_expected, observation)
-            # NOTE these likelihoods are intentionally NOT normalized.
+        # If there is no observation, take evasive maneuvers to prevent a runtime error. This should never happen though.
+        if observation is not None:
+            for i in range(self.num_particles):
+                # For a certain particle, extract the region it would have given as an observation.
+                obs_img_expected, _ = self.mfm.extract_observation_region(PoseMeters(self.particle_set[i,0], self.particle_set[i,1], self.particle_set[i,2]))
+                # Compare this to the actual observation to evaluate this particle's likelihood.
+                self.particle_weights[i] = self.compute_measurement_likelihood(obs_img_expected, observation)
+                # NOTE these likelihoods are intentionally NOT normalized.
 
         # Find best particle this iteration.
         i_best = np.argmax(self.particle_weights)
@@ -102,17 +100,21 @@ class ParticleFilter:
         # Update our filter estimate.
         if self.particle_weights[i_best] > self.best_weight:
             self.best_weight = self.particle_weights[i_best]
-            self.best_estimate = self.particle_set[i,:]
-        return self.best_estimate
+            self.best_estimate = self.particle_set[i_best,:]
+        # Convert filter estimate to desired data type and return.
+        return PoseMeters(self.best_estimate[0], self.best_estimate[1], self.best_estimate[2])
 
 
     def compute_measurement_likelihood(self, obs_expected, obs_actual) -> float:
         """
         Determine the likelihood of a specific particle.
-        @param obs_expected, 2D numpy array of the observation we expect given a specific particle.
-        @param obs_actual, 2D numpy array of the observation we actually got this iteration.
-        @return float, likelihood of this particle given the expected vs actual observations.
+        @param obs_expected - 2D numpy array of the observation we expect given a specific particle.
+        @param obs_actual - 2D numpy array of the observation we actually got this iteration.
+        @return float - likelihood of this particle given the expected vs actual observations.
         """
+        # If the particle was too close to the edge of the map and failed to generate an observation image, kill it.
+        if obs_expected is None:
+            return 0.0
         # NOTE the observation model gives an expected BEV of the environment. This is not limited to the robot's line-of-sight. As such, we will not use raycasting for particle evaluation, but rather a similarity check of the observation overlaid on the environment.
         likelihood = 1.0
         for i in range(obs_expected.shape[0]):
@@ -144,10 +146,17 @@ class ParticleFilter:
         for i in range(self.num_particles - self.num_to_resample_randomly, self.num_particles):
             # Do not attempt to use the utilities class until the map has been processed.
             if self.mfm.initialized:
-                new_particle_set[i,:] = self.mfm.generate_random_valid_veh_pose()
+                new_particle_set[i,:] = self.mfm.generate_random_valid_veh_pose().as_np_array()
             else:
                 new_particle_set[i,:] = np.zeros(self.state_size)
 
         # Update the set of particles.
         self.particle_set = new_particle_set
+
+
+    def get_particle_set_px(self):
+        """
+        Convert the particle set into a list of PosePixels to return. Used for visualization.
+        """
+        return [self.mfm.transform_pose_m_to_px(PoseMeters(self.particle_set[i,0], self.particle_set[i,1], self.particle_set[i,2])) for i in range(self.num_particles)]
             
