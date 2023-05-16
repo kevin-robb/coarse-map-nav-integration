@@ -197,7 +197,10 @@ class MapFrameManager:
             yaw = remainder(random() * tau, tau)
         # Choose a random vehicle cell in px so we can first check if it's occluded.
         free_cell = self.choose_random_free_cell()
-        return PoseMeters(free_cell.r, free_cell.c, yaw)
+        # Set yaw, since it will be kept through coords transform.
+        free_cell.yaw = yaw
+        # Convert this cell into meters.
+        return self.transform_pose_px_to_m(free_cell)
             
     def veh_pose_m_in_collision(self, veh_pose_m:PoseMeters) -> bool:
         """
