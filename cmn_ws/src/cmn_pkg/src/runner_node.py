@@ -11,6 +11,8 @@ from scripts.motion_planner import DiscreteMotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
 from scripts.basic_types import PoseMeters, PosePixels
+import matplotlib.pyplot as plt
+import cv2
 
 ############ GLOBAL VARIABLES ###################
 bridge = CvBridge()
@@ -122,7 +124,12 @@ def run_loop_continuous(event=None):
 
     if viz.enabled:
         # Update the viz.
-        viz.update()
+        # viz_img = viz.update()
+        viz_img = viz.get_updated_img()
+        # plt.figure()
+        # plt.imshow(viz_img)
+        # plt.show()
+        cv2.imshow('viz image', viz_img); cv2.waitKey(0); cv2.destroyAllWindows()
 
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
@@ -228,9 +235,9 @@ def main():
     dmp.set_goal_point_random()
 
     # Init the visualizer as late as possible since it will prevent anything else from running.
-    viz.init_plot()
+    # viz.init_plot()
     viz.set_map_frame_manager(sim)
-    
+
     rospy.Timer(rospy.Duration(g_dt), run_loop)
 
     rospy.spin()

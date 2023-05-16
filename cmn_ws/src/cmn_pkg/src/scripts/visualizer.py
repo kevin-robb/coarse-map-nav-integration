@@ -5,7 +5,10 @@ import rospkg, yaml
 import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib.backend_bases import MouseButton
+from matplotlib.backends.backend_agg import FigureCanvasAgg
+from matplotlib.figure import Figure
 import cv2
+import numpy as np
 from math import sin, cos
 
 from scripts.basic_types import PoseMeters, PosePixels
@@ -65,22 +68,25 @@ class Visualizer:
             return
         rospy.logwarn("VIZ: init_plot starting.")
         # make live plot bigger.
-        plt.rcParams["figure.figsize"] = (9,9)
+        # plt.rcParams["figure.figsize"] = (9,9)
         # startup the plot.
         self.fig = plt.figure(figsize=(8, 6)) 
         gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1]) 
         self.ax0 = plt.subplot(gs[0])
         plt.title("Ground Truth Map & Vehicle Pose")
-        plt.axis("off")
+        self.ax0.axis("off")
         self.ax1 = plt.subplot(gs[1])
         plt.title("Observation")
         # set constant plot params.
-        plt.axis("equal")
-        plt.axis("off")
-        plt.tight_layout()
+        # plt.axis("equal")
+        self.ax1.axis("off")
+        self.fig.tight_layout()
+        # To remove the huge white borders
+        self.ax0.margins(0)
+        self.ax1.margins(0)
         # allow clicking on the plot to do things (like kill the node).
-        plt.connect('button_press_event', on_click)
-        plt.show(block=False)
+        # plt.connect('button_press_event', on_click)
+        # plt.show(block=False)
         rospy.logwarn("VIZ: init_plot finished.")
 
     def read_params(self):
@@ -131,9 +137,9 @@ class Visualizer:
         if not self.enabled:
             return
         # Add the map to our figure.
-        self.ax0.imshow(mfm.map, cmap="gray", vmin=0, vmax=1)
+        # self.ax0.imshow(mfm.map, cmap="gray", vmin=0, vmax=1)
         # Add vehicle pose relative to observation region, now that we've set mfm and have the needed configs.
-        self.set_veh_pose_in_obs_region()
+        # self.set_veh_pose_in_obs_region()
 
     def set_veh_pose_in_obs_region(self):
         """
@@ -236,5 +242,37 @@ class Visualizer:
             self.plots["obs_img"] = self.ax1.imshow(self.observation, cmap="gray", vmin=0, vmax=1)
 
         self.ax0.legend(loc="upper left")
-        plt.draw()
-        plt.pause(self.dt)
+        
+        # plt.draw()
+        # plt.pause(self.dt)
+
+        # #Image from plot
+        # self.ax0.axis('off')
+        # self.fig.tight_layout(pad=0)
+
+        # # To remove the huge white borders
+        # self.ax0.margins(0)
+
+    def get_updated_img(self):
+        """
+        Update the plot, and return it as a cv image.
+        https://stackoverflow.com/a/62040123/14783583
+        """
+        # make a Figure and attach it to a canvas.
+        fig = Figure(figsize=(8, 6), dpi=100)
+        canvas = FigureCanvasAgg(fig)
+
+        # Do some plotting here
+        ax0 = fig.add_subplot(1, 4, (1,3))
+        ax0.imshow(self.occ_map, cmap="gray", vmin=0, vmax=1)
+
+        ax1 = fig.add_subplot(1, 4, 4)
+        ax1.plot([1, 2, 3])
+
+
+        # Retrieve a view on the renderer buffer
+        canvas.draw()
+        buf = canvas.buffer_rgba()
+        # convert to a NumPy array
+        result_img = np.asarray(buf)
+        return result_img
