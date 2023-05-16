@@ -56,12 +56,16 @@ class Visualizer:
         Initialize the visualization.
         """
         self.read_params()
+
+    def init_plot(self):
+        """
+        Start the plot window which will be updated to show the visualization for the duration.
+        """
         if not self.enabled:
             return
-
+        rospy.logwarn("VIZ: init_plot starting.")
         # make live plot bigger.
         plt.rcParams["figure.figsize"] = (9,9)
-
         # startup the plot.
         self.fig = plt.figure(figsize=(8, 6)) 
         gs = gridspec.GridSpec(1, 2, width_ratios=[3, 1]) 
@@ -76,7 +80,8 @@ class Visualizer:
         plt.tight_layout()
         # allow clicking on the plot to do things (like kill the node).
         plt.connect('button_press_event', on_click)
-        plt.show()
+        plt.show(block=False)
+        rospy.logwarn("VIZ: init_plot finished.")
 
     def read_params(self):
         """
@@ -127,7 +132,6 @@ class Visualizer:
             return
         # Add the map to our figure.
         self.ax0.imshow(mfm.map, cmap="gray", vmin=0, vmax=1)
-
         # Add vehicle pose relative to observation region, now that we've set mfm and have the needed configs.
         self.set_veh_pose_in_obs_region()
 

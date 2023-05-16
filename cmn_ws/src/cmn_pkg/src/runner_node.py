@@ -224,11 +224,15 @@ def main():
     # Give reference to sim so other classes can use the map and perform coordinate transforms.
     dmp.set_map_frame_manager(sim)
     pf.set_map_frame_manager(sim)
-    viz.set_map_frame_manager(sim)
     # Select a random goal point. This can be overridden by clicking on the plot to set a new goal.
     dmp.set_goal_point_random()
 
+    # Init the visualizer as late as possible since it will prevent anything else from running.
+    viz.init_plot()
+    viz.set_map_frame_manager(sim)
+    
     rospy.Timer(rospy.Duration(g_dt), run_loop)
+
     rospy.spin()
 
 
