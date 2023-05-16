@@ -96,19 +96,15 @@ def run_loop_continuous(event=None):
         # Update data for the viz.
         viz.set_observation(observation, rect)
         # Convert meters to pixels using our map transform class.
-        viz.set_estimated_veh_pose_px(sim.transform_pose_m_to_px(pf_estimate))
+        viz.veh_pose_estimate = sim.transform_pose_m_to_px(pf_estimate)
         # Update ground-truth data if we're running the sim.
         if g_use_ground_truth_map_to_generate_observations:
-            viz.set_true_veh_pose_px(sim.transform_pose_m_to_px(sim.veh_pose_true))
+            viz.veh_pose_true = sim.transform_pose_m_to_px(sim.veh_pose_true)
         # Convert particle set to pixels as well.
-        viz.set_particle_set(pf.get_particle_set_px())
+        viz.particle_set = pf.get_particle_set_px()
 
     # Run the PF resampling step.
     pf.resample()
-
-    # Check if a new goal cell has been set.
-    if viz.goal_cell is not None:
-        dmp.set_goal_point(viz.goal_cell)
 
     # Choose velocity commands for the robot based on the pose estimate.
     fwd, ang = dmp.plan_path_to_goal(pf_estimate)
@@ -117,7 +113,7 @@ def run_loop_continuous(event=None):
 
     if viz.enabled:
         # Update data for the viz.
-        viz.set_planned_path(dmp.path_px_reversed)
+        viz.planned_path = dmp.path_px_reversed
 
     # Propagate all particles by the commanded motion.
     pf.propagate_particles(fwd * g_dt, ang * g_dt)
@@ -228,8 +224,9 @@ def main():
     dmp.set_map_frame_manager(sim)
     pf.set_map_frame_manager(sim)
     viz.set_map_frame_manager(sim)
-    # Select a random goal point. This can be overridden by clicking on the plot to set a new goal.
+    # Select a random goal point.
     dmp.set_goal_point_random()
+    viz.goal_cell = dmp.goal_pos_px
 
     rospy.Timer(rospy.Duration(g_dt), run_loop)
 

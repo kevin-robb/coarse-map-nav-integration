@@ -2,35 +2,14 @@
 
 import rospy
 import rospkg, yaml
-import matplotlib.pyplot as plt
-from matplotlib import gridspec
-from matplotlib.backend_bases import MouseButton
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 import cv2
 import numpy as np
 from math import sin, cos
 
-from scripts.basic_types import PoseMeters, PosePixels
+from scripts.basic_types import PosePixels
 from scripts.map_handler import MapFrameManager
-
-### GLOBAL VARS ###
-g_goal_cell_px = None
-###################
-
-def on_click(event):
-    """
-    Do something when the user clicks on the viz plot.
-    """
-    if event.button is MouseButton.LEFT:
-        # Record clicked point as new goal for path planning.
-        global g_goal_cell_px
-        g_goal_cell_px = PosePixels(event.ydata, event.xdata)
-        rospy.loginfo("VIZ: Recording new goal point ({:}, {:}).".format(event.ydata, event.xdata))
-    elif event.button is MouseButton.RIGHT:
-        # kill the node.
-        rospy.loginfo("VIZ: Killing node because you right-clicked on the plot.")
-        exit()
 
 class Visualizer:
     """
@@ -38,10 +17,6 @@ class Visualizer:
     """
     # Flag describing if visualization is enabled.
     enabled = False
-    # Set time to pause after updating the plot.
-    dt = 0.0001
-    # Place to store plots so we can remove/update them some time later.
-    plots = {}
     # Keep track of most recent data for all vars we want to plot.
     occ_map = None # Occupancy grid map that will be displayed in the background of the main viz window.
     observation = None # Most recent observation image.
@@ -72,21 +47,6 @@ class Visualizer:
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
             self.enabled = config["enable_live_viz"]
-    
-    def remove_plot(self, name):
-        """
-        Remove the plot if it already exists.
-        """
-        if name in self.plots.keys():
-            try:
-                # this works for stuff like scatter(), arrow()
-                self.plots[name].remove()
-            except:
-                # the first way doesn't work for plt.plot()
-                line = self.plots[name].pop(0)
-                line.remove()
-            # remove the key.
-            del self.plots[name]
 
     def set_observation(self, obs_img, obs_rect=None):
         """
@@ -114,9 +74,6 @@ class Visualizer:
         """
         if not self.mfm.initialized:
             return
-        # This is static, so only need to plot it once.
-        if "veh_pose_obs" in self.plots.keys():
-            return
         # Determine cell location from config vals.
         col = self.mfm.veh_px_vert_from_bottom_on_obs-0.5
         row = self.mfm.obs_width_px // 2 + self.mfm.veh_px_horz_from_center_on_obs
@@ -127,35 +84,6 @@ class Visualizer:
         wid = 0.01/self.mfm.obs_resolution/self.mfm.map_downscale_ratio
         # Set member var so we can add it to the plots later.
         self.veh_pose_in_obs_region = {"x" : col, "y" : row, "dx" : d_col, "dy" : d_row, "width" : wid}
-
-    def set_true_veh_pose_px(self, pose_px:PosePixels):
-        """
-        Set a new true vehicle pose, which will be displayed on the viz from now on.
-        @note We only have this when running in simulation.
-        @param pose_px
-        """
-        self.veh_pose_true = pose_px
-
-    def set_estimated_veh_pose_px(self, pose_px:PosePixels):
-        """
-        Set a new estimated vehicle pose, which will be displayed on the viz from now on.
-        @param pose_px
-        """
-        self.veh_pose_estimate = pose_px
-
-    def set_particle_set(self, particle_set_px):
-        """
-        Get the full set of particle positions from the current PF iteration.
-        @param particle_set_px - List of PosePixels.
-        """
-        self.particle_set = particle_set_px
-
-    def set_planned_path(self, path):
-        """
-        Get the full planned path, and save it to display on viz.
-        @param path List of PosePixels making up the path.
-        """
-        self.planned_path = path
 
     def get_updated_img(self):
         """
@@ -191,6 +119,10 @@ class Visualizer:
             path_r = [self.planned_path[i].r for i in range(len(self.planned_path))]
             path_c = [self.planned_path[i].c for i in range(len(self.planned_path))]
             ax0.scatter(path_c, path_r, s=3, color="purple", zorder=1, label="Planned Path")
+
+        # Plot the current goal point.
+        if self.goal_cell is not None:
+            ax0.scatter(self.goal_cell.c, self.goal_cell.r, color="yellow", label="Goal Cell")
 
         # Plot the bounding box on the base map.
         if self.observation_region is not None:
