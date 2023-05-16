@@ -121,7 +121,13 @@ def run_loop_continuous(event=None):
     if viz.enabled:
         # Update the viz.
         viz_img = viz.get_updated_img()
-        cv2.imshow('viz image', viz_img); cv2.waitKey(0); cv2.destroyAllWindows()
+        cv2.imshow('viz image', viz_img)
+        key = cv2.waitKey(100)
+        # Special keypress conditions.
+        if key == 113: # q for quit.
+            cv2.destroyAllWindows()
+            rospy.signal_shutdown("User pressed Q key.")
+            exit()
 
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
