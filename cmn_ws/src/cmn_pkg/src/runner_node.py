@@ -3,8 +3,10 @@
 import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
+from nav_msgs.msg import Odometry
 import rospkg, yaml
 from cv_bridge import CvBridge
+from math import pi, atan2, asin
 
 from scripts.map_handler import CoarseMapProcessor, Simulator
 from scripts.motion_planner import DiscreteMotionPlanner
@@ -45,6 +47,11 @@ def run_loop_discrete(event=None):
     localizes with a discrete bayesian filter,
     and commands discrete actions.
     """
+    # # DEBUG just command a 90 degree turn, then stop.
+    # dmp.cmd_discrete_action("90_LEFT")
+    # rospy.sleep(2)
+    # return
+
     if g_use_ground_truth_map_to_generate_observations:
         # TODO sim
         observation = None
@@ -61,7 +68,9 @@ def run_loop_discrete(event=None):
     robot_pose_estimate = None
     # TODO Determine path from estimated pose to the goal, using the coarse map, and determine a discrete action to command.
     # TODO for now just command random discrete action.
-    fwd, ang = dmp.cmd_random_discrete_action()
+    # fwd, ang = dmp.cmd_random_discrete_action()
+    # TODO for now, always go forwards.
+    fwd, ang = dmp.cmd_discrete_action("FORWARD")
 
     if g_use_ground_truth_map_to_generate_observations:
         # Propagate the true vehicle pose by this discrete action.
@@ -135,19 +144,13 @@ def run_loop_continuous(event=None):
 
 def get_observation_from_pano_meas(pano_meas):
     """
-    Pass the most recent measurement into the ML model, and get back a resulting observation.
+    Pass the most recent panoramic measurement into the ML model, and get back a resulting observation.
     Publish the observation to be used for localization.
     @param pano_meas - dictionary with key:value pairs direction:image.
     """
-    global most_recent_measurement
-    if most_recent_measurement is None:
-        return
-    # Pull most recent measurement, and clear it so we'll be able to tell next iteration if there's nothing new.
-    meas = most_recent_measurement
-    most_recent_measurement = None
-
     # TODO make way to interface with the ML model, which will be in a separate file.
     observation = None # i.e., ml_model(pano_meas)
+    rospy.sleep(1.0) # Pause to simulate waiting for the model to process.
 
     return observation
 
@@ -166,10 +169,6 @@ def read_params():
         g_dt = config["dt"]
         g_run_mode = config["run_mode"]
         g_use_ground_truth_map_to_generate_observations = config["use_ground_truth_map_to_generate_observations"]
-        # Rostopics.
-        global g_topic_measurements, g_topic_commands
-        g_topic_measurements = config["topics"]["measurements"]
-        g_topic_commands = config["topics"]["commands"]
 
 ######################## CALLBACKS ########################
 def get_pano_meas():
@@ -178,6 +177,7 @@ def get_pano_meas():
     Since the robot has only a forward-facing camera, we must pivot in-place four times.
     @return dictionary with key:value pairs of direction:image.
     """
+    rospy.loginfo("Attempting to generate a panoramic measurement by commanding four 90 degree pivots.")
     pano_meas = {}
     pano_meas["front"] = pop_from_RS_buffer()
     dmp.cmd_discrete_action("90_LEFT") # pivot in-place 90 deg CCW, and then stop.
@@ -212,16 +212,38 @@ def get_RS_image(msg):
     global most_recent_RS_meas
     most_recent_RS_meas = msg
 
+def get_odom(msg):
+    """
+    Get an odometry message from the robot's mobile base.
+    Parse the message to extract the desired position and orientation information.
+    """
+    # Extract x,y position.
+    x = msg.pose.pose.position.x
+    y = msg.pose.pose.position.y
+    # Extract orientation from quaternion.
+    # NOTE our "yaw" is the "roll" from https://stackoverflow.com/a/18115837/14783583
+    q = msg.pose.pose.orientation
+    # yaw = atan2(2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
+    # pitch = asin(-2.0*(q.x*q.z - q.w*q.y))
+    roll = atan2(2.0*(q.x*q.y + q.w*q.z), q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z)
+    # Set the odom var.
+    most_recent_odom = (x,y,roll)
+    dmp.set_odom(most_recent_odom)
+    # rospy.loginfo("Got odom {:}.".format(most_recent_odom))
+
 def main():
     rospy.init_node('runner_node')
 
     read_params()
     # Subscribe to sensor images from RealSense.
     # TODO may want to check /locobot/camera/color/camera_info
-    rospy.Subscriber(g_topic_measurements, Image, get_RS_image, queue_size=1)
+    rospy.Subscriber("/locobot/camera/color/image_raw", Image, get_RS_image, queue_size=1)
+
+    # Subscribe to robot odometry.
+    rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)
 
     # Publish control commands (velocities in m/s and rad/s).
-    cmd_vel_pub = rospy.Publisher(g_topic_commands, Twist, queue_size=1)
+    cmd_vel_pub = rospy.Publisher("/locobot/mobile_base/commands/velocity", Twist, queue_size=1)
     dmp.set_vel_pub(cmd_vel_pub)
 
     # Init the sim (subclass of MapFrameManager) with the map.
