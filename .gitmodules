@@ -1,3 +1,6 @@
 [submodule "cmn_ws/src/cmn_pkg/src/scripts/rotated_rectangle_crop_opencv"]
 	path = cmn_ws/src/cmn_pkg/src/scripts/rotated_rectangle_crop_opencv
 	url = git@github.com:leimao/Rotated-Rectangle-Crop-OpenCV.git
+[submodule "cmn_ws/src/teleop_twist_keyboard"]
+	path = cmn_ws/src/teleop_twist_keyboard
+	url = git@github.com:ros-teleop/teleop_twist_keyboard.git

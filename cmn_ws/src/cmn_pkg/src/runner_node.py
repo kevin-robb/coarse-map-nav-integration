@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
 
+"""
+Main node for running the project. This should be run on the locobot itself.
+"""
+
 import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
@@ -179,13 +183,13 @@ def get_pano_meas():
     """
     rospy.loginfo("Attempting to generate a panoramic measurement by commanding four 90 degree pivots.")
     pano_meas = {}
-    pano_meas["front"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_front"] = pop_from_RS_buffer()
     dmp.cmd_discrete_action("90_LEFT") # pivot in-place 90 deg CCW, and then stop.
-    pano_meas["left"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_left"] = pop_from_RS_buffer()
     dmp.cmd_discrete_action("90_LEFT")
-    pano_meas["back"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_back"] = pop_from_RS_buffer()
     dmp.cmd_discrete_action("90_LEFT")
-    pano_meas["right"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_right"] = pop_from_RS_buffer()
     dmp.cmd_discrete_action("90_LEFT")
     # Vehicle should now be facing forwards again (its original direction).
     return pano_meas
@@ -200,6 +204,9 @@ def pop_from_RS_buffer():
         rospy.sleep(0.01)
     # Convert from ROS Image message to an OpenCV image.
     cv_img_meas = bridge.imgmsg_to_cv2(most_recent_RS_meas, desired_encoding='passthrough')
+    # Resize to desired shape for input to CMN code.
+    rospy.loginfo("Raw RS image has shape {:}".format(cv_img_meas.shape))
+    cv_img_meas = cv2.resize(cv_img_meas, (224,224,3))
     # Ensure this same measurement will not be used again.
     most_recent_RS_meas = None
     return cv_img_meas
