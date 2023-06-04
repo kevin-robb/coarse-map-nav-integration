@@ -11,6 +11,7 @@ from nav_msgs.msg import Odometry
 import rospkg, yaml
 from cv_bridge import CvBridge
 from math import pi, atan2, asin
+import numpy as np
 
 from scripts.map_handler import CoarseMapProcessor, Simulator
 from scripts.motion_planner import DiscreteMotionPlanner
@@ -61,9 +62,9 @@ def run_loop_discrete(event=None):
         observation = None
     else:
         # Get a panoramic measurement.
-        pano_meas = get_pano_meas()
+        pano_rgb = get_pano_meas()
         # TODO Pass this panoramic measurement through the model to obtain an observation.
-        observation = get_observation_from_pano_meas(pano_meas)
+        observation = None
 
     # Convert to ROS image and publish it for viz.
     # observation_pub.publish(bridge.cv2_to_imgmsg(observation, encoding="passthrough"))
@@ -145,19 +146,6 @@ def run_loop_continuous(event=None):
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
 
-
-def get_observation_from_pano_meas(pano_meas):
-    """
-    Pass the most recent panoramic measurement into the ML model, and get back a resulting observation.
-    Publish the observation to be used for localization.
-    @param pano_meas - dictionary with key:value pairs direction:image.
-    """
-    # TODO make way to interface with the ML model, which will be in a separate file.
-    observation = None # i.e., ml_model(pano_meas)
-    rospy.sleep(1.0) # Pause to simulate waiting for the model to process.
-
-    return observation
-
 ##################### UTILITY FUNCTIONS #######################
 def read_params():
     """
@@ -173,26 +161,43 @@ def read_params():
         g_dt = config["dt"]
         g_run_mode = config["run_mode"]
         g_use_ground_truth_map_to_generate_observations = config["use_ground_truth_map_to_generate_observations"]
+        # Settings for interfacing with CMN.
+        global g_meas_topic, g_meas_width, g_meas_height
+        g_meas_topic = config["measurements"]["topic"]
+        g_meas_height = config["measurements"]["height"]
+        g_meas_width = config["measurements"]["width"]
 
 ######################## CALLBACKS ########################
 def get_pano_meas():
     """
     Get a panoramic measurement.
     Since the robot has only a forward-facing camera, we must pivot in-place four times.
-    @return dictionary with key:value pairs of direction:image.
+    @return panoramic image created by concatenating four individual measurements.
     """
     rospy.loginfo("Attempting to generate a panoramic measurement by commanding four 90 degree pivots.")
     pano_meas = {}
     pano_meas["color_sensor_front"] = pop_from_RS_buffer()
-    dmp.cmd_discrete_action("90_LEFT") # pivot in-place 90 deg CCW, and then stop.
-    pano_meas["color_sensor_left"] = pop_from_RS_buffer()
-    dmp.cmd_discrete_action("90_LEFT")
-    pano_meas["color_sensor_back"] = pop_from_RS_buffer()
-    dmp.cmd_discrete_action("90_LEFT")
+    # Resize to desired shape for input to CMN code.
+    rospy.loginfo("Raw RS image has shape {:}".format(pano_meas["color_sensor_front"].shape)) # DEBUG
+    pano_meas["color_sensor_front"] = cv2.resize(pano_meas["color_sensor_front"], (g_meas_height,g_meas_width,3))
+    # Pivot in-place 90 deg CW to get another measurement.
+    dmp.cmd_discrete_action("90_RIGHT")
     pano_meas["color_sensor_right"] = pop_from_RS_buffer()
-    dmp.cmd_discrete_action("90_LEFT")
+    pano_meas["color_sensor_right"] = cv2.resize(pano_meas["color_sensor_right"], (g_meas_height,g_meas_width,3))
+    dmp.cmd_discrete_action("90_RIGHT")
+    pano_meas["color_sensor_back"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_back"] = cv2.resize(pano_meas["color_sensor_back"], (g_meas_height,g_meas_width,3))
+    dmp.cmd_discrete_action("90_RIGHT")
+    pano_meas["color_sensor_left"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_left"] = cv2.resize(pano_meas["color_sensor_left"], (g_meas_height,g_meas_width,3))
+    dmp.cmd_discrete_action("90_RIGHT")
     # Vehicle should now be facing forwards again (its original direction).
-    return pano_meas
+    # Combine these images into a panorama.
+    pano_rgb = np.concatenate([pano_meas['color_sensor_front'][:, :, 0:3],
+                               pano_meas['color_sensor_right'][:, :, 0:3],
+                               pano_meas['color_sensor_back'][:, :, 0:3],
+                               pano_meas['color_sensor_left'][:, :, 0:3]], axis=1)
+    return pano_rgb
 
 def pop_from_RS_buffer():
     """
@@ -204,9 +209,6 @@ def pop_from_RS_buffer():
         rospy.sleep(0.01)
     # Convert from ROS Image message to an OpenCV image.
     cv_img_meas = bridge.imgmsg_to_cv2(most_recent_RS_meas, desired_encoding='passthrough')
-    # Resize to desired shape for input to CMN code.
-    rospy.loginfo("Raw RS image has shape {:}".format(cv_img_meas.shape))
-    cv_img_meas = cv2.resize(cv_img_meas, (224,224,3))
     # Ensure this same measurement will not be used again.
     most_recent_RS_meas = None
     return cv_img_meas
@@ -244,7 +246,7 @@ def main():
     read_params()
     # Subscribe to sensor images from RealSense.
     # TODO may want to check /locobot/camera/color/camera_info
-    rospy.Subscriber("/locobot/camera/color/image_raw", Image, get_RS_image, queue_size=1)
+    rospy.Subscriber(g_meas_topic, Image, get_RS_image, queue_size=1)
 
     # Subscribe to robot odometry.
     rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)

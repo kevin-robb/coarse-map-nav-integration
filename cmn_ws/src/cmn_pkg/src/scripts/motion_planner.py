@@ -71,6 +71,12 @@ class MotionPlanner:
         """
         self.cmd_vel_pub = pub
 
+    def set_odom(self, odom):
+        """
+        Update our motion progress based on a new odometry measurement.
+        """
+        self.odom = odom
+
     def pub_velocity_cmd(self, fwd, ang):
         """
         Clamp a velocity command within valid values, and publish it to the vehicle.
@@ -132,6 +138,14 @@ class MotionPlanner:
         """
         rospy.loginfo("MP: Got goal cell ({:}, {:})".format(int(goal_cell.r), int(goal_cell.c)))
         self.goal_pos_px = goal_cell
+
+    def is_goal_reached(self) -> bool:
+        """
+        Compute difference between current and goal poses.
+        NOTE must use estimated pose to match goal pose's coordinate system.
+        """
+        # TODO
+        return False
 
     def plan_path_to_goal(self, veh_pose_est:PoseMeters):
         """
@@ -251,12 +265,6 @@ class DiscreteMotionPlanner(MotionPlanner):
             if self.discrete_forward_skip_probability < 0.0 or self.discrete_forward_skip_probability > 1.0:
                 rospy.logwarn("DMP: Invalid value of discrete_forward_skip_probability. Must lie in range [0, 1]. Setting to 0.")
                 self.discrete_forward_skip_probability = 0
-
-    def set_odom(self, odom):
-        """
-        Update our motion progress based on a new odometry measurement.
-        """
-        self.odom = odom
 
     def cmd_discrete_action(self, action:str):
         """
