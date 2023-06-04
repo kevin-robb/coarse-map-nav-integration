@@ -4,3 +4,6 @@
 [submodule "cmn_ws/src/teleop_twist_keyboard"]
 	path = cmn_ws/src/teleop_twist_keyboard
 	url = git@github.com:ros-teleop/teleop_twist_keyboard.git
+[submodule "cmn_ws/src/cmn_pkg/src/scripts/cmn_demo"]
+	path = cmn_ws/src/cmn_pkg/src/scripts/cmn_demo
+	url = git@github.com:cgxuvector/cmn_demo.git
