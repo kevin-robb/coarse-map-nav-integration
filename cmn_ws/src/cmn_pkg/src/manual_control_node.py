@@ -24,9 +24,8 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        global g_dt, g_run_mode
+        global g_dt
         g_dt = config["dt"]
-        g_run_mode = config["run_mode"]
 
 
 def run_loop(event):
@@ -40,6 +39,8 @@ def main():
     rospy.init_node('runner_node')
 
     read_params()
+
+    # TODO get params from launch file args, same as runner node.
 
     # Publish discrete commands as strings that will be interpreted by the runner.
     global discr_cmd_pub

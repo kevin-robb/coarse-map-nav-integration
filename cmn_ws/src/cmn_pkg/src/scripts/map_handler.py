@@ -54,7 +54,6 @@ class MapFrameManager:
         # Open the yaml and get the relevant params.
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
-            self.use_discrete_state_space = True if config["run_mode"] == "discrete" else False
             # Map params. NOTE this will eventually be unknown and thus non-constant as it is estimated.
             self.map_resolution = config["map"]["resolution"]
             self.map_downscale_ratio = config["map"]["downscale_ratio"]

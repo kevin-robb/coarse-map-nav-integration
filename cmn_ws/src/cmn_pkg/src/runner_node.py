@@ -8,7 +8,7 @@ import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
-import rospkg, yaml
+import rospkg, yaml, sys
 from cv_bridge import CvBridge
 from math import pi, atan2, asin
 import numpy as np
@@ -28,9 +28,13 @@ map_proc = CoarseMapProcessor()
 sim = Simulator() # Subset of MapFrameManager that will allow us to do coordinate transforms.
 dmp = DiscreteMotionPlanner() # Subset of MotionPlanner that can be used to plan paths and command continuous or discrete motions.
 pf = ParticleFilter() # PF for continuous state-space localization.
-viz = Visualizer()
+viz = None # Will be initialized only if a launch file arg is true.
 # RealSense measurements buffer.
 most_recent_RS_meas = None
+# Configs.
+g_run_mode = None # "discrete" or "continuous"
+g_use_ground_truth_map_to_generate_observations = False
+g_show_live_viz = False
 #################################################
 
 def run_loop(event=None):
@@ -106,7 +110,7 @@ def run_loop_continuous(event=None):
     # Use the particle filter to get a localization estimate from this observation.
     pf_estimate = pf.update_with_observation(observation)
 
-    if viz.enabled:
+    if viz is not None:
         # Update data for the viz.
         viz.set_observation(observation, rect)
         # Convert meters to pixels using our map transform class.
@@ -125,14 +129,14 @@ def run_loop_continuous(event=None):
     dmp.pub_velocity_cmd(fwd, ang)
     sim.propagate_with_vel(fwd, ang) # Apply to the ground truth vehicle pose.
 
-    if viz.enabled:
+    if viz is not None:
         # Update data for the viz.
         viz.planned_path = dmp.path_px_reversed
 
     # Propagate all particles by the commanded motion.
     pf.propagate_particles(fwd * g_dt, ang * g_dt)
 
-    if viz.enabled:
+    if viz is not None:
         # Update the viz.
         viz_img = viz.get_updated_img()
         cv2.imshow('viz image', viz_img)
@@ -157,10 +161,8 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        global g_dt, g_run_mode, g_use_ground_truth_map_to_generate_observations
+        global g_dt
         g_dt = config["dt"]
-        g_run_mode = config["run_mode"]
-        g_use_ground_truth_map_to_generate_observations = config["use_ground_truth_map_to_generate_observations"]
         # Settings for interfacing with CMN.
         global g_meas_topic, g_meas_width, g_meas_height
         g_meas_topic = config["measurements"]["topic"]
@@ -244,6 +246,21 @@ def main():
     rospy.init_node('runner_node')
 
     read_params()
+
+    # Get any params specified in args from launch file.
+    if len(sys.argv) > 3:
+        global g_run_mode, g_use_ground_truth_map_to_generate_observations, g_show_live_viz
+        g_run_mode = sys.argv[1]
+        g_use_ground_truth_map_to_generate_observations = sys.argv[2].lower() == "true"
+        g_show_live_viz = sys.argv[3].lower() == "true"
+        # Let other module(s) know what mode is active.
+        global sim
+        sim.use_discrete_state_space = g_run_mode == "discrete"
+
+    # Init the visualizer only if it's enabled.
+    global viz
+    viz = Visualizer()
+
     # Subscribe to sensor images from RealSense.
     # TODO may want to check /locobot/camera/color/camera_info
     rospy.Subscriber(g_meas_topic, Image, get_RS_image, queue_size=1)
@@ -260,10 +277,12 @@ def main():
     # Give reference to sim so other classes can use the map and perform coordinate transforms.
     dmp.set_map_frame_manager(sim)
     pf.set_map_frame_manager(sim)
-    viz.set_map_frame_manager(sim)
+    if viz is not None:
+        viz.set_map_frame_manager(sim)
     # Select a random goal point.
     dmp.set_goal_point_random()
-    viz.goal_cell = dmp.goal_pos_px
+    if viz is not None:
+        viz.goal_cell = dmp.goal_pos_px
 
     rospy.Timer(rospy.Duration(g_dt), run_loop)
 

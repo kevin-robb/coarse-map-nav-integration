@@ -83,7 +83,8 @@ class CoarseMapNavInterface(CoarseMapNav):
         # Open the yaml and get the relevant params.
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
-            self.use_discrete_state_space = True if config["run_mode"] == "discrete" else False
+            # TODO have runner node tell us if discrete or continous run mode; no longer a yaml param.
+            # self.use_discrete_state_space = True if config["run_mode"] == "discrete" else False
             # ML model params
             self.device = torch.device(config["model"]["device"])
     
