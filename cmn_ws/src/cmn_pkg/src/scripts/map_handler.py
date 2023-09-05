@@ -32,6 +32,7 @@ class MapFrameManager:
     Used both for ground-truth observation generation as well as particle likelihood evalutation.
     """
     initialized = False
+    verbose = False
     map = None # 2D numpy array of the global map
     map_resolution = None # float, meters/pixel for the map.
 
@@ -54,6 +55,7 @@ class MapFrameManager:
         # Open the yaml and get the relevant params.
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
+            self.verbose = config["verbose"]
             # Map params. NOTE this will eventually be unknown and thus non-constant as it is estimated.
             self.map_resolution = config["map"]["resolution"]
             self.map_downscale_ratio = config["map"]["downscale_ratio"]
@@ -277,7 +279,8 @@ class Simulator(MapFrameManager):
             self.veh_pose_true.yaw = veh_pose_proposed.yaw
         else:
             self.veh_pose_true = veh_pose_proposed
-            rospy.loginfo("SIM: Allowing command. Veh pose is now " + str(self.veh_pose_true))
+            if self.verbose:
+                rospy.loginfo("SIM: Allowing command. Veh pose is now " + str(self.veh_pose_true))
 
     def get_true_observation(self):
         """
@@ -292,6 +295,7 @@ class CoarseMapProcessor:
     Class to handle reading the coarse map from file, and doing any pre-processing.
     """
     # Global variables for class
+    verbose = False
     raw_map = None # Original coarse map including color.
     occ_map = None # Thresholded & binarized coarse map to create an occupancy grid.
 
@@ -312,6 +316,7 @@ class CoarseMapProcessor:
         # Open the yaml and get the relevant params.
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
+            self.verbose = config["verbose"]
             # Map params.
             self.show_map_images = config["map"]["show_images_during_pre_proc"]
             self.map_fpath = pkg_path + "/config/maps/" + config["map"]["fname"]
@@ -335,13 +340,15 @@ class CoarseMapProcessor:
             img = cv2.add(cv2.merge([a1,a1,a1,a1]), img) # add up values (with clipping).
             img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB) # strip alpha channels.
 
-        rospy.loginfo("CMP: Read raw coarse map image with shape {:}".format(img.shape))
+        if self.verbose:
+            rospy.loginfo("CMP: Read raw coarse map image with shape {:}".format(img.shape))
         if self.show_map_images:
             cv2.imshow('initial map', img); cv2.waitKey(0); cv2.destroyAllWindows()
 
         # Downsize the image to the desired resolution.
         img = cv2.resize(img, (int(img.shape[0] * self.map_downscale_ratio), int(img.shape[1] * self.map_downscale_ratio)))
-        rospy.loginfo("CMP: Resized coarse map to shape {:}".format(img.shape))
+        if self.verbose:
+            rospy.loginfo("CMP: Resized coarse map to shape {:}".format(img.shape))
         if self.show_map_images:
             cv2.imshow('resized map', img); cv2.waitKey(0); cv2.destroyAllWindows()
 
@@ -352,7 +359,8 @@ class CoarseMapProcessor:
         occ_map_img = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 200, 255, cv2.THRESH_BINARY)[1]
         # Normalize to range [0,1].
         occ_map_img = np.divide(occ_map_img, 255)
-        rospy.loginfo("CMP: Thresholded/binarized map to shape {:}".format(img.shape))
+        if self.verbose:
+            rospy.loginfo("CMP: Thresholded/binarized map to shape {:}".format(img.shape))
         if self.show_map_images:
             cv2.imshow("Thresholded Map", occ_map_img); cv2.waitKey(0); cv2.destroyAllWindows()
         
@@ -361,7 +369,7 @@ class CoarseMapProcessor:
 
         # Expand occluded cells so path planning won't take us right next to obstacles.
         if self.obs_balloon_radius == 0:
-            rospy.logwarn("CMP: For some reason everything breaks if we skip the ballooning step.")
+            rospy.logwarn("CMP: For some reason everything breaks if we skip the ballooning step, so running with minimal radius of 1.")
             self.obs_balloon_radius = 1
         # Determine index pairs to select all neighbors when ballooning obstacles.
         nbrs = []
@@ -390,28 +398,32 @@ class CoarseMapProcessor:
                         freqs[0] += 1
                     else:
                         freqs[1] += 1
-            rospy.loginfo("CMP: Occ map value frequencies: "+str(freqs[1])+" free, "+str(freqs[0])+" occluded.")
+            if self.verbose:
+                rospy.loginfo("CMP: Occ map value frequencies: "+str(freqs[1])+" free, "+str(freqs[0])+" occluded.")
 
-    def get_raw_map_msg(self):
-        """
-        @usage occ_map_pub.publish(map_proc.get_occ_map_msg())
-        @return the original coarse map image (in color) as a ROS Image message.
-        """
-        try:
-            rospy.loginfo("CMP: Returning original coarse map with shape {:}.".format(self.raw_map.shape))
-            return bridge.cv2_to_imgmsg(self.raw_map, encoding="passthrough")
-        except CvBridgeError as e:
-            rospy.logerr("CMP: Unable to convert raw_map to a ROS Image. Error: " + e)
+    ### Functions that are obsolete but may become useful again in the future:
+    # def get_raw_map_msg(self):
+    #     """
+    #     @usage raw_map_pub.publish(map_proc.get_raw_map_msg())
+    #     @return the original coarse map image (in color) as a ROS Image message.
+    #     """
+    #     try:
+    #         if self.verbose:
+    #             rospy.loginfo("CMP: Returning original coarse map with shape {:}.".format(self.raw_map.shape))
+    #         return bridge.cv2_to_imgmsg(self.raw_map, encoding="passthrough")
+    #     except CvBridgeError as e:
+    #         rospy.logerr("CMP: Unable to convert raw_map to a ROS Image. Error: " + e)
 
-    def get_occ_map_msg(self):
-        """
-        @usage raw_map_pub.publish(map_proc.get_raw_map_msg())
-        @return the processed coarse map occupancy grid as a ROS Image message.
-        """
-        try:
-            rospy.loginfo("CMP: Returning processed (coarse) occupancy map with shape {:}.".format(self.occ_map.shape))
-            return bridge.cv2_to_imgmsg(self.occ_map, encoding="passthrough")
-        except CvBridgeError as e:
-            rospy.logerr("CMP: Unable to convert occ_map to a ROS Image. Error: " + e)
+    # def get_occ_map_msg(self):
+    #     """
+    #     @usage occ_map_pub.publish(map_proc.get_occ_map_msg())
+    #     @return the processed coarse map occupancy grid as a ROS Image message.
+    #     """
+    #     try:
+    #         if self.verbose:
+    #             rospy.loginfo("CMP: Returning processed (coarse) occupancy map with shape {:}.".format(self.occ_map.shape))
+    #         return bridge.cv2_to_imgmsg(self.occ_map, encoding="passthrough")
+    #     except CvBridgeError as e:
+    #         rospy.logerr("CMP: Unable to convert occ_map to a ROS Image. Error: " + e)
 
 

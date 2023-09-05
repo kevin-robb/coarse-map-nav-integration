@@ -48,7 +48,10 @@ class PoseMeters(Pose):
         return np.array([self.x, self.y, self.yaw])
     
     def __str__(self):
-        return "({:.2f}, {:.2f}, {:.2f})".format(self.x, self.y, self.yaw)
+        if self.yaw is None:
+            return "({:.2f}, {:.2f})".format(self.x, self.y)
+        else:
+            return "({:.2f}, {:.2f}, {:.2f})".format(self.x, self.y, self.yaw)
 
 
 class PosePixels(Pose):
@@ -64,4 +67,7 @@ class PosePixels(Pose):
         self.yaw = yaw
 
     def __str__(self):
-        return "({:}, {:}, {:.2f})".format(self.r, self.c, self.yaw)
+        if self.yaw is None:
+            return "({:}, {:})".format(self.r, self.c)
+        else:
+            return "({:}, {:}, {:.2f})".format(self.r, self.c, self.yaw)
