@@ -4,7 +4,7 @@
 Functions that will be useful in more than one node in this project.
 """
 
-import rospkg, yaml, cv2, rospy
+import rospkg, yaml, cv2, rospy, os
 import numpy as np
 from math import sin, cos, remainder, tau, ceil, pi
 from random import random, randrange
@@ -25,16 +25,138 @@ def clamp(val:float, min_val:float, max_val:float):
     return min(max(min_val, val), max_val)
 
 
-class MapFrameManager:
+class CoarseMapProcessor:
+    """
+    Class to handle reading the coarse map from file, and doing any pre-processing.
+    """
+    pkg_path = None # Filepath to the cmn_pkg package.
+    # Global variables for class
+    verbose = False
+    show_map_images = False
+    # Map configs
+    map_fpath = None # Full filepath to map image.
+    obs_balloon_radius = 0 # Radius in pixels to balloon occupied pixels by during pre-processing.
+    map_resolution_raw = None # Resolution of the raw map image in meters/pixel. NOTE this will eventually be unknown.
+    map_resolution_desired = None # Resolution in meters/pixel the map will be scaled to.
+    map_downscale_ratio = None # Side length of original map times this ratio yields the new side length to satisfy desired resolution.
+    # Map images
+    raw_map = None # Original coarse map including color.
+    occ_map = None # Thresholded & binarized coarse map to create an occupancy grid.
+
+    def __init__(self):
+        """
+        Create instance and set important global params.
+        """
+        # Determine filepath.
+        rospack = rospkg.RosPack()
+        self.pkg_path = rospack.get_path('cmn_pkg')
+        # Open the yaml and get the relevant params.
+        with open(self.pkg_path+'/config/config.yaml', 'r') as file:
+            config = yaml.safe_load(file)
+            self.verbose = config["verbose"]
+            # Map processing params.
+            self.show_map_images = config["map"]["show_images_during_pre_proc"]
+            self.map_fpath = self.pkg_path + "/config/maps/" + config["map"]["fname"]
+            self.obs_balloon_radius = config["map"]["obstacle_balloon_radius"]
+
+            # Some map params are in a separate yaml unique to each map.
+            map_name = os.path.splitext(config["map"]["fname"])[0]
+            with open(os.path.join(self.pkg_path, "config/maps/"+map_name+".yaml"), 'r') as file2:
+                map_config = yaml.safe_load(file2)
+                self.map_resolution_raw = map_config["resolution"]
+                self.map_occ_thresh_min = map_config["occ_thresh_min"]
+                self.map_occ_thresh_max = map_config["occ_thresh_max"]
+
+            # Based on the image resolution and the desired resolution, determine a downscaling ratio.
+            self.map_resolution_desired = config["map"]["desired_meters_per_pixel"]
+            self.map_downscale_ratio = self.map_resolution_raw / self.map_resolution_desired
+        # Read in the map and perform all necessary pre-processing.
+        self.read_coarse_map_from_file()
+
+    def read_coarse_map_from_file(self):
+        """
+        Read the coarse map image from the provided filepath.
+        Save the map itself to use for visualizations.
+        Process the image by converting it to an occupancy grid.
+        """
+        # Read map image and account for possible white = transparency that cv2 will think is black.
+        # https://stackoverflow.com/questions/31656366/cv2-imread-and-cv2-imshow-return-all-zeros-and-black-image/62985765#62985765
+        img = cv2.imread(self.map_fpath, cv2.IMREAD_UNCHANGED)
+        if img.shape[2] == 4: # we have an alpha channel.
+            a1 = ~img[:,:,3] # extract and invert that alpha.
+            img = cv2.add(cv2.merge([a1,a1,a1,a1]), img) # add up values (with clipping).
+            img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB) # strip alpha channels.
+
+        if self.verbose:
+            rospy.loginfo("CMP: Read raw coarse map image with shape {:}".format(img.shape))
+        if self.show_map_images:
+            cv2.imshow('initial map', img); cv2.waitKey(0); cv2.destroyAllWindows()
+
+        # Downsize the image to the desired resolution.
+        img = cv2.resize(img, (int(img.shape[0] * self.map_downscale_ratio), int(img.shape[1] * self.map_downscale_ratio)))
+        if self.verbose:
+            rospy.loginfo("CMP: Resized coarse map to shape {:}".format(img.shape))
+        if self.show_map_images:
+            cv2.imshow('resized map', img); cv2.waitKey(0); cv2.destroyAllWindows()
+
+        # Convert from BGR to RGB and save the color map for any viz.
+        self.raw_map = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        # Turn this into a grayscale img and then to a binary map.
+        occ_map_img = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), self.map_occ_thresh_min, self.map_occ_thresh_max, cv2.THRESH_BINARY_INV)[1]
+        # Normalize to range [0,1].
+        occ_map_img = np.divide(occ_map_img, 255)
+        if self.verbose:
+            rospy.loginfo("CMP: Thresholded/binarized map to shape {:}".format(img.shape))
+        if self.show_map_images:
+            cv2.imshow("Thresholded Map", occ_map_img); cv2.waitKey(0); cv2.destroyAllWindows()
+        
+        # Round so all cells are either completely free (1) or occluded (0).
+        self.occ_map = np.round(occ_map_img)
+
+        # Expand occluded cells so path planning won't take us right next to obstacles.
+        if self.obs_balloon_radius == 0:
+            rospy.logwarn("CMP: For some reason everything breaks if we skip the ballooning step, so running with minimal radius of 1.")
+            self.obs_balloon_radius = 1
+        # Determine index pairs to select all neighbors when ballooning obstacles.
+        nbrs = []
+        for i in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
+            for j in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
+                nbrs.append((i, j))
+        # Remove 0,0 which is just the parent cell.
+        nbrs.remove((0,0))
+        # Expand all occluded cells outwards.
+        for i in range(len(self.occ_map)):
+            for j in range(len(self.occ_map[0])):
+                if occ_map_img[i][j] != 1: # occluded.
+                    # Mark all neighbors as occluded.
+                    for chg in nbrs:
+                        self.occ_map[clamp(i+chg[0], 0, self.occ_map.shape[0]-1)][clamp(j+chg[1], 0, self.occ_map.shape[1]-1)] = 0
+        self.occ_map = np.float32(np.array(self.occ_map))
+        if self.show_map_images:
+            cv2.imshow("Ballooned Occ Map", self.occ_map); cv2.waitKey(0); cv2.destroyAllWindows()
+
+        if self.show_map_images:
+            # Show value distribution in occ_map.
+            freqs = [0, 0]
+            for i in range(len(self.occ_map)):
+                for j in range(len(self.occ_map[0])):
+                    if self.occ_map[i][j] == 0:
+                        freqs[0] += 1
+                    else:
+                        freqs[1] += 1
+            if self.verbose:
+                rospy.loginfo("CMP: Occ map value frequencies: "+str(freqs[1])+" free, "+str(freqs[0])+" occluded.")
+
+
+class MapFrameManager(CoarseMapProcessor):
     """
     Class to handle map/vehicle coordinate transforms.
     Also uses the rotated_rectangle_crop_opencv functions to crop out an observation region corresponding to a particular vehicle pose.
     Used both for ground-truth observation generation as well as particle likelihood evalutation.
     """
     initialized = False
-    verbose = False
-    map = None # 2D numpy array of the global map
-    map_resolution = None # float, meters/pixel for the map.
+    map_with_border = None # 2D numpy array of the global map, including a border region.
 
     # Config flags. If using discrete state space, robot's yaw must be axis-aligned.
     use_discrete_state_space = False
@@ -43,45 +165,34 @@ class MapFrameManager:
         """
         Create instance and set important global params.
         """
-        self.read_params()
-
-    def read_params(self):
-        """
-        Read configuration params from the yaml.
-        """
-        # Determine filepath.
-        rospack = rospkg.RosPack()
-        pkg_path = rospack.get_path('cmn_pkg')
+        super().__init__()
         # Open the yaml and get the relevant params.
-        with open(pkg_path+'/config/config.yaml', 'r') as file:
+        with open(os.path.join(self.pkg_path, "config/config.yaml"), 'r') as file:
             config = yaml.safe_load(file)
-            self.verbose = config["verbose"]
-            # Map params. NOTE this will eventually be unknown and thus non-constant as it is estimated.
-            self.map_resolution = config["map"]["resolution"]
-            self.map_downscale_ratio = config["map"]["downscale_ratio"]
-            self.map_resolution /= self.map_downscale_ratio
             # Observation region size.
-            self.obs_resolution = config["observation"]["resolution"] / self.map_downscale_ratio
+            self.obs_resolution = config["observation"]["resolution"] #/ self.map_downscale_ratio
             self.obs_height_px = config["observation"]["height"]
             self.obs_width_px = config["observation"]["width"]
-            self.obs_height_px_on_map = int(self.obs_height_px * self.obs_resolution / self.map_resolution)
-            self.obs_width_px_on_map = int(self.obs_width_px * self.obs_resolution / self.map_resolution)
+            self.obs_height_px_on_map = int(self.obs_height_px * self.obs_resolution / self.map_resolution_desired)
+            self.obs_width_px_on_map = int(self.obs_width_px * self.obs_resolution / self.map_resolution_desired)
             # Vehicle position relative to observation region.
             self.veh_px_horz_from_center_on_obs = (config["observation"]["veh_horz_pos_ratio"] - 0.5) * self.obs_width_px
             self.veh_px_vert_from_bottom_on_obs = config["observation"]["veh_vert_pos_ratio"] * self.obs_width_px
-            self.veh_px_horz_from_center_on_map = self.veh_px_horz_from_center_on_obs * self.obs_resolution / self.map_resolution
-            self.veh_px_vert_from_bottom_on_map = self.veh_px_vert_from_bottom_on_obs * self.obs_resolution / self.map_resolution
+            self.veh_px_horz_from_center_on_map = self.veh_px_horz_from_center_on_obs * self.obs_resolution / self.map_resolution_desired
+            self.veh_px_vert_from_bottom_on_map = self.veh_px_vert_from_bottom_on_obs * self.obs_resolution / self.map_resolution_desired
+        # Add borders to the map to prepare for observation extraction.
+        self.setup_map()
 
-    def set_map(self, map):
+    def setup_map(self):
         """
-        Set the map that will be used to crop out observation regions.
+        Setup the map that will be used to crop out observation regions.
         Determine valid vehicle bounds, and add padding around the map border.
         """
         # Set the map as it is temporarily so we can use it to determine vehicle bounds.
-        self.map = map
+        self.map_with_border = self.occ_map
         # Set the map bounds in meters. This prevents true vehicle pose from leaving the map.
-        self.map_x_min_meters, self.map_y_min_meters = self.transform_map_px_to_m(map.shape[1]-1, 0)
-        self.map_x_max_meters, self.map_y_max_meters = self.transform_map_px_to_m(0, map.shape[0]-1)
+        self.map_x_min_meters, self.map_y_min_meters = self.transform_map_px_to_m(self.map_with_border.shape[1]-1, 0)
+        self.map_x_max_meters, self.map_y_max_meters = self.transform_map_px_to_m(0, self.map_with_border.shape[0]-1)
 
         """
         When generating an observation, it is possible the desired region will be partially outside the bounds of the map.
@@ -90,7 +201,7 @@ class MapFrameManager:
         All extra space will be assumed to be occluded cells (value = 0.0).
         """
         max_obs_dim = ceil(np.sqrt(self.obs_height_px_on_map**2 + self.obs_width_px_on_map**2))
-        self.map = cv2.copyMakeBorder(map, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
+        self.map_with_border = cv2.copyMakeBorder(self.map_with_border, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
         self.initialized = True
 
     def transform_pose_px_to_m(self, pose_px:PosePixels) -> PoseMeters:
@@ -109,14 +220,14 @@ class MapFrameManager:
         @return tuple of floats (x, y)
         """
         # Clamp inputs within legal range of values.
-        row = int(clamp(row, 0, self.map.shape[0]-1))
-        col = int(clamp(col, 0, self.map.shape[1]-1))
+        row = int(clamp(row, 0, self.map_with_border.shape[0]-1))
+        col = int(clamp(col, 0, self.map_with_border.shape[1]-1))
         # Get pixel difference from map center.
-        row_offset = row - self.map.shape[0] // 2
-        col_offset = col - self.map.shape[1] // 2
+        row_offset = row - self.map_with_border.shape[0] // 2
+        col_offset = col - self.map_with_border.shape[1] // 2
         # Convert from pixels to meters.
-        x = self.map_resolution * col_offset
-        y = self.map_resolution * -row_offset
+        x = self.map_resolution_desired * col_offset
+        y = self.map_resolution_desired * -row_offset
         return x, y
 
     def transform_pose_m_to_px(self, pose_m:PoseMeters) -> PosePixels:
@@ -135,14 +246,14 @@ class MapFrameManager:
         @return tuple of ints (row, col)
         """
         # Convert from meters to pixels.
-        col_offset = x / self.map_resolution
-        row_offset = -y / self.map_resolution
+        col_offset = x / self.map_resolution_desired
+        row_offset = -y / self.map_resolution_desired
         # Shift origin from center to corner.
-        row = row_offset + self.map.shape[0] // 2
-        col = col_offset + self.map.shape[1] // 2
+        row = row_offset + self.map_with_border.shape[0] // 2
+        col = col_offset + self.map_with_border.shape[1] // 2
         # Clamp within legal range of values.
-        row = int(clamp(row, 0, self.map.shape[0]-1))
-        col = int(clamp(col, 0, self.map.shape[1]-1))
+        row = int(clamp(row, 0, self.map_with_border.shape[0]-1))
+        col = int(clamp(col, 0, self.map_with_border.shape[1]-1))
         return row, col
 
     def extract_observation_region(self, veh_pose_m:PoseMeters):
@@ -161,7 +272,7 @@ class MapFrameManager:
         angle = -np.rad2deg(veh_pose_px.yaw)
         rect = (center, (self.obs_height_px_on_map, self.obs_width_px_on_map), angle)
         # Crop out the rotated rectangle and reorient it.
-        obs_img = crop_rotated_rectangle(image = self.map, rect = rect)
+        obs_img = crop_rotated_rectangle(image = self.map_with_border, rect = rect)
         # If area was partially outside the image, this will return None.
         if obs_img is None:
             rospy.logerr("MFM: Could not generate observation image.")
@@ -178,9 +289,9 @@ class MapFrameManager:
         """
         # Keep choosing random cells until one is free.
         while True:
-            r = randrange(0, self.map.shape[0])
-            c = randrange(0, self.map.shape[1])
-            if self.map[r, c] == 1: # this cell is free.
+            r = randrange(0, self.map_with_border.shape[0])
+            c = randrange(0, self.map_with_border.shape[1])
+            if self.map_with_border[r, c] == 1: # this cell is free.
                 return PosePixels(r, c)
 
     def generate_random_valid_veh_pose(self) -> PoseMeters:
@@ -210,7 +321,7 @@ class MapFrameManager:
         @return true if the vehicle pose is in collision on the occupancy grid map.
         """
         r, c = self.transform_map_m_to_px(veh_pose_m.x, veh_pose_m.y)
-        return self.map[r, c] != 1 # return false if this cell is free, and true otherwise.
+        return self.map_with_border[r, c] != 1 # return false if this cell is free, and true otherwise.
 
 class Simulator(MapFrameManager):
     """
@@ -220,28 +331,19 @@ class Simulator(MapFrameManager):
     veh_pose_true = None
 
     def __init__(self):
-        self.read_params()
-
-    def read_params(self):
-        super().read_params()
+        """
+        Use the MapFrameManager's setup functions to assign the map and setup all validity conditions such as bounds and free cells.
+        Also initialize the simulator's state.
+        """
+        super().__init__()
         # Read params only needed for the simulator.
-        rospack = rospkg.RosPack()
-        pkg_path = rospack.get_path('cmn_pkg')
-        # Open the yaml and get the relevant params.
-        with open(pkg_path+'/config/config.yaml', 'r') as file:
+        with open(self.pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
             self.dt = config["dt"]
             # Constraints.
             self.max_fwd_cmd = config["constraints"]["fwd"]
             self.max_ang_cmd = config["constraints"]["ang"]
             self.allow_motion_through_occupied_cells = config["simulator"]["allow_motion_through_occupied_cells"]
-
-    def set_map(self, map):
-        """
-        Use the MapFrameManager's set_map function to assign the map and setup all validity conditions such as bounds and free cells.
-        Also initialize the simulator's state.
-        """
-        super().set_map(map)
         # Initialize the ground truth vehicle pose randomly on the map.
         self.veh_pose_true = self.generate_random_valid_veh_pose()
 
@@ -288,142 +390,5 @@ class Simulator(MapFrameManager):
         """
         # Use more general utilities class to generate the observation, using the known true vehicle pose.
         return self.extract_observation_region(self.veh_pose_true)
-
-
-class CoarseMapProcessor:
-    """
-    Class to handle reading the coarse map from file, and doing any pre-processing.
-    """
-    # Global variables for class
-    verbose = False
-    raw_map = None # Original coarse map including color.
-    occ_map = None # Thresholded & binarized coarse map to create an occupancy grid.
-
-    def __init__(self):
-        """
-        Create instance and set important global params.
-        """
-        self.read_params()
-        self.read_coarse_map_from_file()
-
-    def read_params(self):
-        """
-        Read configuration params from the yaml.
-        """
-        # Determine filepath.
-        rospack = rospkg.RosPack()
-        pkg_path = rospack.get_path('cmn_pkg')
-        # Open the yaml and get the relevant params.
-        with open(pkg_path+'/config/config.yaml', 'r') as file:
-            config = yaml.safe_load(file)
-            self.verbose = config["verbose"]
-            # Map params.
-            self.show_map_images = config["map"]["show_images_during_pre_proc"]
-            self.map_fpath = pkg_path + "/config/maps/" + config["map"]["fname"]
-            self.obs_balloon_radius = config["map"]["obstacle_balloon_radius"]
-            # NOTE the scale will eventually be unknown and thus non-constant as it is estimated at runtime.
-            self.map_resolution = config["map"]["resolution"]
-            self.map_downscale_ratio = config["map"]["downscale_ratio"]
-            self.map_resolution /= self.map_downscale_ratio
-
-    def read_coarse_map_from_file(self):
-        """
-        Read the coarse map image from the provided filepath.
-        Save the map itself to use for visualizations.
-        Process the image by converting it to an occupancy grid.
-        """
-        # Read map image and account for possible white = transparency that cv2 will think is black.
-        # https://stackoverflow.com/questions/31656366/cv2-imread-and-cv2-imshow-return-all-zeros-and-black-image/62985765#62985765
-        img = cv2.imread(self.map_fpath, cv2.IMREAD_UNCHANGED)
-        if img.shape[2] == 4: # we have an alpha channel.
-            a1 = ~img[:,:,3] # extract and invert that alpha.
-            img = cv2.add(cv2.merge([a1,a1,a1,a1]), img) # add up values (with clipping).
-            img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB) # strip alpha channels.
-
-        if self.verbose:
-            rospy.loginfo("CMP: Read raw coarse map image with shape {:}".format(img.shape))
-        if self.show_map_images:
-            cv2.imshow('initial map', img); cv2.waitKey(0); cv2.destroyAllWindows()
-
-        # Downsize the image to the desired resolution.
-        img = cv2.resize(img, (int(img.shape[0] * self.map_downscale_ratio), int(img.shape[1] * self.map_downscale_ratio)))
-        if self.verbose:
-            rospy.loginfo("CMP: Resized coarse map to shape {:}".format(img.shape))
-        if self.show_map_images:
-            cv2.imshow('resized map', img); cv2.waitKey(0); cv2.destroyAllWindows()
-
-        # Convert from BGR to RGB and save the color map for any viz.
-        self.raw_map = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        # Turn this into a grayscale img and then to a binary map.
-        occ_map_img = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), 200, 255, cv2.THRESH_BINARY)[1]
-        # Normalize to range [0,1].
-        occ_map_img = np.divide(occ_map_img, 255)
-        if self.verbose:
-            rospy.loginfo("CMP: Thresholded/binarized map to shape {:}".format(img.shape))
-        if self.show_map_images:
-            cv2.imshow("Thresholded Map", occ_map_img); cv2.waitKey(0); cv2.destroyAllWindows()
-        
-        # Consider anything not completely white (1) as occluded (0).
-        self.occ_map = np.floor(occ_map_img)
-
-        # Expand occluded cells so path planning won't take us right next to obstacles.
-        if self.obs_balloon_radius == 0:
-            rospy.logwarn("CMP: For some reason everything breaks if we skip the ballooning step, so running with minimal radius of 1.")
-            self.obs_balloon_radius = 1
-        # Determine index pairs to select all neighbors when ballooning obstacles.
-        nbrs = []
-        for i in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
-            for j in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
-                nbrs.append((i, j))
-        # Remove 0,0 which is just the parent cell.
-        nbrs.remove((0,0))
-        # Expand all occluded cells outwards.
-        for i in range(len(self.occ_map)):
-            for j in range(len(self.occ_map[0])):
-                if occ_map_img[i][j] != 1: # occluded.
-                    # Mark all neighbors as occluded.
-                    for chg in nbrs:
-                        self.occ_map[clamp(i+chg[0], 0, self.occ_map.shape[0]-1)][clamp(j+chg[1], 0, self.occ_map.shape[1]-1)] = 0
-        self.occ_map = np.float32(np.array(self.occ_map))
-        if self.show_map_images:
-            cv2.imshow("Ballooned Occ Map", self.occ_map); cv2.waitKey(0); cv2.destroyAllWindows()
-
-        if self.show_map_images:
-            # Show value distribution in occ_map.
-            freqs = [0, 0]
-            for i in range(len(self.occ_map)):
-                for j in range(len(self.occ_map[0])):
-                    if self.occ_map[i][j] == 0:
-                        freqs[0] += 1
-                    else:
-                        freqs[1] += 1
-            if self.verbose:
-                rospy.loginfo("CMP: Occ map value frequencies: "+str(freqs[1])+" free, "+str(freqs[0])+" occluded.")
-
-    ### Functions that are obsolete but may become useful again in the future:
-    # def get_raw_map_msg(self):
-    #     """
-    #     @usage raw_map_pub.publish(map_proc.get_raw_map_msg())
-    #     @return the original coarse map image (in color) as a ROS Image message.
-    #     """
-    #     try:
-    #         if self.verbose:
-    #             rospy.loginfo("CMP: Returning original coarse map with shape {:}.".format(self.raw_map.shape))
-    #         return bridge.cv2_to_imgmsg(self.raw_map, encoding="passthrough")
-    #     except CvBridgeError as e:
-    #         rospy.logerr("CMP: Unable to convert raw_map to a ROS Image. Error: " + e)
-
-    # def get_occ_map_msg(self):
-    #     """
-    #     @usage occ_map_pub.publish(map_proc.get_occ_map_msg())
-    #     @return the processed coarse map occupancy grid as a ROS Image message.
-    #     """
-    #     try:
-    #         if self.verbose:
-    #             rospy.loginfo("CMP: Returning processed (coarse) occupancy map with shape {:}.".format(self.occ_map.shape))
-    #         return bridge.cv2_to_imgmsg(self.occ_map, encoding="passthrough")
-    #     except CvBridgeError as e:
-    #         rospy.logerr("CMP: Unable to convert occ_map to a ROS Image. Error: " + e)
 
 

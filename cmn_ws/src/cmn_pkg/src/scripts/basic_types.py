@@ -8,13 +8,15 @@ import numpy as np
 from math import remainder, pi, tau
 
 class Pose:
-    yaw = None
+    yaw = None # Orientation in radians. 0 = right/east. In range [-pi,pi]
 
     def get_direction(self) -> str:
         """
         Discretize the yaw into the nearest cardinal direction.
         @return string representation of the agent's direction, either 'east', 'north', 'west', or 'south'.
         """
+        if self.yaw is None:
+            return "none"
         dist_to_east = abs(remainder(self.yaw, tau))
         dist_to_north = abs(remainder(self.yaw - pi/2, tau))
         dist_to_west = abs(remainder(self.yaw - pi, tau))
@@ -33,8 +35,7 @@ class PoseMeters(Pose):
     """
     2D vehicle pose, represented in meters.
     """
-    x = None
-    y = None
+    x, y = None, None # Position in meters. Origin is center of map.
 
     def __init__(self, x:float, y:float, yaw:float=None):
         self.x = x
@@ -58,8 +59,7 @@ class PosePixels(Pose):
     """
     2D pose, represented in pixels on the map.
     """
-    r = None
-    c = None
+    r, c = None, None # Position of cell in pixels on map. Origin is top-left of image.
 
     def __init__(self, r:int, c:int, yaw:float=None):
         self.r = r

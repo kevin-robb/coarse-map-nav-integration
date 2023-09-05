@@ -13,18 +13,15 @@ from cv_bridge import CvBridge
 from math import pi, atan2, asin
 import numpy as np
 
-from scripts.map_handler import CoarseMapProcessor, Simulator
+from scripts.map_handler import Simulator
 from scripts.motion_planner import DiscreteMotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
-from scripts.basic_types import PoseMeters, PosePixels
-import matplotlib.pyplot as plt
 import cv2
 
 ############ GLOBAL VARIABLES ###################
 g_cv_bridge = CvBridge()
 # Instances of utility classes defined in src/scripts folder.
-g_map_processor = CoarseMapProcessor()
 g_simulator = Simulator() # Subset of MapFrameManager that will allow us to do coordinate transforms.
 g_motion_planner = DiscreteMotionPlanner() # Subset of MotionPlanner that can be used to plan paths and command continuous or discrete motions.
 g_particle_filter = ParticleFilter() # PF for continuous state-space localization.
@@ -112,7 +109,7 @@ def run_loop_continuous(event=None):
         # Update data for the viz.
         g_visualizer.set_observation(observation, rect)
         # Convert meters to pixels using our map transform class.
-        g_visualizer.veh_pose_estimate = g_simulator.transform_pose_m_to_px(pf_estimate)
+        # g_visualizer.veh_pose_estimate = g_simulator.transform_pose_m_to_px(pf_estimate)
         # Update ground-truth data if we're running the sim.
         if g_use_ground_truth_map_to_generate_observations:
             g_visualizer.veh_pose_true = g_simulator.transform_pose_m_to_px(g_simulator.veh_pose_true)
@@ -276,8 +273,6 @@ def main():
     cmd_vel_pub = rospy.Publisher("/locobot/mobile_base/commands/velocity", Twist, queue_size=1)
     g_motion_planner.set_vel_pub(cmd_vel_pub)
 
-    # Init the sim (subclass of MapFrameManager) with the map.
-    g_simulator.set_map(g_map_processor.occ_map)
     # Give reference to sim so other classes can use the map and perform coordinate transforms.
     g_motion_planner.set_map_frame_manager(g_simulator)
     g_particle_filter.set_map_frame_manager(g_simulator)
