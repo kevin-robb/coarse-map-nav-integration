@@ -130,7 +130,7 @@ class MotionPlanner:
         """
         self.mfm = mfm
         # Save the map in A* to use as well.
-        self.astar.map = self.mfm.map
+        self.astar.map = self.mfm.map_with_border
 
     def set_goal_point_random(self):
         """
@@ -185,7 +185,7 @@ class MotionPlanner:
         for i in range(len(self.path_px_reversed)-1, -1, -1):
             path.append(self.mfm.transform_pose_px_to_m(self.path_px_reversed[i]))
             # Check if the path contains any occluded cells.
-            if self.mfm.map[self.path_px_reversed[i].r, self.path_px_reversed[i].c] == 0:
+            if self.mfm.map_with_border[self.path_px_reversed[i].r, self.path_px_reversed[i].c] == 0:
                 if self.verbose:
                     rospy.logwarn("MOT: Path contains an occluded cell.")
 

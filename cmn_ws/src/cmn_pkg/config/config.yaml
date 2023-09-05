@@ -1,6 +1,6 @@
 # Parameters for the project
 
-verbose: false # Show a lot more debug information.
+verbose: true # Show a lot more debug information.
 
 # Rate at which to publish velocity commands to the robot.
 dt: 0.1 # timer period in seconds.
@@ -23,7 +23,7 @@ map:
   desired_meters_per_pixel: 0.05 # Image will be resized to fit this desired granularity.
 
   obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
-  show_images_during_pre_proc: false # If true, display map at each stage of pre-processing.
+  show_images_during_pre_proc: true # If true, display map at each stage of pre-processing.
 
 # Config params defining how the observation output from the perception model relates to the robot.
 # These should be known, since they are determined by the observation "ground truth" outputs used to train the model in the first place.

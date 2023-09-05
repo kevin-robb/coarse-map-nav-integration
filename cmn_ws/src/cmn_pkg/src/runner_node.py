@@ -22,9 +22,9 @@ import cv2
 ############ GLOBAL VARIABLES ###################
 g_cv_bridge = CvBridge()
 # Instances of utility classes defined in src/scripts folder.
-g_simulator = Simulator() # Subset of MapFrameManager that will allow us to do coordinate transforms.
-g_motion_planner = DiscreteMotionPlanner() # Subset of MotionPlanner that can be used to plan paths and command continuous or discrete motions.
-g_particle_filter = ParticleFilter() # PF for continuous state-space localization.
+g_simulator = None # Subset of MapFrameManager that will allow us to do coordinate transforms.
+g_motion_planner = None # Subset of MotionPlanner that can be used to plan paths and command continuous or discrete motions.
+g_particle_filter = None # PF for continuous state-space localization.
 g_visualizer = None # Will be initialized only if a launch file arg is true.
 # RealSense measurements buffer.
 g_most_recent_realsense_measurement = None
@@ -247,6 +247,12 @@ def main():
 
     read_params()
 
+    # Init the other nodes.
+    global g_simulator, g_motion_planner, g_particle_filter
+    g_simulator = Simulator()
+    g_motion_planner = DiscreteMotionPlanner()
+    g_particle_filter = ParticleFilter()
+
     # Get any params specified in args from launch file.
     if len(sys.argv) > 3:
         global g_run_mode, g_use_ground_truth_map_to_generate_observations, g_show_live_viz
@@ -254,7 +260,6 @@ def main():
         g_use_ground_truth_map_to_generate_observations = sys.argv[2].lower() == "true"
         g_show_live_viz = sys.argv[3].lower() == "true"
         # Let other module(s) know what mode is active.
-        global g_simulator
         g_simulator.use_discrete_state_space = g_run_mode == "discrete"
 
     # Init the visualizer only if it's enabled.

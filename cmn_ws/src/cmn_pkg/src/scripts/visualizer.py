@@ -63,7 +63,7 @@ class Visualizer:
         """
         self.mfm = mfm
         # Setup the map on the figure.
-        self.occ_map = mfm.map
+        self.occ_map = mfm.map_with_border
         # Compute vehicle pose relative to observation region, now that we've set mfm and have the needed configs.
         self.set_veh_pose_in_obs_region()
 

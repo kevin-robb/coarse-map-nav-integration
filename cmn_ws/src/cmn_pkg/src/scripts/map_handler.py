@@ -70,6 +70,9 @@ class CoarseMapProcessor:
             # Based on the image resolution and the desired resolution, determine a downscaling ratio.
             self.map_resolution_desired = config["map"]["desired_meters_per_pixel"]
             self.map_downscale_ratio = self.map_resolution_raw / self.map_resolution_desired
+            if self.verbose:
+                rospy.loginfo("CMP: downscale ratio is {:.3f}".format(self.map_downscale_ratio))
+
         # Read in the map and perform all necessary pre-processing.
         self.read_coarse_map_from_file()
 
@@ -93,7 +96,7 @@ class CoarseMapProcessor:
             cv2.imshow('initial map', img); cv2.waitKey(0); cv2.destroyAllWindows()
 
         # Downsize the image to the desired resolution.
-        img = cv2.resize(img, (int(img.shape[0] * self.map_downscale_ratio), int(img.shape[1] * self.map_downscale_ratio)))
+        img = cv2.resize(img, (int(img.shape[0] * self.map_downscale_ratio), int(img.shape[1] * self.map_downscale_ratio)), cv2.INTER_AREA)
         if self.verbose:
             rospy.loginfo("CMP: Resized coarse map to shape {:}".format(img.shape))
         if self.show_map_images:
@@ -103,7 +106,7 @@ class CoarseMapProcessor:
         self.raw_map = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         # Turn this into a grayscale img and then to a binary map.
-        occ_map_img = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), self.map_occ_thresh_min, self.map_occ_thresh_max, cv2.THRESH_BINARY_INV)[1]
+        occ_map_img = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), self.map_occ_thresh_min, self.map_occ_thresh_max, cv2.THRESH_BINARY)[1]
         # Normalize to range [0,1].
         occ_map_img = np.divide(occ_map_img, 255)
         if self.verbose:
