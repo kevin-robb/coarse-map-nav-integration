@@ -96,7 +96,7 @@ class CoarseMapProcessor:
             cv2.imshow('initial map', img); cv2.waitKey(0); cv2.destroyAllWindows()
 
         # Downsize the image to the desired resolution.
-        img = cv2.resize(img, (int(img.shape[0] * self.map_downscale_ratio), int(img.shape[1] * self.map_downscale_ratio)), cv2.INTER_AREA)
+        img = cv2.resize(img, (int(img.shape[1] * self.map_downscale_ratio), int(img.shape[0] * self.map_downscale_ratio)), 0, 0, cv2.INTER_AREA)
         if self.verbose:
             rospy.loginfo("CMP: Resized coarse map to shape {:}".format(img.shape))
         if self.show_map_images:
@@ -173,7 +173,7 @@ class MapFrameManager(CoarseMapProcessor):
         with open(os.path.join(self.pkg_path, "config/config.yaml"), 'r') as file:
             config = yaml.safe_load(file)
             # Observation region size.
-            self.obs_resolution = config["observation"]["resolution"] #/ self.map_downscale_ratio
+            self.obs_resolution = config["observation"]["resolution"] / self.map_downscale_ratio
             self.obs_height_px = config["observation"]["height"]
             self.obs_width_px = config["observation"]["width"]
             self.obs_height_px_on_map = int(self.obs_height_px * self.obs_resolution / self.map_resolution_desired)
