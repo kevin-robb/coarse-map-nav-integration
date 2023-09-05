@@ -24,6 +24,7 @@ g_cv_bridge = CvBridge()
 # Instances of utility classes defined in src/scripts folder.
 g_simulator = None # Subset of MapFrameManager that will allow us to do coordinate transforms.
 g_motion_planner = None # Subset of MotionPlanner that can be used to plan paths and command continuous or discrete motions.
+g_enable_localization = False # For debugging, the PF can be disabled entirely so we can focus on the sim/ground truth.
 g_particle_filter = None # PF for continuous state-space localization.
 g_visualizer = None # Will be initialized only if a launch file arg is true.
 # RealSense measurements buffer.
@@ -102,25 +103,32 @@ def run_loop_continuous(event=None):
         # TODO Pass this measurement through the ML model to obtain an observation.
         observation = None # i.e., get_observation_from_meas(meas)
 
-    # Use the particle filter to get a localization estimate from this observation.
-    pf_estimate = g_particle_filter.update_with_observation(observation)
+    if g_enable_localization:
+        # Use the particle filter to get a localization estimate from this observation.
+        pf_estimate = g_particle_filter.update_with_observation(observation)
 
     if g_visualizer is not None:
         # Update data for the viz.
         g_visualizer.set_observation(observation, rect)
-        # Convert meters to pixels using our map transform class.
-        # g_visualizer.veh_pose_estimate = g_simulator.transform_pose_m_to_px(pf_estimate)
         # Update ground-truth data if we're running the sim.
         if g_use_ground_truth_map_to_generate_observations:
+            # Convert meters to pixels using our map transform class.
             g_visualizer.veh_pose_true = g_simulator.transform_pose_m_to_px(g_simulator.veh_pose_true)
-        # Convert particle set to pixels as well.
-        g_visualizer.particle_set = g_particle_filter.get_particle_set_px()
+        if g_enable_localization:
+            g_visualizer.veh_pose_estimate = g_simulator.transform_pose_m_to_px(pf_estimate)
+            # Convert particle set to pixels as well.
+            g_visualizer.particle_set = g_particle_filter.get_particle_set_px()
 
-    # Run the PF resampling step.
-    g_particle_filter.resample()
+    if g_enable_localization:
+        # Run the PF resampling step.
+        g_particle_filter.resample()
 
     # Choose velocity commands for the robot based on the pose estimate.
-    fwd, ang = g_motion_planner.plan_path_to_goal(pf_estimate)
+    fwd, ang = 0, 0
+    if g_enable_localization:
+        fwd, ang = g_motion_planner.plan_path_to_goal(pf_estimate)
+    elif g_use_ground_truth_map_to_generate_observations:
+        fwd, ang = g_motion_planner.plan_path_to_goal(g_simulator.veh_pose_true)
     g_motion_planner.pub_velocity_cmd(fwd, ang)
     g_simulator.propagate_with_vel(fwd, ang) # Apply to the ground truth vehicle pose.
 
@@ -128,8 +136,9 @@ def run_loop_continuous(event=None):
         # Update data for the viz.
         g_visualizer.planned_path = g_motion_planner.path_px_reversed
 
-    # Propagate all particles by the commanded motion.
-    g_particle_filter.propagate_particles(fwd * g_dt, ang * g_dt)
+    if g_enable_localization:
+        # Propagate all particles by the commanded motion.
+        g_particle_filter.propagate_particles(fwd * g_dt, ang * g_dt)
 
     if g_visualizer is not None:
         # Update the viz.
@@ -156,9 +165,10 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        global g_verbose, g_dt
+        global g_verbose, g_dt, g_enable_localization
         g_verbose = config["verbose"]
         g_dt = config["dt"]
+        g_enable_localization = config["particle_filter"]["enable"]
         # Settings for interfacing with CMN.
         global g_meas_topic, g_meas_width, g_meas_height
         g_meas_topic = config["measurements"]["topic"]

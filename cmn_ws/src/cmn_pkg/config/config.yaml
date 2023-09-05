@@ -19,9 +19,7 @@ measurements:
 # Details about the coarse map.
 map:
   fname: "building1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
-
   desired_meters_per_pixel: 0.05 # Image will be resized to fit this desired granularity.
-
   obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
   show_images_during_pre_proc: false # If true, display map at each stage of pre-processing.
 
@@ -40,6 +38,7 @@ model:
   device: "cuda:0"
 
 particle_filter:
+  enable: false # For debugging, localization can be disabled entirely with this flag.
   num_particles: 10 # Number of particles to track.
   state_size: 3 # Number of variables in the state. (i.e., (x,y,yaw)).
   random_sampling_rate: 0.1 # Proportion in range [0, 1] of population that will be sampled randomly instead of from the previous generation.
