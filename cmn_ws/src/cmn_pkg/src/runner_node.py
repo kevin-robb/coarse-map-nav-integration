@@ -1,31 +1,39 @@
 #!/usr/bin/env python3
 
+"""
+Main node for running the project. This should be run on the locobot itself.
+"""
+
 import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
-import rospkg, yaml
+import rospkg, yaml, sys
 from cv_bridge import CvBridge
 from math import pi, atan2, asin
+import numpy as np
 
-from scripts.map_handler import CoarseMapProcessor, Simulator
+from scripts.map_handler import Simulator
 from scripts.motion_planner import DiscreteMotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
-from scripts.basic_types import PoseMeters, PosePixels
-import matplotlib.pyplot as plt
 import cv2
 
 ############ GLOBAL VARIABLES ###################
-bridge = CvBridge()
+g_cv_bridge = CvBridge()
 # Instances of utility classes defined in src/scripts folder.
-map_proc = CoarseMapProcessor()
-sim = Simulator() # Subset of MapFrameManager that will allow us to do coordinate transforms.
-dmp = DiscreteMotionPlanner() # Subset of MotionPlanner that can be used to plan paths and command continuous or discrete motions.
-pf = ParticleFilter() # PF for continuous state-space localization.
-viz = Visualizer()
+g_simulator = None # Subset of MapFrameManager that will allow us to do coordinate transforms.
+g_motion_planner = None # Subset of MotionPlanner that can be used to plan paths and command continuous or discrete motions.
+g_enable_localization = False # For debugging, the PF can be disabled entirely so we can focus on the sim/ground truth.
+g_particle_filter = None # PF for continuous state-space localization.
+g_visualizer = None # Will be initialized only if a launch file arg is true.
 # RealSense measurements buffer.
-most_recent_RS_meas = None
+g_most_recent_realsense_measurement = None
+# Configs.
+g_run_mode = None # "discrete" or "continuous"
+g_use_ground_truth_map_to_generate_observations = False
+g_show_live_viz = False
+g_verbose = False
 #################################################
 
 def run_loop(event=None):
@@ -48,7 +56,7 @@ def run_loop_discrete(event=None):
     and commands discrete actions.
     """
     # # DEBUG just command a 90 degree turn, then stop.
-    # dmp.cmd_discrete_action("90_LEFT")
+    # g_motion_planner.cmd_discrete_action("90_LEFT")
     # rospy.sleep(2)
     # return
 
@@ -57,24 +65,21 @@ def run_loop_discrete(event=None):
         observation = None
     else:
         # Get a panoramic measurement.
-        pano_meas = get_pano_meas()
+        pano_rgb = get_pano_meas()
         # TODO Pass this panoramic measurement through the model to obtain an observation.
-        observation = get_observation_from_pano_meas(pano_meas)
-
-    # Convert to ROS image and publish it for viz.
-    # observation_pub.publish(bridge.cv2_to_imgmsg(observation, encoding="passthrough"))
+        observation = None
 
     # TODO Use discrete bayesian filter to localize the robot.
     robot_pose_estimate = None
     # TODO Determine path from estimated pose to the goal, using the coarse map, and determine a discrete action to command.
     # TODO for now just command random discrete action.
-    # fwd, ang = dmp.cmd_random_discrete_action()
+    # fwd, ang = g_motion_planner.cmd_random_discrete_action()
     # TODO for now, always go forwards.
-    fwd, ang = dmp.cmd_discrete_action("FORWARD")
+    fwd, ang = g_motion_planner.cmd_discrete_action("FORWARD")
 
     if g_use_ground_truth_map_to_generate_observations:
         # Propagate the true vehicle pose by this discrete action.
-        sim.propagate_with_dist(fwd, ang)
+        g_simulator.propagate_with_dist(fwd, ang)
 
 
 def run_loop_continuous(event=None):
@@ -88,50 +93,58 @@ def run_loop_continuous(event=None):
     observation, rect = None, None
     if g_use_ground_truth_map_to_generate_observations:
         # Do not attempt to use the utilities class until the map has been processed.
-        while not sim.initialized:
+        while not g_simulator.initialized:
             rospy.logwarn("Waiting for sim to be initialized!")
             rospy.sleep(0.1)
-        observation, rect = sim.get_true_observation()
+        observation, rect = g_simulator.get_true_observation()
     else:
         # Get an image from the RealSense.
         meas = pop_from_RS_buffer()
         # TODO Pass this measurement through the ML model to obtain an observation.
         observation = None # i.e., get_observation_from_meas(meas)
 
-    # Use the particle filter to get a localization estimate from this observation.
-    pf_estimate = pf.update_with_observation(observation)
+    if g_enable_localization:
+        # Use the particle filter to get a localization estimate from this observation.
+        pf_estimate = g_particle_filter.update_with_observation(observation)
 
-    if viz.enabled:
+    if g_visualizer is not None:
         # Update data for the viz.
-        viz.set_observation(observation, rect)
-        # Convert meters to pixels using our map transform class.
-        viz.veh_pose_estimate = sim.transform_pose_m_to_px(pf_estimate)
+        g_visualizer.set_observation(observation, rect)
         # Update ground-truth data if we're running the sim.
         if g_use_ground_truth_map_to_generate_observations:
-            viz.veh_pose_true = sim.transform_pose_m_to_px(sim.veh_pose_true)
-        # Convert particle set to pixels as well.
-        viz.particle_set = pf.get_particle_set_px()
+            # Convert meters to pixels using our map transform class.
+            g_visualizer.veh_pose_true = g_simulator.transform_pose_m_to_px(g_simulator.veh_pose_true)
+        if g_enable_localization:
+            g_visualizer.veh_pose_estimate = g_simulator.transform_pose_m_to_px(pf_estimate)
+            # Convert particle set to pixels as well.
+            g_visualizer.particle_set = g_particle_filter.get_particle_set_px()
 
-    # Run the PF resampling step.
-    pf.resample()
+    if g_enable_localization:
+        # Run the PF resampling step.
+        g_particle_filter.resample()
 
     # Choose velocity commands for the robot based on the pose estimate.
-    fwd, ang = dmp.plan_path_to_goal(pf_estimate)
-    dmp.pub_velocity_cmd(fwd, ang)
-    sim.propagate_with_vel(fwd, ang) # Apply to the ground truth vehicle pose.
+    fwd, ang = 0, 0
+    if g_enable_localization:
+        fwd, ang = g_motion_planner.plan_path_to_goal(pf_estimate)
+    elif g_use_ground_truth_map_to_generate_observations:
+        fwd, ang = g_motion_planner.plan_path_to_goal(g_simulator.veh_pose_true)
+    g_motion_planner.pub_velocity_cmd(fwd, ang)
+    g_simulator.propagate_with_vel(fwd, ang) # Apply to the ground truth vehicle pose.
 
-    if viz.enabled:
+    if g_visualizer is not None:
         # Update data for the viz.
-        viz.planned_path = dmp.path_px_reversed
+        g_visualizer.planned_path = g_motion_planner.path_px_reversed
 
-    # Propagate all particles by the commanded motion.
-    pf.propagate_particles(fwd * g_dt, ang * g_dt)
+    if g_enable_localization:
+        # Propagate all particles by the commanded motion.
+        g_particle_filter.propagate_particles(fwd * g_dt, ang * g_dt)
 
-    if viz.enabled:
+    if g_visualizer is not None:
         # Update the viz.
-        viz_img = viz.get_updated_img()
+        viz_img = g_visualizer.get_updated_img()
         cv2.imshow('viz image', viz_img)
-        key = cv2.waitKey(100)
+        key = cv2.waitKey(int(g_dt * 1000))
         # Special keypress conditions.
         if key == 113: # q for quit.
             cv2.destroyAllWindows()
@@ -140,19 +153,6 @@ def run_loop_continuous(event=None):
 
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
-
-
-def get_observation_from_pano_meas(pano_meas):
-    """
-    Pass the most recent panoramic measurement into the ML model, and get back a resulting observation.
-    Publish the observation to be used for localization.
-    @param pano_meas - dictionary with key:value pairs direction:image.
-    """
-    # TODO make way to interface with the ML model, which will be in a separate file.
-    observation = None # i.e., ml_model(pano_meas)
-    rospy.sleep(1.0) # Pause to simulate waiting for the model to process.
-
-    return observation
 
 ##################### UTILITY FUNCTIONS #######################
 def read_params():
@@ -165,43 +165,62 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(pkg_path+'/config/config.yaml', 'r') as file:
         config = yaml.safe_load(file)
-        global g_dt, g_run_mode, g_use_ground_truth_map_to_generate_observations
+        global g_verbose, g_dt, g_enable_localization
+        g_verbose = config["verbose"]
         g_dt = config["dt"]
-        g_run_mode = config["run_mode"]
-        g_use_ground_truth_map_to_generate_observations = config["use_ground_truth_map_to_generate_observations"]
+        g_enable_localization = config["particle_filter"]["enable"]
+        # Settings for interfacing with CMN.
+        global g_meas_topic, g_meas_width, g_meas_height
+        g_meas_topic = config["measurements"]["topic"]
+        g_meas_height = config["measurements"]["height"]
+        g_meas_width = config["measurements"]["width"]
 
 ######################## CALLBACKS ########################
 def get_pano_meas():
     """
     Get a panoramic measurement.
     Since the robot has only a forward-facing camera, we must pivot in-place four times.
-    @return dictionary with key:value pairs of direction:image.
+    @return panoramic image created by concatenating four individual measurements.
     """
-    rospy.loginfo("Attempting to generate a panoramic measurement by commanding four 90 degree pivots.")
+    if g_verbose:
+        rospy.loginfo("Attempting to generate a panoramic measurement by commanding four 90 degree pivots.")
     pano_meas = {}
-    pano_meas["front"] = pop_from_RS_buffer()
-    dmp.cmd_discrete_action("90_LEFT") # pivot in-place 90 deg CCW, and then stop.
-    pano_meas["left"] = pop_from_RS_buffer()
-    dmp.cmd_discrete_action("90_LEFT")
-    pano_meas["back"] = pop_from_RS_buffer()
-    dmp.cmd_discrete_action("90_LEFT")
-    pano_meas["right"] = pop_from_RS_buffer()
-    dmp.cmd_discrete_action("90_LEFT")
+    pano_meas["color_sensor_front"] = pop_from_RS_buffer()
+    # Resize to desired shape for input to CMN code.
+    if g_verbose:
+        rospy.loginfo("Raw RS image has shape {:}".format(pano_meas["color_sensor_front"].shape))
+    pano_meas["color_sensor_front"] = cv2.resize(pano_meas["color_sensor_front"], (g_meas_height,g_meas_width,3))
+    # Pivot in-place 90 deg CW to get another measurement.
+    g_motion_planner.cmd_discrete_action("90_RIGHT")
+    pano_meas["color_sensor_right"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_right"] = cv2.resize(pano_meas["color_sensor_right"], (g_meas_height,g_meas_width,3))
+    g_motion_planner.cmd_discrete_action("90_RIGHT")
+    pano_meas["color_sensor_back"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_back"] = cv2.resize(pano_meas["color_sensor_back"], (g_meas_height,g_meas_width,3))
+    g_motion_planner.cmd_discrete_action("90_RIGHT")
+    pano_meas["color_sensor_left"] = pop_from_RS_buffer()
+    pano_meas["color_sensor_left"] = cv2.resize(pano_meas["color_sensor_left"], (g_meas_height,g_meas_width,3))
+    g_motion_planner.cmd_discrete_action("90_RIGHT")
     # Vehicle should now be facing forwards again (its original direction).
-    return pano_meas
+    # Combine these images into a panorama.
+    pano_rgb = np.concatenate([pano_meas['color_sensor_front'][:, :, 0:3],
+                               pano_meas['color_sensor_right'][:, :, 0:3],
+                               pano_meas['color_sensor_back'][:, :, 0:3],
+                               pano_meas['color_sensor_left'][:, :, 0:3]], axis=1)
+    return pano_rgb
 
 def pop_from_RS_buffer():
     """
     Wait for a new RealSense measurement to be available, and return it.
     """
-    global most_recent_RS_meas
-    while most_recent_RS_meas is None:
+    global g_most_recent_realsense_measurement
+    while g_most_recent_realsense_measurement is None:
         rospy.logwarn("Waiting on measurement from RealSense!")
         rospy.sleep(0.01)
     # Convert from ROS Image message to an OpenCV image.
-    cv_img_meas = bridge.imgmsg_to_cv2(most_recent_RS_meas, desired_encoding='passthrough')
+    cv_img_meas = g_cv_bridge.imgmsg_to_cv2(g_most_recent_realsense_measurement, desired_encoding='passthrough')
     # Ensure this same measurement will not be used again.
-    most_recent_RS_meas = None
+    g_most_recent_realsense_measurement = None
     return cv_img_meas
 
 def get_RS_image(msg):
@@ -209,8 +228,8 @@ def get_RS_image(msg):
     Get a measurement Image from the RealSense camera.
     Could be changed multiple times before we need a measurement, so this allows skipping measurements to prefer recency.
     """
-    global most_recent_RS_meas
-    most_recent_RS_meas = msg
+    global g_most_recent_realsense_measurement
+    g_most_recent_realsense_measurement = msg
 
 def get_odom(msg):
     """
@@ -228,33 +247,56 @@ def get_odom(msg):
     roll = atan2(2.0*(q.x*q.y + q.w*q.z), q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z)
     # Set the odom var.
     most_recent_odom = (x,y,roll)
-    dmp.set_odom(most_recent_odom)
-    # rospy.loginfo("Got odom {:}.".format(most_recent_odom))
+    g_motion_planner.set_odom(most_recent_odom)
+    
+    if g_verbose:
+        rospy.loginfo("Got odom {:}.".format(most_recent_odom))
 
 def main():
     rospy.init_node('runner_node')
 
     read_params()
+
+    # Init the other nodes.
+    global g_simulator, g_motion_planner, g_particle_filter
+    g_simulator = Simulator()
+    g_motion_planner = DiscreteMotionPlanner()
+    g_particle_filter = ParticleFilter()
+
+    # Get any params specified in args from launch file.
+    if len(sys.argv) > 3:
+        global g_run_mode, g_use_ground_truth_map_to_generate_observations, g_show_live_viz
+        g_run_mode = sys.argv[1]
+        g_use_ground_truth_map_to_generate_observations = sys.argv[2].lower() == "true"
+        g_show_live_viz = sys.argv[3].lower() == "true"
+        # Let other module(s) know what mode is active.
+        g_simulator.use_discrete_state_space = g_run_mode == "discrete"
+
+    # Init the visualizer only if it's enabled.
+    if g_show_live_viz:
+        global g_visualizer
+        g_visualizer = Visualizer()
+
     # Subscribe to sensor images from RealSense.
     # TODO may want to check /locobot/camera/color/camera_info
-    rospy.Subscriber("/locobot/camera/color/image_raw", Image, get_RS_image, queue_size=1)
+    rospy.Subscriber(g_meas_topic, Image, get_RS_image, queue_size=1)
 
     # Subscribe to robot odometry.
     rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)
 
     # Publish control commands (velocities in m/s and rad/s).
     cmd_vel_pub = rospy.Publisher("/locobot/mobile_base/commands/velocity", Twist, queue_size=1)
-    dmp.set_vel_pub(cmd_vel_pub)
+    g_motion_planner.set_vel_pub(cmd_vel_pub)
 
-    # Init the sim (subclass of MapFrameManager) with the map.
-    sim.set_map(map_proc.occ_map)
     # Give reference to sim so other classes can use the map and perform coordinate transforms.
-    dmp.set_map_frame_manager(sim)
-    pf.set_map_frame_manager(sim)
-    viz.set_map_frame_manager(sim)
+    g_motion_planner.set_map_frame_manager(g_simulator)
+    g_particle_filter.set_map_frame_manager(g_simulator)
+    if g_visualizer is not None:
+        g_visualizer.set_map_frame_manager(g_simulator)
     # Select a random goal point.
-    dmp.set_goal_point_random()
-    viz.goal_cell = dmp.goal_pos_px
+    g_motion_planner.set_goal_point_random()
+    if g_visualizer is not None:
+        g_visualizer.goal_cell = g_motion_planner.goal_pos_px
 
     rospy.Timer(rospy.Duration(g_dt), run_loop)
 

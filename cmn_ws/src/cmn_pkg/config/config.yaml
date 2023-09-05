@@ -1,31 +1,25 @@
 # Parameters for the project
 
-# Rate at which to publish commands to the robot.
+verbose: true # Show a lot more debug information.
+
+# Rate at which to publish velocity commands to the robot.
 dt: 0.1 # timer period in seconds.
-
-# Mode to use when running. options: discrete, continuous.
-# - discrete: Panoramic measurements, DBF for localization, discrete actions only.
-# - continuous: Single-image measurements, PF for localization, continuous velocity commands.
-run_mode: "discrete"
-
-# Set how observations will be generated.
-# - true: treat the coarse map as ground truth and use vehicle pose on it to generate observations.
-# - false: use the ML model to generate observations from sensor data.
-use_ground_truth_map_to_generate_observations: false
-
-# Set whether the live visualization will attempt to run.
-enable_live_viz: false
 
 # Flag to enable collection of training data for the model. Requires the coarse map be set to a high-fidelity map (i.e., from cartographer in the same environment).
 # Save measurements, true odom pose on map, and "observation" pulled from the map, all with timestamps & frame numbers to associate them. This data can be used to retrain the ML model, and also allows re-running the project to evaluate the model & localization to compare to ground truth. May also need to save commands or relative motions depending on how the localization is implemented. NOTE could use rosbags for the replaying aspect, but for training the model we still need a way to get associated measurements + "observations".
 save_data_for_training: false
 
+# Details about the measurements that will be used to generate observations.
+measurements:
+  topic: "/locobot/camera/color/image_raw" # Rostopic the robot will be publishing images to.
+  height: 224 # Images will be resized to this height (in px) before being given to the model.
+  width: 224 # Images will be resized to this width (in px) before being given to the model.
+  use_panorama: True # If true, the robot will do a 360 degree in-place pivot to collect an image from each cardinal direction and construct a panoramic image for every iteration.
+
 # Details about the coarse map.
 map:
-  fname: "building2.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
-  downscale_ratio: 0.2 # Resize map to lower resolution. This helps A* to run faster. New side lengths will be original*downscale_ratio.
-  resolution: 0.01 # Assumed map resolution, in meters/pixel. This will later be estimated as part of the filter to allow a map with unknown scale to be used.
-  occ_thresh: 200 # Integer in range [0,255]. All cells with grayscale value < this will be considered occupied.
+  fname: "building1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
+  desired_meters_per_pixel: 0.05 # Image will be resized to fit this desired granularity.
   obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
   show_images_during_pre_proc: false # If true, display map at each stage of pre-processing.
 
@@ -39,13 +33,18 @@ observation:
   veh_horz_pos_ratio: 0.5 # relative position from left (0) to right (1). Use 0.5 to center it.
   veh_vert_pos_ratio: 0.0 # relative position from bottom (0) to top (1). Use 0.5 to center it.
 
+# Configs for the ML model used to generate observations from sensor images.
+model:
+  device: "cuda:0"
+
 particle_filter:
+  enable: false # For debugging, localization can be disabled entirely with this flag.
   num_particles: 10 # Number of particles to track.
   state_size: 3 # Number of variables in the state. (i.e., (x,y,yaw)).
   random_sampling_rate: 0.1 # Proportion in range [0, 1] of population that will be sampled randomly instead of from the previous generation.
 
 actions:
-  discrete_forward_dist: 0.5 # meters forward to move for discrete motion action.
+  discrete_forward_dist: 0.15 # meters forward to move for discrete motion action.
   discrete_forward_skip_probability: 0.1 # probability that a forward action will be skipped instead of commanded to the robot.
 
 path_planning:
@@ -56,8 +55,6 @@ simulator:
   # ground_truth_map:
   #   use_diff_map_than_coarse_map: false # if true, use the following params to setup the ground truth map. If false, the coarse map will be used.
   #   fname: "igvc1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
-  #   resolution: 0.01 # Map resolution in meters/pixel.
-  #   occ_thresh: 200 # Integer in range [0,255]. All cells with grayscale value < this will be considered occupied.
   #   obstacle_balloon_radius: 2 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
   ground_truth_pose:
     veh_x_initial: 0.0 # meters from left.
@@ -66,6 +63,11 @@ simulator:
   allow_motion_through_occupied_cells: true # if true, robot is allowed to be in occluded cells.
 
 constraints:
-  fwd: 0.2 # commanded linear velocity must be between 0 and this amount (meters).
-  ang: 1 # commanded angular velocity has its magnitude limited by this amount (radians).
+  fwd: 0.2 # commanded linear velocity must be between 0 and this amount (meters/sec).
+  ang: 1 # commanded angular velocity has its magnitude limited by this amount (radians/sec).
+
+# Goal is reached when these minimum deviations are satisfied.
+goal_reach_deviation:
+  linear: 0.1 # meters.
+  angular: 1.0 # degrees.
 

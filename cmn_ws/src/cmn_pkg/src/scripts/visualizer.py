@@ -15,8 +15,7 @@ class Visualizer:
     """
     Class to handle updating the live viz with any dynamically changing data.
     """
-    # Flag describing if visualization is enabled.
-    enabled = False
+    verbose = False
     # Keep track of most recent data for all vars we want to plot.
     occ_map = None # Occupancy grid map that will be displayed in the background of the main viz window.
     observation = None # Most recent observation image.
@@ -46,7 +45,7 @@ class Visualizer:
         # Open the yaml and get the relevant params.
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
-            self.enabled = config["enable_live_viz"]
+            self.verbose = config["verbose"]
 
     def set_observation(self, obs_img, obs_rect=None):
         """
@@ -64,7 +63,7 @@ class Visualizer:
         """
         self.mfm = mfm
         # Setup the map on the figure.
-        self.occ_map = mfm.map
+        self.occ_map = mfm.map_with_border
         # Compute vehicle pose relative to observation region, now that we've set mfm and have the needed configs.
         self.set_veh_pose_in_obs_region()
 

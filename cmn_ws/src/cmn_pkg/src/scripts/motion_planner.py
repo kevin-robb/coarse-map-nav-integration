@@ -27,11 +27,13 @@ class MotionPlanner:
     """
     Class to send commands to the robot.
     """
+    verbose = False
     # Publisher that will be defined by a ROS node and set.
     cmd_vel_pub = None
 
     # Instances of utility classes.
     astar = Astar() # For path planning.
+    pure_pursuit = PurePursuit() # For path following.
     mfm = None # For coordinate transforms between localization estimate and the map frame. Will be set after init by runner.
     # Goal cell in pixels on the map.
     goal_pos_px = None # PosePixels instance.
@@ -43,6 +45,9 @@ class MotionPlanner:
 
     # Most recently planned path. Can be accessed for viz. Will be None until a path is successfully planned.
     path_px_reversed = None # List of PosePixels objects.
+
+    # Current robot odometry.
+    odom = (0,0,0)
 
 
     def __init__(self):
@@ -58,18 +63,27 @@ class MotionPlanner:
         # Open the yaml and get the relevant params.
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
+            self.verbose = config["verbose"]
+            self.astar.verbose = self.verbose
+            self.pure_pursuit.verbose = self.verbose
             # Constraints.
             self.max_fwd_cmd = config["constraints"]["fwd"]
             self.max_ang_cmd = config["constraints"]["ang"]
             # Path planning.
             self.do_path_planning = config["path_planning"]["do_path_planning"]
-            PurePursuit.use_finite_lookahead_dist = self.do_path_planning
+            self.pure_pursuit.use_finite_lookahead_dist = self.do_path_planning
 
     def set_vel_pub(self, pub):
         """
         Set our publisher for velocity commands, which are sent to the robot and used for updating viz.
         """
         self.cmd_vel_pub = pub
+
+    def set_odom(self, odom):
+        """
+        Update our motion progress based on a new odometry measurement.
+        """
+        self.odom = odom
 
     def pub_velocity_cmd(self, fwd, ang):
         """
@@ -78,7 +92,8 @@ class MotionPlanner:
         # Clamp to allowed velocity ranges.
         fwd = clamp(fwd, 0, self.max_fwd_cmd)
         ang = clamp(ang, -self.max_ang_cmd, self.max_ang_cmd)
-        # rospy.loginfo("MP: Publishing a command ({:}, {:})".format(fwd, ang))
+        if self.verbose:
+            rospy.loginfo("MP: Publishing a command ({:}, {:})".format(fwd, ang))
         # Create ROS message.
         msg = Twist(Vector3(fwd, 0, 0), Vector3(0, 0, ang))
         self.cmd_vel_pub.publish(msg)
@@ -118,7 +133,7 @@ class MotionPlanner:
         """
         self.mfm = mfm
         # Save the map in A* to use as well.
-        self.astar.map = self.mfm.map
+        self.astar.map = self.mfm.map_with_border
 
     def set_goal_point_random(self):
         """
@@ -130,8 +145,17 @@ class MotionPlanner:
         """
         Set the goal point in pixels on the map, which we will try to go to.
         """
-        rospy.loginfo("MP: Got goal cell ({:}, {:})".format(int(goal_cell.r), int(goal_cell.c)))
+        if self.verbose:
+            rospy.loginfo("MP: Got goal cell ({:}, {:})".format(int(goal_cell.r), int(goal_cell.c)))
         self.goal_pos_px = goal_cell
+
+    def is_goal_reached(self) -> bool:
+        """
+        Compute difference between current and goal poses.
+        NOTE must use estimated pose to match goal pose's coordinate system.
+        """
+        # TODO
+        return False
 
     def plan_path_to_goal(self, veh_pose_est:PoseMeters):
         """
@@ -156,24 +180,25 @@ class MotionPlanner:
         else:
             # Just use the goal point as the "path" and naively steer directly towards it.
             self.path_px_reversed = [self.goal_pos_px, veh_pose_est_px]
-            
-        # rospy.loginfo("MOT: Planned path from A*: " + str(self.path_px_reversed))
+
+        if self.verbose:
+            rospy.loginfo("MOT: Planned path from A*: " + ",".join([str(pose) for pose in self.path_px_reversed]))
         # Turn this path from PosePixels to PoseMeters and un-reverse it.
         path = []
         for i in range(len(self.path_px_reversed)-1, -1, -1):
             path.append(self.mfm.transform_pose_px_to_m(self.path_px_reversed[i]))
             # Check if the path contains any occluded cells.
-            if self.mfm.map[self.path_px_reversed[i].r, self.path_px_reversed[i].c] == 0:
-                rospy.logwarn("MOT: Path contains an occluded cell.")
+            if self.mfm.map_with_border[self.path_px_reversed[i].r, self.path_px_reversed[i].c] == 0:
+                if self.verbose:
+                    rospy.logwarn("MOT: Path contains an occluded cell.")
 
         # Set the path for pure pursuit, and generate a command.
-        PurePursuit.path_meters = path
-        fwd, ang = PurePursuit.compute_command(veh_pose_est)
+        fwd, ang = self.pure_pursuit.compute_command(veh_pose_est, path)
 
         # Keep within constraints.
         fwd_clamped = clamp(fwd, 0, self.max_fwd_cmd)
         ang_clamped = clamp(ang, -self.max_ang_cmd, self.max_ang_cmd)
-        if fwd != fwd_clamped or ang != ang_clamped:
+        if self.verbose and (fwd != fwd_clamped or ang != ang_clamped):
             rospy.logwarn("MOT: Clamped pure pursuit output from ({:.2f}, {:.2f}) to ({:.2f}, {:.2f}).".format(fwd, ang, fwd_clamped, ang_clamped))
 
         # Return the commanded motion to be published.
@@ -252,12 +277,6 @@ class DiscreteMotionPlanner(MotionPlanner):
                 rospy.logwarn("DMP: Invalid value of discrete_forward_skip_probability. Must lie in range [0, 1]. Setting to 0.")
                 self.discrete_forward_skip_probability = 0
 
-    def set_odom(self, odom):
-        """
-        Update our motion progress based on a new odometry measurement.
-        """
-        self.odom = odom
-
     def cmd_discrete_action(self, action:str):
         """
         Command a discrete action.
@@ -294,7 +313,8 @@ class DiscreteMotionPlanner(MotionPlanner):
         Turn the robot in-place by a discrete amount, and then stop.
         @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
         """
-        rospy.loginfo("DMP: Commanding a discrete pivot of {:} radians.".format(angle))
+        if self.verbose:
+            rospy.loginfo("DMP: Commanding a discrete pivot of {:} radians.".format(angle))
         # Get turn direction.
         turn_dir_sign = angle / abs(angle)
         # Keep waiting until motion has completed.
@@ -314,7 +334,8 @@ class DiscreteMotionPlanner(MotionPlanner):
         Move the robot forwards by a discrete distance, and then stop.
         @param dist - distance in meters to move. Positive is forwards, negative for backwards.
         """
-        rospy.loginfo("DMP: Commanding a discrete forward motion of {:} meters.".format(dist))
+        if self.verbose:
+            rospy.loginfo("DMP: Commanding a discrete forward motion of {:} meters.".format(dist))
         # Get direction of motion.
         motion_sign = dist / abs(dist)
         # Save the starting odom.

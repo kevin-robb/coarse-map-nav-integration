@@ -1,4 +1,0 @@
-<launch>
-    <!-- Node that drives the project -->
-    <node pkg="cmn_pkg" type="runner_node.py" name="runner_node" output="screen" />
-</launch>

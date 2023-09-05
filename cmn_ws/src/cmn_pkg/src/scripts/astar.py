@@ -5,6 +5,7 @@ import rospy
 from scripts.basic_types import PosePixels
 
 class Astar:
+    verbose = False
     include_diagonals = False
     map = None # 2D numpy array of the global map
     # Neighbors for comparison and avoiding re-computations.
@@ -21,16 +22,16 @@ class Astar:
         goal_cell = Cell(goal_pose_px)
         # make sure starting pose is on the map and not in collision.
         if start_cell.r < 0 or start_cell.c < 0 or start_cell.r >= self.map.shape[0] or start_cell.c >= self.map.shape[1]:
-            rospy.logerr("A*: Starting position not within map bounds. Exiting without computing a path.")
+            rospy.logerr("AST: Starting position not within map bounds. Exiting without computing a path.")
             return
         if start_cell.in_collision(self.map):
-            rospy.logwarn("A*: Starting position is in collision. Computing a path, and encouraging motion to free space.")
+            rospy.logwarn("AST: Starting position is in collision. Computing a path, and encouraging motion to free space.")
         # make sure goal is on the map and not in collision.
         if goal_cell.r < 0 or goal_cell.c < 0 or goal_cell.r >= self.map.shape[0] or goal_cell.c >= self.map.shape[1]:
-            rospy.logerr("A*: Goal position not within map bounds. Exiting without computing a path.")
+            rospy.logerr("AST: Goal position not within map bounds. Exiting without computing a path.")
             return
         if goal_cell.in_collision(self.map):
-            rospy.logerr("A*: Goal position is in collision. Exiting without computing a path.")
+            rospy.logerr("AST: Goal position is in collision. Exiting without computing a path.")
             return
 
         # add starting node to open list.
@@ -38,7 +39,8 @@ class Astar:
         closed_list = []
         # iterate until reaching the goal or exhausting all cells.
         while len(open_list) > 0:
-            # rospy.loginfo("A*: Iteration with len(open_list)={:}, len(closed_list)={:}".format(len(open_list), len(closed_list)))
+            if self.verbose:
+                rospy.loginfo("AST: Iteration with len(open_list)={:}, len(closed_list)={:}".format(len(open_list), len(closed_list)))
             # move first element of open list to closed list.
             open_list.sort(key=lambda cell: cell.f)
             cur_cell = open_list.pop(0)
