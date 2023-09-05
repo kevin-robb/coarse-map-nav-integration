@@ -46,6 +46,9 @@ class MotionPlanner:
     # Most recently planned path. Can be accessed for viz. Will be None until a path is successfully planned.
     path_px_reversed = None # List of PosePixels objects.
 
+    # Current robot odometry.
+    odom = (0,0,0)
+
 
     def __init__(self):
         self.read_params()
