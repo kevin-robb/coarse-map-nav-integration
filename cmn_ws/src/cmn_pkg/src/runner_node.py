@@ -229,20 +229,18 @@ def main():
 
     read_params()
 
-    # Init the other nodes.
-    global g_simulator, g_motion_planner, g_particle_filter
-    g_simulator = Simulator()
-    g_motion_planner = DiscreteMotionPlanner()
-    g_particle_filter = ParticleFilter()
-
     # Get any params specified in args from launch file.
     if len(sys.argv) > 3:
         global g_run_mode, g_use_ground_truth_map_to_generate_observations, g_show_live_viz
         g_run_mode = sys.argv[1]
         g_use_ground_truth_map_to_generate_observations = sys.argv[2].lower() == "true"
         g_show_live_viz = sys.argv[3].lower() == "true"
-        # Let other module(s) know what mode is active.
-        g_simulator.use_discrete_state_space = g_run_mode == "discrete"
+
+    # Init the other nodes.
+    global g_simulator, g_motion_planner, g_particle_filter
+    g_simulator = Simulator(g_run_mode == "discrete")
+    g_motion_planner = DiscreteMotionPlanner()
+    g_particle_filter = ParticleFilter()
 
     # Init the visualizer only if it's enabled.
     if g_show_live_viz:

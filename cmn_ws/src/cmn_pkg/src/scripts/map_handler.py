@@ -164,11 +164,13 @@ class MapFrameManager(CoarseMapProcessor):
     # Config flags. If using discrete state space, robot's yaw must be axis-aligned.
     use_discrete_state_space = False
 
-    def __init__(self):
+    def __init__(self, use_discrete_state_space:bool):
         """
         Create instance and set important global params.
+        @param use_discrete_state_space - Flag to represent pose discretely, so angle is locked to cardinal directions.
         """
         super().__init__()
+        self.use_discrete_state_space = use_discrete_state_space
         # Open the yaml and get the relevant params.
         with open(os.path.join(self.pkg_path, "config/config.yaml"), 'r') as file:
             config = yaml.safe_load(file)
@@ -338,12 +340,13 @@ class Simulator(MapFrameManager):
     veh_pose_true = None # (x,y,yaw) in meters and radians.
     veh_pose_true_se2 = None # 3x3 matrix of SE(2) representation.
 
-    def __init__(self):
+    def __init__(self, use_discrete_state_space):
         """
         Use the MapFrameManager's setup functions to assign the map and setup all validity conditions such as bounds and free cells.
         Also initialize the simulator's state.
+        @param use_discrete_state_space - Flag to represent pose discretely, so angle is locked to cardinal directions.
         """
-        super().__init__()
+        super().__init__(use_discrete_state_space)
         # Read params only needed for the simulator.
         with open(self.pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
