@@ -254,6 +254,9 @@ class DiscreteMotionPlanner(MotionPlanner):
     discrete_actions = ["90_LEFT", "90_RIGHT", "FORWARD"]
     # Create MotionTracker instance.
     motion_tracker = MotionTracker()
+    # Flag to keep publishing commands until the robot odometry indicates the motion has finished.
+    # Since the sim does not publish robot odom or subscribe to these velocity commands, this is a simpler solution.
+    wait_for_motion_to_complete = True
 
     def __init__(self):
         self.read_params()
@@ -284,18 +287,21 @@ class DiscreteMotionPlanner(MotionPlanner):
         @return fwd, ang distances moved, which will allow us to propagate our simulated robot pose.
         """
         if action == "90_LEFT":
-            # NOTE under-command the angle slightly since we tend to over-turn.
-            self.cmd_discrete_ang_motion(radians(82))
+            if self.wait_for_motion_to_complete:
+                # NOTE under-command the angle slightly since we tend to over-turn.
+                self.cmd_discrete_ang_motion(radians(82))
             return 0.0, radians(90)
         elif action == "90_RIGHT":
-            self.cmd_discrete_ang_motion(radians(-82))
+            if self.wait_for_motion_to_complete:
+                self.cmd_discrete_ang_motion(radians(-82))
             return 0.0, radians(-90)
         elif action == "FORWARD":
             # Forward motions have a chance to not occur when commanded.
             if random() < self.discrete_forward_skip_probability:
                 rospy.logwarn("DMP: Fwd motion requested, but skipping.")
                 return 0.0, 0.0
-            self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
+            if self.wait_for_motion_to_complete:
+                self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
             return self.discrete_forward_dist, 0.0
         else:
             rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))

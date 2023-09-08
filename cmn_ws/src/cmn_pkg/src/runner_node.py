@@ -105,7 +105,6 @@ def run_loop(event=None):
     else: # discrete
         # TODO Make a motion planner that returns one of the discrete actions.
         # TODO for now, just command random discrete action.
-        # NOTE This command internally publishes velocity commands for the robot and waits for the motion to be complete.
         # fwd, ang = g_motion_planner.cmd_random_discrete_action()
         # fwd, ang = g_motion_planner.cmd_discrete_action("90_LEFT")
         fwd, ang = g_motion_planner.cmd_discrete_action("FORWARD")
@@ -270,6 +269,9 @@ def main():
     g_motion_planner.set_goal_point_random()
     if g_visualizer is not None:
         g_visualizer.goal_cell = g_motion_planner.goal_pos_px
+    
+    # Discrete motion commands internally publish velocity commands for the robot and wait for the motion to be complete, which cannot be run without a robot (i.e., in the sim).
+    g_motion_planner.wait_for_motion_to_complete = not g_use_ground_truth_map_to_generate_observations
 
     rospy.Timer(rospy.Duration(g_dt), run_loop)
 
