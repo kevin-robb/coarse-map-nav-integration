@@ -164,11 +164,13 @@ class MapFrameManager(CoarseMapProcessor):
     # Config flags. If using discrete state space, robot's yaw must be axis-aligned.
     use_discrete_state_space = False
 
-    def __init__(self):
+    def __init__(self, use_discrete_state_space:bool):
         """
         Create instance and set important global params.
+        @param use_discrete_state_space - Flag to represent pose discretely, so angle is locked to cardinal directions.
         """
         super().__init__()
+        self.use_discrete_state_space = use_discrete_state_space
         # Open the yaml and get the relevant params.
         with open(os.path.join(self.pkg_path, "config/config.yaml"), 'r') as file:
             config = yaml.safe_load(file)
@@ -211,6 +213,8 @@ class MapFrameManager(CoarseMapProcessor):
         """
         Convert a pose from pixels to meters.
         """
+        if pose_px is None:
+            return None
         x, y = self.transform_map_px_to_m(pose_px.r, pose_px.c)
         # Return new values, preserving yaw.
         return PoseMeters(x, y, pose_px.yaw)
@@ -237,6 +241,8 @@ class MapFrameManager(CoarseMapProcessor):
         """
         Convert a pose from meters to pixels.
         """
+        if pose_m is None:
+            return None
         r, c = self.transform_map_m_to_px(pose_m.x, pose_m.y)
         # Return new values, preserving yaw.
         return PosePixels(r, c, pose_m.yaw)
@@ -330,15 +336,17 @@ class Simulator(MapFrameManager):
     """
     Class to support running the project in simulation, without the robot providing real data.
     """
-    # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
-    veh_pose_true = None
+    # Ground-truth vehicle pose in the global map frame (origin at center).
+    veh_pose_true = None # (x,y,yaw) in meters and radians.
+    veh_pose_true_se2 = None # 3x3 matrix of SE(2) representation.
 
-    def __init__(self):
+    def __init__(self, use_discrete_state_space):
         """
         Use the MapFrameManager's setup functions to assign the map and setup all validity conditions such as bounds and free cells.
         Also initialize the simulator's state.
+        @param use_discrete_state_space - Flag to represent pose discretely, so angle is locked to cardinal directions.
         """
-        super().__init__()
+        super().__init__(use_discrete_state_space)
         # Read params only needed for the simulator.
         with open(self.pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
@@ -375,7 +383,7 @@ class Simulator(MapFrameManager):
         veh_pose_proposed.y += lin * sin(veh_pose_proposed.yaw)
         # Clamp the vehicle pose to remain inside the map bounds.
         veh_pose_proposed.x = clamp(veh_pose_proposed.x, self.map_x_min_meters, self.map_x_max_meters)
-        veh_pose_proposed.x = clamp(veh_pose_proposed.y, self.map_y_min_meters, self.map_y_max_meters)
+        veh_pose_proposed.y = clamp(veh_pose_proposed.y, self.map_y_min_meters, self.map_y_max_meters)
         # Keep yaw normalized to (-pi, pi).
         veh_pose_proposed.yaw = remainder(veh_pose_proposed.yaw + ang, tau)
         # Determine if this vehicle pose is allowed.

@@ -149,14 +149,6 @@ class MotionPlanner:
             rospy.loginfo("MP: Got goal cell ({:}, {:})".format(int(goal_cell.r), int(goal_cell.c)))
         self.goal_pos_px = goal_cell
 
-    def is_goal_reached(self) -> bool:
-        """
-        Compute difference between current and goal poses.
-        NOTE must use estimated pose to match goal pose's coordinate system.
-        """
-        # TODO
-        return False
-
     def plan_path_to_goal(self, veh_pose_est:PoseMeters):
         """
         Use A* to generate a path to the current goal cell, starting at the current localization estimate.
@@ -166,9 +158,15 @@ class MotionPlanner:
         if self.goal_pos_px is None:
             rospy.logerr("MP: Cannot generate a path to the goal cell, since the goal has not been set. Commanding zero velocity.")
             return 0.0, 0.0
-        
+                
         # Convert vehicle pose from meters to pixels.
         veh_pose_est_px = self.mfm.transform_pose_m_to_px(veh_pose_est)
+
+        # Check if we have already arrived at the goal.
+        if veh_pose_est_px.distance(self.goal_pos_px) < 2:
+            # We are within 2 pixels of the goal, so declare it reached.
+            # NOTE It is fine to check this in pixels instead of meters, since pixels is our lowest resolution for path planning.
+            return None, None
 
         if self.do_path_planning:
             # Generate (reverse) path with A*.
@@ -254,6 +252,9 @@ class DiscreteMotionPlanner(MotionPlanner):
     discrete_actions = ["90_LEFT", "90_RIGHT", "FORWARD"]
     # Create MotionTracker instance.
     motion_tracker = MotionTracker()
+    # Flag to keep publishing commands until the robot odometry indicates the motion has finished.
+    # Since the sim does not publish robot odom or subscribe to these velocity commands, this is a simpler solution.
+    wait_for_motion_to_complete = True
 
     def __init__(self):
         self.read_params()
@@ -284,18 +285,21 @@ class DiscreteMotionPlanner(MotionPlanner):
         @return fwd, ang distances moved, which will allow us to propagate our simulated robot pose.
         """
         if action == "90_LEFT":
-            # NOTE under-command the angle slightly since we tend to over-turn.
-            self.cmd_discrete_ang_motion(radians(82))
+            if self.wait_for_motion_to_complete:
+                # NOTE under-command the angle slightly since we tend to over-turn.
+                self.cmd_discrete_ang_motion(radians(82))
             return 0.0, radians(90)
         elif action == "90_RIGHT":
-            self.cmd_discrete_ang_motion(radians(-82))
+            if self.wait_for_motion_to_complete:
+                self.cmd_discrete_ang_motion(radians(-82))
             return 0.0, radians(-90)
         elif action == "FORWARD":
             # Forward motions have a chance to not occur when commanded.
             if random() < self.discrete_forward_skip_probability:
                 rospy.logwarn("DMP: Fwd motion requested, but skipping.")
                 return 0.0, 0.0
-            self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
+            if self.wait_for_motion_to_complete:
+                self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
             return self.discrete_forward_dist, 0.0
         else:
             rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))
