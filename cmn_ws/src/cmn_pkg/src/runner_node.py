@@ -34,6 +34,8 @@ g_run_mode = None # "discrete" or "continuous"
 g_use_ground_truth_map_to_generate_observations = False
 g_show_live_viz = False
 g_verbose = False
+# Live flags.
+g_viz_paused = False
 #################################################
 
 def run_loop(event=None):
@@ -45,8 +47,23 @@ def run_loop(event=None):
     4. Propagate robot pose estimate by this motion.
     5. Update the viz (if enabled).
     """
-    if g_run_mode not in ["continuous", "discrete"]:
-        rospy.logerr("run_loop called with invalid run_mode {:}.".format(g_run_mode))
+    # Update the visualization, if enabled.
+    if g_visualizer is not None:
+        viz_img = g_visualizer.get_updated_img()
+        cv2.imshow('viz image', viz_img)
+        key = cv2.waitKey(int(g_dt * 1000))
+        # Special keypress conditions.
+        if key == 113: # q for quit.
+            cv2.destroyAllWindows()
+            rospy.signal_shutdown("User pressed Q key.")
+            exit()
+        elif key == 32: # spacebar.
+            global g_viz_paused
+            g_viz_paused = not g_viz_paused
+
+        if g_viz_paused:
+            # Skip all operations, so the same viz image will just keep being displayed until unpaused.
+            return
 
     # First, get an observation. Outside the simulator, this requires getting sensor data.
     observation, rect = None, None
@@ -109,24 +126,12 @@ def run_loop(event=None):
     else: # discrete
         # TODO Make a motion planner that returns one of the discrete actions.
         # TODO for now, just command random discrete action.
-        # fwd, ang = g_motion_planner.cmd_random_discrete_action()
+        fwd, ang = g_motion_planner.cmd_random_discrete_action()
         # fwd, ang = g_motion_planner.cmd_discrete_action("90_LEFT")
-        fwd, ang = g_motion_planner.cmd_discrete_action("FORWARD")
+        # fwd, ang = g_motion_planner.cmd_discrete_action("FORWARD")
         # In the simulator, propagate the true vehicle pose by this discrete action.
         if g_use_ground_truth_map_to_generate_observations:
             g_simulator.propagate_with_dist(fwd, ang)
-
-    # Update the visualization, if enabled.
-    if g_visualizer is not None:
-        viz_img = g_visualizer.get_updated_img()
-        cv2.imshow('viz image', viz_img)
-        key = cv2.waitKey(int(g_dt * 1000))
-        # Special keypress conditions.
-        if key == 113: # q for quit.
-            cv2.destroyAllWindows()
-            rospy.signal_shutdown("User pressed Q key.")
-            exit()
-
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
 
@@ -239,6 +244,11 @@ def main():
         g_run_mode = sys.argv[1]
         g_use_ground_truth_map_to_generate_observations = sys.argv[2].lower() == "true"
         g_show_live_viz = sys.argv[3].lower() == "true"
+    
+
+    if g_run_mode not in ["continuous", "discrete"]:
+        rospy.logerr("Invalid run_mode {:}. Exiting.".format(g_run_mode))
+        exit()
 
     # Init the other nodes.
     global g_simulator, g_motion_planner, g_particle_filter
