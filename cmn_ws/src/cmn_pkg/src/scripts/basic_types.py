@@ -36,11 +36,24 @@ class PoseMeters(Pose):
     2D vehicle pose, represented in meters.
     """
     x, y = None, None # Position in meters. Origin is center of map.
+    yaw = None # Heading in radians. 0 is to the right. In range [-pi, pi].
 
-    def __init__(self, x:float, y:float, yaw:float=None):
+    def __init__(self, x:float=None, y:float=None, yaw:float=None):
+        """
+        Constructor from x, y, yaw.
+        """
         self.x = x
         self.y = y
-        self.yaw = yaw
+        if yaw is not None:
+            self.yaw = remainder(yaw, tau)
+
+    def init_from_se2(self, se2):
+        """
+        Set from 3x3 numpy array SE(2) representation.
+        """
+        self.x = se2[0, 2]
+        self.y = se2[1, 2]
+        self.yaw = np.arctan2(se2[1,0], se2[0,0])
 
     def as_np_array(self):
         """
@@ -53,6 +66,14 @@ class PoseMeters(Pose):
             return "({:.2f}, {:.2f})".format(self.x, self.y)
         else:
             return "({:.2f}, {:.2f}, {:.2f})".format(self.x, self.y, self.yaw)
+        
+    def as_se2(self):
+        """
+        Return the SE(2) representation (3x3 numpy array) of this pose.
+        """
+        return np.array([[np.cos(self.yaw), -np.sin(self.yaw), self.x],
+                         [np.sin(self.yaw), np.cos(self.yaw), self.y],
+                         [0, 0, 1]])
 
 
 class PosePixels(Pose):

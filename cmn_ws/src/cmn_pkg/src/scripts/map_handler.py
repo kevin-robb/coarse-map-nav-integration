@@ -334,8 +334,9 @@ class Simulator(MapFrameManager):
     """
     Class to support running the project in simulation, without the robot providing real data.
     """
-    # Ground-truth vehicle pose (x,y,yaw) in meters and radians, in the global map frame (origin at center).
-    veh_pose_true = None
+    # Ground-truth vehicle pose in the global map frame (origin at center).
+    veh_pose_true = None # (x,y,yaw) in meters and radians.
+    veh_pose_true_se2 = None # 3x3 matrix of SE(2) representation.
 
     def __init__(self):
         """
@@ -379,7 +380,7 @@ class Simulator(MapFrameManager):
         veh_pose_proposed.y += lin * sin(veh_pose_proposed.yaw)
         # Clamp the vehicle pose to remain inside the map bounds.
         veh_pose_proposed.x = clamp(veh_pose_proposed.x, self.map_x_min_meters, self.map_x_max_meters)
-        veh_pose_proposed.x = clamp(veh_pose_proposed.y, self.map_y_min_meters, self.map_y_max_meters)
+        veh_pose_proposed.y = clamp(veh_pose_proposed.y, self.map_y_min_meters, self.map_y_max_meters)
         # Keep yaw normalized to (-pi, pi).
         veh_pose_proposed.yaw = remainder(veh_pose_proposed.yaw + ang, tau)
         # Determine if this vehicle pose is allowed.
