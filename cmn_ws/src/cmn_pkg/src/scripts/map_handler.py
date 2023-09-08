@@ -211,6 +211,8 @@ class MapFrameManager(CoarseMapProcessor):
         """
         Convert a pose from pixels to meters.
         """
+        if pose_px is None:
+            return None
         x, y = self.transform_map_px_to_m(pose_px.r, pose_px.c)
         # Return new values, preserving yaw.
         return PoseMeters(x, y, pose_px.yaw)
@@ -237,6 +239,8 @@ class MapFrameManager(CoarseMapProcessor):
         """
         Convert a pose from meters to pixels.
         """
+        if pose_m is None:
+            return None
         r, c = self.transform_map_m_to_px(pose_m.x, pose_m.y)
         # Return new values, preserving yaw.
         return PosePixels(r, c, pose_m.yaw)

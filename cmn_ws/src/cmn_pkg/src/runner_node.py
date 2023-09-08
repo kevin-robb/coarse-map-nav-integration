@@ -38,58 +38,17 @@ g_verbose = False
 
 def run_loop(event=None):
     """
-    Choose which run loop to use.
+    Main run loop for the program.
+    1. Generate observation (using sim or sensor data).
+    2. Perform localization (PF or DBF).
+    3. Plan path and choose a motion to command.
+    4. Propagate robot pose estimate by this motion.
+    5. Update the viz (if enabled).
     """
-    if g_run_mode == "discrete":
-        run_loop_discrete()
-    elif g_run_mode == "continuous":
-        run_loop_continuous()
-    else:
+    if g_run_mode not in ["continuous", "discrete"]:
         rospy.logerr("run_loop called with invalid run_mode {:}.".format(g_run_mode))
 
-def run_loop_discrete(event=None):
-    """
-    Main run loop for discrete case.
-    Commands motions on the robot to collect a panoramic measurement,
-    uses the model to get an observation,
-    localizes with a discrete bayesian filter,
-    and commands discrete actions.
-    """
-    # # DEBUG just command a 90 degree turn, then stop.
-    # g_motion_planner.cmd_discrete_action("90_LEFT")
-    # rospy.sleep(2)
-    # return
-
-    if g_use_ground_truth_map_to_generate_observations:
-        # TODO sim
-        observation = None
-    else:
-        # Get a panoramic measurement.
-        pano_rgb = get_pano_meas()
-        # TODO Pass this panoramic measurement through the model to obtain an observation.
-        observation = None
-
-    # TODO Use discrete bayesian filter to localize the robot.
-    robot_pose_estimate = None
-    # TODO Determine path from estimated pose to the goal, using the coarse map, and determine a discrete action to command.
-    # TODO for now just command random discrete action.
-    # fwd, ang = g_motion_planner.cmd_random_discrete_action()
-    # TODO for now, always go forwards.
-    fwd, ang = g_motion_planner.cmd_discrete_action("FORWARD")
-
-    if g_use_ground_truth_map_to_generate_observations:
-        # Propagate the true vehicle pose by this discrete action.
-        g_simulator.propagate_with_dist(fwd, ang)
-
-
-def run_loop_continuous(event=None):
-    """
-    Main run loop for continuous case.
-    Uses only the current RS measurement,
-    generates an observation,
-    localizes with a particle filter,
-    and commands continuous velocities.
-    """
+    # First, get an observation. Outside the simulator, this requires getting sensor data.
     observation, rect = None, None
     if g_use_ground_truth_map_to_generate_observations:
         # Do not attempt to use the utilities class until the map has been processed.
@@ -98,50 +57,64 @@ def run_loop_continuous(event=None):
             rospy.sleep(0.1)
         observation, rect = g_simulator.get_true_observation()
     else:
-        # Get an image from the RealSense.
-        meas = pop_from_RS_buffer()
-        # TODO Pass this measurement through the ML model to obtain an observation.
-        observation = None # i.e., get_observation_from_meas(meas)
-
-    if g_enable_localization:
-        # Use the particle filter to get a localization estimate from this observation.
-        pf_estimate = g_particle_filter.update_with_observation(observation)
-
+        # Get a panoramic measurement.
+        pano_rgb = get_pano_meas()
+        # TODO use the ML model to generate an observation from sensor data.
+        observation, rect = None, None
+    # Save this observation for the viz.
     if g_visualizer is not None:
-        # Update data for the viz.
         g_visualizer.set_observation(observation, rect)
-        # Update ground-truth data if we're running the sim.
+
+    # Next, use this observation to perform localization.
+    robot_pose_estimate = None
+    if g_enable_localization:
+        if g_run_mode == "continuous":
+            # Use the particle filter to get a localization estimate from this observation.
+            robot_pose_estimate = g_particle_filter.update_with_observation(observation)
+            if g_visualizer is not None:
+                # Convert particle set to pixels for viz.
+                g_visualizer.particle_set = g_particle_filter.get_particle_set_px()
+            # Run the PF resampling step.
+            g_particle_filter.resample()
+        else: # discrete
+            # TODO Use discrete bayesian filter to localize the robot.
+            robot_pose_estimate = None
+    # Save this robot pose estimate for the viz.
+    if g_visualizer is not None:
+        g_visualizer.veh_pose_estimate = g_simulator.transform_pose_m_to_px(robot_pose_estimate)
+        # If using the simulator, also save the ground truth pose for viz.
         if g_use_ground_truth_map_to_generate_observations:
-            # Convert meters to pixels using our map transform class.
             g_visualizer.veh_pose_true = g_simulator.transform_pose_m_to_px(g_simulator.veh_pose_true)
+
+    # Next, choose velocity commands for the robot based on the pose estimate.
+    if g_run_mode == "continuous":
+        fwd, ang = 0, 0
         if g_enable_localization:
-            g_visualizer.veh_pose_estimate = g_simulator.transform_pose_m_to_px(pf_estimate)
-            # Convert particle set to pixels as well.
-            g_visualizer.particle_set = g_particle_filter.get_particle_set_px()
+            fwd, ang = g_motion_planner.plan_path_to_goal(robot_pose_estimate)
+        elif g_use_ground_truth_map_to_generate_observations:
+            fwd, ang = g_motion_planner.plan_path_to_goal(g_simulator.veh_pose_true)
+        g_motion_planner.pub_velocity_cmd(fwd, ang)
+        g_simulator.propagate_with_vel(fwd, ang) # Apply to the ground truth vehicle pose.
 
-    if g_enable_localization:
-        # Run the PF resampling step.
-        g_particle_filter.resample()
+        if g_enable_localization:
+            # Propagate all particles by the commanded motion.
+            g_particle_filter.propagate_particles(fwd * g_dt, ang * g_dt)
+        # Save the planned path for the viz.
+        if g_visualizer is not None:
+            g_visualizer.planned_path = g_motion_planner.path_px_reversed
+    else: # discrete
+        # TODO Make a motion planner that returns one of the discrete actions.
+        # TODO for now, just command random discrete action.
+        # NOTE This command internally publishes velocity commands for the robot and waits for the motion to be complete.
+        # fwd, ang = g_motion_planner.cmd_random_discrete_action()
+        # fwd, ang = g_motion_planner.cmd_discrete_action("90_LEFT")
+        fwd, ang = g_motion_planner.cmd_discrete_action("FORWARD")
+        # In the simulator, propagate the true vehicle pose by this discrete action.
+        if g_use_ground_truth_map_to_generate_observations:
+            g_simulator.propagate_with_dist(fwd, ang)
 
-    # Choose velocity commands for the robot based on the pose estimate.
-    fwd, ang = 0, 0
-    if g_enable_localization:
-        fwd, ang = g_motion_planner.plan_path_to_goal(pf_estimate)
-    elif g_use_ground_truth_map_to_generate_observations:
-        fwd, ang = g_motion_planner.plan_path_to_goal(g_simulator.veh_pose_true)
-    g_motion_planner.pub_velocity_cmd(fwd, ang)
-    g_simulator.propagate_with_vel(fwd, ang) # Apply to the ground truth vehicle pose.
-
+    # Update the visualization, if enabled.
     if g_visualizer is not None:
-        # Update data for the viz.
-        g_visualizer.planned_path = g_motion_planner.path_px_reversed
-
-    if g_enable_localization:
-        # Propagate all particles by the commanded motion.
-        g_particle_filter.propagate_particles(fwd * g_dt, ang * g_dt)
-
-    if g_visualizer is not None:
-        # Update the viz.
         viz_img = g_visualizer.get_updated_img()
         cv2.imshow('viz image', viz_img)
         key = cv2.waitKey(int(g_dt * 1000))
