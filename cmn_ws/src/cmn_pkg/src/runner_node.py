@@ -93,6 +93,10 @@ def run_loop(event=None):
             fwd, ang = g_motion_planner.plan_path_to_goal(robot_pose_estimate)
         elif g_use_ground_truth_map_to_generate_observations:
             fwd, ang = g_motion_planner.plan_path_to_goal(g_simulator.veh_pose_true)
+        # If the goal was reached, plan_path_to_goal returns None, None.
+        if fwd is None and ang is None:
+            rospy.loginfo("Goal is reached, so ending the run loop.")
+            exit()
         g_motion_planner.pub_velocity_cmd(fwd, ang)
         g_simulator.propagate_with_vel(fwd, ang) # Apply to the ground truth vehicle pose.
 

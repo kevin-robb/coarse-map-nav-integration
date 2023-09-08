@@ -92,3 +92,12 @@ class PosePixels(Pose):
             return "({:}, {:})".format(self.r, self.c)
         else:
             return "({:}, {:}, {:.2f})".format(self.r, self.c, self.yaw)
+        
+    def distance(self, p2) -> float:
+        """
+        Get the distance in pixels between this and another pose.
+        @param p2 - a second PosePixels object.
+        """
+        if self.r is None or self.c is None or p2.r is None or p2.c is None:
+            return None
+        return np.sqrt((self.r - p2.r)**2 + (self.c - p2.c)**2)

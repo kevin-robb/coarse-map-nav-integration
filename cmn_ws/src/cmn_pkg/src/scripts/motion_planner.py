@@ -149,14 +149,6 @@ class MotionPlanner:
             rospy.loginfo("MP: Got goal cell ({:}, {:})".format(int(goal_cell.r), int(goal_cell.c)))
         self.goal_pos_px = goal_cell
 
-    def is_goal_reached(self) -> bool:
-        """
-        Compute difference between current and goal poses.
-        NOTE must use estimated pose to match goal pose's coordinate system.
-        """
-        # TODO
-        return False
-
     def plan_path_to_goal(self, veh_pose_est:PoseMeters):
         """
         Use A* to generate a path to the current goal cell, starting at the current localization estimate.
@@ -166,9 +158,15 @@ class MotionPlanner:
         if self.goal_pos_px is None:
             rospy.logerr("MP: Cannot generate a path to the goal cell, since the goal has not been set. Commanding zero velocity.")
             return 0.0, 0.0
-        
+                
         # Convert vehicle pose from meters to pixels.
         veh_pose_est_px = self.mfm.transform_pose_m_to_px(veh_pose_est)
+
+        # Check if we have already arrived at the goal.
+        if veh_pose_est_px.distance(self.goal_pos_px) < 2:
+            # We are within 2 pixels of the goal, so declare it reached.
+            # NOTE It is fine to check this in pixels instead of meters, since pixels is our lowest resolution for path planning.
+            return None, None
 
         if self.do_path_planning:
             # Generate (reverse) path with A*.

@@ -63,7 +63,7 @@ simulator:
   allow_motion_through_occupied_cells: true # if true, robot is allowed to be in occluded cells.
 
 constraints:
-  fwd: 0.2 # commanded linear velocity must be between 0 and this amount (meters/sec).
+  fwd: 0.6 # commanded linear velocity must be between 0 and this amount (meters/sec).
   ang: 1 # commanded angular velocity has its magnitude limited by this amount (radians/sec).
 
 # Goal is reached when these minimum deviations are satisfied.
