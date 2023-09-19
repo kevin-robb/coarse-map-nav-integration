@@ -61,7 +61,12 @@ class CoarseMapProcessor:
 
             # Some map params are in a separate yaml unique to each map.
             map_name = os.path.splitext(config["map"]["fname"])[0]
-            with open(os.path.join(self.pkg_path, "config/maps/"+map_name+".yaml"), 'r') as file2:
+            map_yaml_fpath = os.path.join(self.pkg_path, "config/maps/"+map_name+".yaml")
+            # Use the default if this path doesn't exist.
+            if not os.path.exists(map_yaml_fpath):
+                rospy.logwarn("CMP: map-specific yaml {:} not found. Using maps/default.yaml instead.".format(map_yaml_fpath))
+                map_yaml_fpath = os.path.join(self.pkg_path, "config/maps/default.yaml")
+            with open(map_yaml_fpath, 'r') as file2:
                 map_config = yaml.safe_load(file2)
                 self.map_resolution_raw = map_config["resolution"]
                 self.map_occ_thresh_min = map_config["occ_thresh_min"]
@@ -82,13 +87,17 @@ class CoarseMapProcessor:
         Save the map itself to use for visualizations.
         Process the image by converting it to an occupancy grid.
         """
-        # Read map image and account for possible white = transparency that cv2 will think is black.
-        # https://stackoverflow.com/questions/31656366/cv2-imread-and-cv2-imshow-return-all-zeros-and-black-image/62985765#62985765
-        img = cv2.imread(self.map_fpath, cv2.IMREAD_UNCHANGED)
-        if img.shape[2] == 4: # we have an alpha channel.
-            a1 = ~img[:,:,3] # extract and invert that alpha.
-            img = cv2.add(cv2.merge([a1,a1,a1,a1]), img) # add up values (with clipping).
-            img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB) # strip alpha channels.
+        # If the map "image" is a numpy array, skip initial image processing.
+        if os.path.splitext(self.map_fpath)[1] == ".npy":
+            img = np.load(self.map_fpath)
+        else:
+            # Read map image and account for possible white = transparency that cv2 will think is black.
+            # https://stackoverflow.com/questions/31656366/cv2-imread-and-cv2-imshow-return-all-zeros-and-black-image/62985765#62985765
+            img = cv2.imread(self.map_fpath, cv2.IMREAD_UNCHANGED)
+            if img.shape[2] == 4: # we have an alpha channel.
+                a1 = ~img[:,:,3] # extract and invert that alpha.
+                img = cv2.add(cv2.merge([a1,a1,a1,a1]), img) # add up values (with clipping).
+                img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB) # strip alpha channels.
 
         if self.verbose:
             rospy.loginfo("CMP: Read raw coarse map image with shape {:}".format(img.shape))
@@ -102,17 +111,21 @@ class CoarseMapProcessor:
         if self.show_map_images:
             cv2.imshow('resized map', img); cv2.waitKey(0); cv2.destroyAllWindows()
 
-        # Convert from BGR to RGB and save the color map for any viz.
-        self.raw_map = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        if len(img.shape) >= 3 and img.shape[2] >= 3:
+            # Convert from BGR to RGB and save the color map for any viz.
+            self.raw_map = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-        # Turn this into a grayscale img and then to a binary map.
-        occ_map_img = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), self.map_occ_thresh_min, self.map_occ_thresh_max, cv2.THRESH_BINARY)[1]
-        # Normalize to range [0,1].
-        occ_map_img = np.divide(occ_map_img, 255)
-        if self.verbose:
-            rospy.loginfo("CMP: Thresholded/binarized map to shape {:}".format(img.shape))
-        if self.show_map_images:
-            cv2.imshow("Thresholded Map", occ_map_img); cv2.waitKey(0); cv2.destroyAllWindows()
+            # Turn this into a grayscale img and then to a binary map.
+            occ_map_img = cv2.threshold(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), self.map_occ_thresh_min, self.map_occ_thresh_max, cv2.THRESH_BINARY)[1]
+            # Normalize to range [0,1].
+            occ_map_img = np.divide(occ_map_img, 255)
+            if self.verbose:
+                rospy.loginfo("CMP: Thresholded/binarized map to shape {:}".format(img.shape))
+            if self.show_map_images:
+                cv2.imshow("Thresholded Map", occ_map_img); cv2.waitKey(0); cv2.destroyAllWindows()
+        else:
+            # Image is already single-channel.
+            occ_map_img = img
         
         # Round so all cells are either completely free (1) or occluded (0).
         self.occ_map = np.round(occ_map_img)

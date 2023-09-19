@@ -296,7 +296,7 @@ class DiscreteMotionPlanner(MotionPlanner):
         elif action == "FORWARD":
             # Forward motions have a chance to not occur when commanded.
             if random() < self.discrete_forward_skip_probability:
-                rospy.logwarn("DMP: Fwd motion requested, but skipping.")
+                rospy.loginfo("DMP: Fwd motion requested, but hit random chance to skip.")
                 return 0.0, 0.0
             if self.wait_for_motion_to_complete:
                 self.cmd_discrete_fwd_motion(self.discrete_forward_dist)

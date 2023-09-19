@@ -1,0 +1,14 @@
+# Configs for the map image with matching filename to this yaml.
+
+# Assumed map resolution in meters/pixel. 
+# This will later be estimated as part of the filter to use a map with unknown size;
+# when that comes, this will be the initial guess for the resolution, so it should 
+# be in the right ballpark. For now, it is just assumed to be true and known.
+resolution: 0.05
+
+# To allow any image to be used, we can specify any range of grayscale values to be
+# categorized as 'occupied' cells, i.e., walls, furniture, etc.
+# Both should be in range [0, 255], and min should be less than max.
+occ_thresh_min: 200
+occ_thresh_max: 255
+

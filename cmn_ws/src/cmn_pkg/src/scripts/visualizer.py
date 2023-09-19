@@ -26,6 +26,7 @@ class Visualizer:
     planned_path = None # Full path being planned by the motion controller, as list of PosePixels.
     goal_cell = None # Current goal cell in pixels. Instance of PosePixels.
     veh_pose_in_obs_region = None # Dict of veh pose details relative to observation frame. This is constant once set.
+    veh_pose_displ_len, veh_pose_displ_wid = None, None # Size to show veh pose(s) on the plot. This is constant once set.
 
     mfm = None # Reference to MapFrameManager allows access to important configs that get computed during map setup.
 
@@ -67,6 +68,11 @@ class Visualizer:
         # Compute vehicle pose relative to observation region, now that we've set mfm and have the needed configs.
         self.set_veh_pose_in_obs_region()
 
+        # Choose size to show robot pose(s) to ensure consistency and staying in frame.
+        self.veh_pose_displ_len = 0.01 * self.mfm.map_resolution_desired / self.mfm.map_downscale_ratio # Must be nonzero so direction is stored, but make very small so we only see the triangle.
+        self.veh_pose_displ_wid = 10.0 * self.mfm.map_resolution_desired / self.mfm.map_downscale_ratio # This controls the size of the triangle part of the arrow (what we care about).
+
+
     def set_veh_pose_in_obs_region(self):
         """
         Add vehicle pose relative to observation region for clarity.
@@ -101,11 +107,11 @@ class Visualizer:
 
         # Add the new (ground truth) vehicle pose to the viz.
         if self.veh_pose_true is not None:
-            ax0.arrow(self.veh_pose_true.c, self.veh_pose_true.r, 0.5*cos(self.veh_pose_true.yaw), -0.5*sin(self.veh_pose_true.yaw), color="blue", width=1.0, label="True Vehicle Pose")
+            ax0.arrow(self.veh_pose_true.c, self.veh_pose_true.r, self.veh_pose_displ_len*cos(self.veh_pose_true.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_true.yaw), color="blue", width=self.veh_pose_displ_wid, label="True Vehicle Pose")
 
         # Add the most recent localization estimate to the viz.
         if self.veh_pose_estimate is not None:
-            ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, 0.5*cos(self.veh_pose_estimate.yaw), -0.5*sin(self.veh_pose_estimate.yaw), color="green", width=1.0, zorder = 3, label="PF Estimate")
+            ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, self.veh_pose_displ_len*cos(self.veh_pose_estimate.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_estimate.yaw), color="green", width=self.veh_pose_displ_wid, zorder = 3, label="Veh Pose Estimate")
 
         # Plot the set of particles in the PF.
         if self.particle_set is not None:
