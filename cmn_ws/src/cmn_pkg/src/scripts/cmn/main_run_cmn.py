@@ -2,6 +2,8 @@ import os, sys
 # Allow this to be imported from a higher directory.
 parent_package_dir = os.path.abspath(os.path.join(__file__, ".."))
 sys.path.append(parent_package_dir)
+parent_package_dir = os.path.abspath(os.path.join(__file__, "../.."))
+sys.path.append(parent_package_dir)
 
 # Habitat
 from Env.habitat_env import House

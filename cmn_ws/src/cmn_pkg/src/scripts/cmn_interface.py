@@ -5,25 +5,22 @@ Wrapper for the original CMN Habitat code from Chengguang Xu to work with my cus
 """
 
 import rospy
-# import rospkg, yaml, cv2, rospy, os
+import os, sys
 import numpy as np
-# from math import sin, cos, remainder, tau, ceil, pi
-# from random import random, randrange
-# from cv_bridge import CvBridge, CvBridgeError
-
 from math import degrees
 from skimage.transform import resize, rotate
 
 from enum import IntEnum
 
 from scripts.basic_types import PoseMeters
-from scripts.cmn_demo.main_run_cmn import CoarseMapNav
+from scripts.cmn.main_run_cmn import CoarseMapNav
 from scripts.map_handler import Simulator, MapFrameManager
 from scripts.motion_planner import DiscreteMotionPlanner, MotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
 
-from scripts.cmn_demo.Env.habitat_env import quat_from_angle_axis
+from scripts.cmn.utils.Parser import YamlParser
+from scripts.cmn.Env.habitat_env import quat_from_angle_axis
 
 
 class RunMode(IntEnum):
@@ -41,8 +38,6 @@ class CoarseMapNavInterface():
     use_discrete_space:bool = False
     enable_localization:bool = True # Debugging flag; if false, uses ground truth pose from sim instead of estimating pose.
 
-    # g_enable_localization = False # For debugging, the PF can be disabled entirely so we can focus on the sim/ground truth.
-
     # Other modules which will be initialized if needed.
     cmn_node:CoarseMapNav = None
     # MapFrameManager will allow us to read in the map and do coordinate transforms between px and meters.
@@ -58,13 +53,14 @@ class CoarseMapNavInterface():
     current_agent_pose:PoseMeters = None # Current pose of the agent, (x, y, yaw) in meters & radians.
 
 
-    def __init__(self, enable_sim:bool, use_discrete_space:bool, enable_viz:bool, cmd_vel_pub, enable_localization:bool=True):
+    def __init__(self, enable_sim:bool, use_discrete_space:bool, enable_viz:bool, cmd_vel_pub, yaml_path:str, enable_localization:bool=True):
         """
         Initialize all modules needed for this project.
         @param enable_sim Flag to use the simulator to generate ground truth observations.
         @param use_discrete_space Flag to use the discrete version of this project rather than continuous.
         @param enable_viz Flag to show a live visualization of the simulation running.
         @param cmd_vel_pub rospy publisher for Twist velocities, which the motion planner will use to command motion.
+        @param yaml_path Path to config.yaml.
         @param enable_localization (optional) Debug flag to allow disabling localization from running, using ground truth pose for planning.
         """
         self.enable_sim = enable_sim
@@ -95,8 +91,10 @@ class CoarseMapNavInterface():
         self.particle_filter = ParticleFilter()
         self.particle_filter.set_map_frame_manager(self.map_frame_manager)
 
-        # Init the coarse map nav interface.
-        self.cmn_node = CoarseMapNav()
+        # Load configurations
+        configurations = YamlParser(yaml_path).data["cmn"]
+        # Create Coarse Map Navigator (CMN)
+        self.cmn_node = CoarseMapNav(configurations)
 
         # Init the visualizer only if it's enabled.
         if enable_viz:

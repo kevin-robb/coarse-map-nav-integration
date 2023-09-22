@@ -8,7 +8,7 @@ import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
-import rospkg, yaml, sys
+import rospkg, yaml, sys, os
 from cv_bridge import CvBridge
 from math import pi, atan2, asin
 import numpy as np
@@ -76,8 +76,10 @@ def read_params():
     # Determine filepath.
     rospack = rospkg.RosPack()
     pkg_path = rospack.get_path('cmn_pkg')
+    global g_yaml_path
+    g_yaml_path = os.path.join(pkg_path, 'config/config.yaml')
     # Open the yaml and get the relevant params.
-    with open(pkg_path+'/config/config.yaml', 'r') as file:
+    with open(g_yaml_path, 'r') as file:
         config = yaml.safe_load(file)
         global g_verbose, g_dt, g_enable_localization
         g_verbose = config["verbose"]
@@ -195,7 +197,7 @@ def main():
 
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
-    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode == "discrete", g_show_live_viz, cmd_vel_pub, g_enable_localization)
+    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode == "discrete", g_show_live_viz, cmd_vel_pub, g_yaml_path, g_enable_localization)
 
     rospy.Timer(rospy.Duration(g_dt), timer_update_loop)
 
