@@ -23,6 +23,8 @@ from scripts.motion_planner import DiscreteMotionPlanner, MotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
 
+from scripts.cmn_demo.Env.habitat_env import quat_from_angle_axis
+
 
 class RunMode(IntEnum):
     DISCRETE_HABITAT = 0
@@ -56,10 +58,14 @@ class CoarseMapNavInterface():
     current_agent_pose:PoseMeters = None # Current pose of the agent, (x, y, yaw) in meters & radians.
 
 
-    def __init__(self, enable_sim:bool, use_discrete_space:bool, enable_viz:bool, cmd_vel_pub, enable_localization:bool):
+    def __init__(self, enable_sim:bool, use_discrete_space:bool, enable_viz:bool, cmd_vel_pub, enable_localization:bool=True):
         """
         Initialize all modules needed for this project.
+        @param enable_sim Flag to use the simulator to generate ground truth observations.
+        @param use_discrete_space Flag to use the discrete version of this project rather than continuous.
+        @param enable_viz Flag to show a live visualization of the simulation running.
         @param cmd_vel_pub rospy publisher for Twist velocities, which the motion planner will use to command motion.
+        @param enable_localization (optional) Debug flag to allow disabling localization from running, using ground truth pose for planning.
         """
         self.enable_sim = enable_sim
         self.use_discrete_space = use_discrete_space
@@ -161,22 +167,23 @@ class CoarseMapNavInterface():
             self.particle_filter.resample()
         else:
             # Measurement update stage.
-            self.observation_prob_map = self.measurement_update_func(self.current_local_map)
+            self.observation_prob_map = self.cmn_node.measurement_update_func(self.cmn_node.current_local_map)
 
             # Full Bayesian update with weights.
-            log_belief = np.log(self.observation_prob_map + 1e-8) + np.log(self.predictive_belief_map + 1e-8)
+            log_belief = np.log(self.cmn_node.observation_prob_map + 1e-8) + np.log(self.cmn_node.predictive_belief_map + 1e-8)
             belief = np.exp(log_belief)
             normalized_belief = belief / belief.sum()
 
             # Record the belief for visualization.
-            self.last_agent_belief_map = self.agent_belief_map.copy()
-            self.updated_belief_map = normalized_belief.copy()
-            self.agent_belief_map = normalized_belief.copy()
+            self.cmn_node.last_agent_belief_map = self.cmn_node.agent_belief_map.copy()
+            self.cmn_node.updated_belief_map = normalized_belief.copy()
+            self.cmn_node.agent_belief_map = normalized_belief.copy()
 
 
-    def choose_motion_to_command(self):
+    def choose_motion_to_command(self, dt:float=None):
         """
         Choose a motion to command. Use this commanded motion to propagate our beliefs forward.
+        @param dt - Timer period in seconds representing how often commands are sent to the robot. Only used for particle filter propagation.
         """
         if not self.use_discrete_space:
             fwd, ang = self.motion_planner.plan_path_to_goal(self.current_agent_pose)
@@ -192,15 +199,17 @@ class CoarseMapNavInterface():
             if self.enable_localization:
                 # Propagate all particles by the commanded motion.
                 # TODO compute dt
-                self.particle_filter.propagate_particles(fwd * g_dt, ang * g_dt)
+                self.particle_filter.propagate_particles(fwd * dt, ang * dt)
 
             # Save the planned path for the viz.
             if self.enable_viz:
                 self.visualizer.planned_path = self.motion_planner.path_px_reversed
 
         else: # discrete
-            # Select one action using CMN
-            action = self.cmn_node.cmn_planner(observation['state'][3:])
+            # Convert robot state to format expected by CMN.
+            state = [self.current_agent_pose.x, self.current_agent_pose.y, 0] + quat_from_angle_axis(self.current_agent_pose.yaw, np.array([0, 1, 0]))  # pitch, yaw, roll
+            # Select one action using CMN.
+            action = self.cmn_node.cmn_planner(state[3:])
             # action = np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
 
             # add noise
@@ -209,7 +218,7 @@ class CoarseMapNavInterface():
                 self.noise_trans_prob = np.random.rand()
 
             # Predictive update stage
-            self.predictive_belief_map = self.predictive_update_func(action, agent_dir)
+            self.predictive_belief_map = self.cmn_node.predictive_update_func(action, self.current_agent_pose.get_direction())
 
 
 
@@ -217,6 +226,7 @@ class CoarseMapNavInterface():
             fwd, ang = self.motion_planner.cmd_random_discrete_action()
             # fwd, ang = g_motion_planner.cmd_discrete_action("90_LEFT")
             # fwd, ang = g_motion_planner.cmd_discrete_action("FORWARD")
+
             # In the simulator, propagate the true vehicle pose by this discrete action.
             if self.enable_sim:
                 self.map_frame_manager.propagate_with_dist(fwd, ang)

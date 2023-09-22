@@ -63,7 +63,7 @@ def timer_update_loop(event=None):
     
     g_cmn_interface.run_localization()
 
-    g_cmn_interface.choose_motion_to_command()
+    g_cmn_interface.choose_motion_to_command(g_dt)
 
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
@@ -195,7 +195,7 @@ def main():
 
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
-    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode == "discrete", g_show_live_viz, cmd_vel_pub)
+    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode == "discrete", g_show_live_viz, cmd_vel_pub, g_enable_localization)
 
     rospy.Timer(rospy.Duration(g_dt), timer_update_loop)
 
