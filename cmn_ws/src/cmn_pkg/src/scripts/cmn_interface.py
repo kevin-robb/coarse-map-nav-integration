@@ -91,20 +91,23 @@ class CoarseMapNavInterface():
         self.particle_filter = ParticleFilter()
         self.particle_filter.set_map_frame_manager(self.map_frame_manager)
 
-        # Load configurations
-        configurations = YamlParser(yaml_path).data["cmn"]
-        # Get filepath to cmn directory.
-        rospack = rospkg.RosPack()
-        pkg_path = rospack.get_path('cmn_pkg')
-        cmn_path = os.path.join(pkg_path, "src/scripts/cmn")
-        # Create Coarse Map Navigator (CMN), using the already-processed coarse map.
-        self.cmn_node = CoarseMapNav(configurations, cmn_path, self.map_frame_manager.inv_occ_map)
+        # Create Coarse Map Navigator (CMN), disabling the ML model (for now).
+        self.cmn_node = CoarseMapNav(self.map_frame_manager, self.motion_planner.goal_pos_px.as_tuple(), True)
 
         # Init the visualizer only if it's enabled.
         if enable_viz:
             self.visualizer = Visualizer()
             self.visualizer.set_map_frame_manager(self.map_frame_manager)
             self.visualizer.goal_cell = self.motion_planner.goal_pos_px
+
+    # def run(self, pano_rgb, dt):
+    #     """
+    #     Run one iteration.
+    #     """
+    #     self.compute_new_observation(pano_rgb)
+    #     self.run_localization()
+    #     self.choose_motion_to_command(dt)
+            
 
 
     def set_new_odom(self, x, y, yaw):
@@ -167,7 +170,7 @@ class CoarseMapNavInterface():
                     self.visualizer.veh_pose_true = self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true)
             # Run the PF resampling step.
             self.particle_filter.resample()
-        else:
+        else: # Discrete case.
             # Measurement update stage.
             self.observation_prob_map = self.cmn_node.measurement_update_func(self.cmn_node.current_local_map)
 

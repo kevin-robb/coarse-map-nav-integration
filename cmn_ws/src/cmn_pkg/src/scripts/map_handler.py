@@ -176,7 +176,8 @@ class MapFrameManager(CoarseMapProcessor):
     Used both for ground-truth observation generation as well as particle likelihood evalutation.
     """
     initialized = False
-    map_with_border = None # 2D numpy array of the global map, including a border region.
+    map_with_border = None # 2D numpy array of the global map, including a border region. Free=1, Occupied=0.
+    inv_map_with_border = None # Inverse of map_with_border. Free=0, Occupied=1.
 
     # Config flags. If using discrete state space, robot's yaw must be axis-aligned.
     use_discrete_state_space = False
@@ -225,6 +226,9 @@ class MapFrameManager(CoarseMapProcessor):
         max_obs_dim = ceil(np.sqrt(self.obs_height_px_on_map**2 + self.obs_width_px_on_map**2))
         self.map_with_border = cv2.copyMakeBorder(self.map_with_border, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
         self.initialized = True
+
+        # Update inverse map with a border as well.
+        self.inv_map_with_border = np.logical_not(self.map_with_border).astype(int)
 
     def transform_pose_px_to_m(self, pose_px:PosePixels) -> PoseMeters:
         """

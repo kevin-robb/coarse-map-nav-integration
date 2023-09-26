@@ -27,7 +27,15 @@ import numpy as np
 
 class CoarseMapNav(object):
     """ Implement Coarse Map Navigator """
-    def __init__(self, configs, cmn_path:str=".", coarse_map_np_arr=None):
+    def __init__(self, configs, cmn_path:str=".", coarse_map_np_arr=None, goal_cell=None, skip_load_model:bool=False):
+        """
+        Initialize the CMN instance.
+        @param configs - Dictionary of variables (str) to values. Should match format of cmn/Config/run_cmn.yaml.
+        @param cmn_path - (optional) Filepath to cmn directory. May omit if running this script directly, but is needed if importing this class elsewhere.
+        @param coarse_map_np_arr - (optional) 2D numpy array of the coarse map. 1=occupied, 0=free. Omit to read map from filepath in configs.
+        @param goal_cell - (optional) Tuple of goal cell (r,c) on coarse map. If provided, do some more setup with it.
+        @param skip_load_model (optional, default False) Flag to skip loading the observation model. Useful to run on a computer w/o nvidia gpu.
+        """
         # ======= Extract configurations =======
         self.configs = configs
 
@@ -37,26 +45,31 @@ class CoarseMapNav(object):
         self.env = None
 
         # ======= CMN Configs =======
-        # Load the trained local occupancy predictor
-        self.device = torch.device(self.configs['device'])
-        self.model = self.load_model(cmn_path)
+        if skip_load_model:
+            self.device = None
+            self.model = None
+            self.transformation = None
+        else:
+            # Load the trained local occupancy predictor
+            self.device = torch.device(self.configs['device'])
+            self.model = self.load_model(cmn_path)
 
-        # Define the transformation to transform the observation suitable to the
-        # local occupancy model
-        # Convert PIL.Image to tensor
-        # Convert uint8 to float
-        # Convert [0, 255] to [0, 1]
-        # Normalize the observation
-        # Reshape the tensor by adding the batch dimension
-        # Put the tensor to GPU
-        self.transformation = Compose([
-            PILToTensor(),
-            lambda x: x.float(),
-            lambda x: x / 255.0,
-            Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-            lambda x: x.unsqueeze(dim=0),
-            lambda x: x.to(self.device)
-        ])
+            # Define the transformation to transform the observation suitable to the
+            # local occupancy model
+            # Convert PIL.Image to tensor
+            # Convert uint8 to float
+            # Convert [0, 255] to [0, 1]
+            # Normalize the observation
+            # Reshape the tensor by adding the batch dimension
+            # Put the tensor to GPU
+            self.transformation = Compose([
+                PILToTensor(),
+                lambda x: x.float(),
+                lambda x: x / 255.0,
+                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                lambda x: x.unsqueeze(dim=0),
+                lambda x: x.to(self.device)
+            ])
 
         # Define the graph based on the coarse map for shortest path planning
         self.coarse_map_graph = None
@@ -65,6 +78,7 @@ class CoarseMapNav(object):
         if coarse_map_np_arr is None:
             self.coarse_map_arr = self.load_coarse_2d_map(cmn_path)
         else:
+            # Use the provided map.
             self.coarse_map_arr = coarse_map_np_arr
 
         # Define the variables to store the beliefs
@@ -94,6 +108,18 @@ class CoarseMapNav(object):
         self.ax_belief, self.art_belief = None, None
         # Make the plots
         self.make_plot_figures()
+
+        # Setup the goal cell if provided.
+        if goal_cell is not None:
+            self.goal_map_loc = goal_cell
+            if self.coarse_map_arr[self.goal_map_loc[0], self.goal_map_loc[1]] != 0.0:
+                # Cell is not free.
+                print("Warning: Goal cell given in CMN init() is not free!")
+            # Initialize the coarse map graph for path planning
+            self.init_coarse_map_graph()
+            self.goal_map_idx = self.coarse_map_graph.sampled_locations.index(tuple(self.goal_map_loc))
+            # Initialize the coarse map grid beliefs for global localization
+            self.init_coarse_map_grid_belief()
 
     # ======= Visualization functions =======
     @staticmethod
@@ -260,13 +286,6 @@ class CoarseMapNav(object):
         row, col = self.env.map_2d_to_grid_func(loc, self.coarse_map_arr.shape)
         return row, col
 
-    def process_observation(self, obs):
-        # Convert observation from ndarray to PIL.Image
-        obs = Image.fromarray(obs)
-        # Convert observation from PIL.Image to tensor
-        obs = self.transformation(obs)
-        return obs
-
     # ======= CMN core functions =======
     def init_coarse_map_graph(self):
         """ Graph-structured coarse map for shortest path planning """
@@ -366,16 +385,24 @@ class CoarseMapNav(object):
         return measurement_prob_map
 
     def predict_local_occupancy(self, pano_rgb_obs):
-        # Process the observation to tensor
-        pano_rgb_obs_tensor = self.process_observation(pano_rgb_obs)
+        if self.model is not None:
+            # Process the observation to tensor
+            # Convert observation from ndarray to PIL.Image
+            obs = Image.fromarray(pano_rgb_obs)
+            # Convert observation from PIL.Image to tensor
+            pano_rgb_obs_tensor = self.transformation(obs)
 
-        with torch.no_grad():
-            # Predict the local occupancy
-            pred_local_occ = self.model(pano_rgb_obs_tensor)
-            # Reshape the predicted local occupancy
-            pred_local_occ = pred_local_occ.cpu().squeeze(dim=0).squeeze(dim=0).numpy()
+            with torch.no_grad():
+                # Predict the local occupancy
+                pred_local_occ = self.model(pano_rgb_obs_tensor)
+                # Reshape the predicted local occupancy
+                pred_local_occ = pred_local_occ.cpu().squeeze(dim=0).squeeze(dim=0).numpy()
 
-        return pred_local_occ
+            return pred_local_occ
+        else:
+            # The model was not loaded in. So, print a warning and return a blank observation.
+            print("Cannot predict_local_occupancy() because the model was not loaded!")
+            return np.zeros((self.configs['cmn_cfg']['local_map_size'], self.configs['cmn_cfg']['local_map_size']))
 
     def cmn_close(self):
         # Close the house environment

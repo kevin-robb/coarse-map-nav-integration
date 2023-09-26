@@ -101,3 +101,9 @@ class PosePixels(Pose):
         if self.r is None or self.c is None or p2.r is None or p2.c is None:
             return None
         return np.sqrt((self.r - p2.r)**2 + (self.c - p2.c)**2)
+
+    def as_tuple(self):
+        """
+        @return tuple (r,c) representation of this object.
+        """
+        return (self.r, self.c)
