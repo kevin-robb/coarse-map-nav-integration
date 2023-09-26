@@ -41,7 +41,8 @@ class CoarseMapProcessor:
     map_downscale_ratio = None # Side length of original map times this ratio yields the new side length to satisfy desired resolution.
     # Map images
     raw_map = None # Original coarse map including color.
-    occ_map = None # Thresholded & binarized coarse map to create an occupancy grid.
+    occ_map = None # Thresholded & binarized coarse map to create an occupancy grid. Free=1, Occupied=0.
+    inv_occ_map = None # Inverse of occ_map. Free=0, Occupied=1.
 
     def __init__(self):
         """
@@ -163,6 +164,9 @@ class CoarseMapProcessor:
                         freqs[1] += 1
             if self.verbose:
                 rospy.loginfo("CMP: Occ map value frequencies: "+str(freqs[1])+" free, "+str(freqs[0])+" occluded.")
+
+        # Create inverted occupancy map which meets the CMN expected format.
+        self.inv_occ_map = np.logical_not(self.occ_map).astype(int)
 
 
 class MapFrameManager(CoarseMapProcessor):

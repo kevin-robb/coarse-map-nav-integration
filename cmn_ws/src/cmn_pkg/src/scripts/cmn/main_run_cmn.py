@@ -27,7 +27,7 @@ import numpy as np
 
 class CoarseMapNav(object):
     """ Implement Coarse Map Navigator """
-    def __init__(self, configs):
+    def __init__(self, configs, cmn_path:str=".", coarse_map_np_arr=None):
         # ======= Extract configurations =======
         self.configs = configs
 
@@ -39,7 +39,7 @@ class CoarseMapNav(object):
         # ======= CMN Configs =======
         # Load the trained local occupancy predictor
         self.device = torch.device(self.configs['device'])
-        self.model = self.load_model()
+        self.model = self.load_model(cmn_path)
 
         # Define the transformation to transform the observation suitable to the
         # local occupancy model
@@ -62,7 +62,10 @@ class CoarseMapNav(object):
         self.coarse_map_graph = None
 
         # Load the coarse occupancy map: 1.0 for occupied cell and 0.0 for empty cell
-        self.coarse_map_arr = self.load_coarse_2d_map()
+        if coarse_map_np_arr is None:
+            self.coarse_map_arr = self.load_coarse_2d_map(cmn_path)
+        else:
+            self.coarse_map_arr = coarse_map_np_arr
 
         # Define the variables to store the beliefs
         self.predictive_belief_map = None  # predictive prob
@@ -215,19 +218,20 @@ class CoarseMapNav(object):
                       )
         self.env = house
 
-    def load_model(self):
+    def load_model(self, cmn_path:str="."):
         # Create the local occupancy network
         model = LocalOccNet(self.configs['local_occ_net'])
         # Load the trained model
-        model.load_state_dict(torch.load("Model/trained_local_occupancy_predictor_model.pt",
-                                         map_location="cpu"))
+        path_to_model = os.path.join(cmn_path, "Model/trained_local_occupancy_predictor_model.pt")
+        model.load_state_dict(torch.load(path_to_model, map_location="cpu"))
         # Disable the dropout
         model.eval()
         return model.to(self.device)
 
-    def load_coarse_2d_map(self):
+    def load_coarse_2d_map(self, cmn_path:str="."):
+        path_to_coarse_map = os.path.join(cmn_path, f"CoarseMaps/{self.env_name}_map_binary_arr_mpp_{self.configs['cmn_cfg']['mpp']}.npy")
         # Load the coarse 2-D map as the numpy array
-        arr = np.load(f"CoarseMaps/{self.env_name}_map_binary_arr_mpp_{self.configs['cmn_cfg']['mpp']}.npy")
+        arr = np.load(path_to_coarse_map)
         row, col = arr.shape
 
         # Add one boundary

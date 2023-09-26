@@ -4,7 +4,7 @@
 Wrapper for the original CMN Habitat code from Chengguang Xu to work with my custom simulator or a physical robot.
 """
 
-import rospy
+import rospy, rospkg
 import os, sys
 import numpy as np
 from math import degrees
@@ -93,8 +93,12 @@ class CoarseMapNavInterface():
 
         # Load configurations
         configurations = YamlParser(yaml_path).data["cmn"]
-        # Create Coarse Map Navigator (CMN)
-        self.cmn_node = CoarseMapNav(configurations)
+        # Get filepath to cmn directory.
+        rospack = rospkg.RosPack()
+        pkg_path = rospack.get_path('cmn_pkg')
+        cmn_path = os.path.join(pkg_path, "src/scripts/cmn")
+        # Create Coarse Map Navigator (CMN), using the already-processed coarse map.
+        self.cmn_node = CoarseMapNav(configurations, cmn_path, self.map_frame_manager.inv_occ_map)
 
         # Init the visualizer only if it's enabled.
         if enable_viz:
