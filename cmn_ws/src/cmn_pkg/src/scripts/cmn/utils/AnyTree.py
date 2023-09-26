@@ -1,10 +1,16 @@
 import numpy as np
-import torch
-from habitat_sim.utils.common import quat_to_angle_axis, quat_to_coeffs, quat_from_coeffs
-
+# from habitat_sim.utils.common import quat_to_angle_axis, quat_to_coeffs, quat_from_coeffs
+from typing import List
 
 class TreeNode(object):
-    def __init__(self, state, parent=None, act_name=None):
+    def __init__(self, position, yaw:float, parent=None, act_name=None):
+        """
+        Init a new TreeNode object.
+        @param position: array [x, y, z].
+        @param yaw: orientation around world z axis.
+        @param parent: Parent node, if applicable.
+        @param act_name: Name of node (i.e., action name), if applicable.
+        """
         # node parent
         self.parent = parent
         # node children
@@ -12,36 +18,35 @@ class TreeNode(object):
         # node name
         self.name = act_name
         # node data
-        self.data = state
+        self.position = position
+        self.yaw = yaw
 
         # todo: for debug only
         self.dir = None
 
 
 class BFTree(object):
-    def __init__(self, root_node, depth, agent_forward_step=0.25):
-        # tree
+    # Class variables:
+    root_node:TreeNode = None # tree root
+    tree_depth:int = None # tree depth
+    branch_actions = ["move_forward", "turn_left", "turn_right"] # branching actions
+    branch_leaf_nodes:List[TreeNode] = None # branching leaf nodes
+    agent_forward_step:float = None # for blind model only
+
+    def __init__(self, root_node:TreeNode, depth:int, agent_forward_step:float=0.25):
         self.root_node = root_node
-        # tree depth
         self.tree_depth = depth
-        # branching actions
-        self.branch_actions = ["move_forward", "turn_left", "turn_right"]
-
-        # branching leaf nodes
-        self.branch_leaf_nodes = None
-
-        # for blind model only
         self.agent_forward_step = agent_forward_step
 
         # init the tree
         self.init_tree()
 
     # blind dynamics model assuming the local region is an empty space
-    def get_leaf_node_blind(self, node, act):
-        # split the information
-        pos = node.data[0:3]
+    def get_leaf_node_blind(self, node:TreeNode, act:str):
+        pos = node.position
         if node.dir is None:
-            agent_map_angle = self.quaternion_to_angle(node.data[3:])
+            # Collapse yaw into a cardinal direction.
+            agent_map_angle = node.yaw
             rot_control = int(np.round(agent_map_angle / (np.pi / 2)))
             if rot_control == 1:
                 node.dir = "east"
@@ -51,8 +56,8 @@ class BFTree(object):
                 node.dir = "south"
             else:
                 node.dir = "north"
-        # creat the leaf node
-        leaf_node = TreeNode(None, node, act)
+        # create the leaf node
+        leaf_node = TreeNode(None, 0, node, act)
         if act == "turn_left":
             if node.dir == "east":
                 leaf_node.dir = "north"
@@ -64,7 +69,7 @@ class BFTree(object):
                 leaf_node.dir = "east"
             else:
                 raise Exception("Invalid node direction")
-            leaf_node.data = pos + [0, 0, 0, 0]
+            leaf_node.position = pos
         elif act == "turn_right":
             if node.dir == "east":
                 leaf_node.dir = "south"
@@ -76,22 +81,24 @@ class BFTree(object):
                 leaf_node.dir = "west"
             else:
                 raise Exception("Invalid node direction")
-            leaf_node.data = pos + [0, 0, 0, 0]
+            leaf_node.position = pos
         elif act == "move_forward":
+            x, y, z = pos[0], pos[1], pos[2]
             if node.dir == "east":
                 leaf_node.dir = "east"
-                leaf_node.data = [pos[0] + self.agent_forward_step, pos[1], pos[2], 0, 0, 0, 0]
+                x += self.agent_forward_step
             elif node.dir == "north":
                 leaf_node.dir = "north"
-                leaf_node.data = [pos[0], pos[1], pos[2] - self.agent_forward_step, 0, 0, 0, 0]
+                z -= self.agent_forward_step
             elif node.dir == "west":
                 leaf_node.dir = "west"
-                leaf_node.data = [pos[0] - self.agent_forward_step, pos[1], pos[2], 0, 0, 0, 0]
+                x -= self.agent_forward_step
             elif node.dir == "south":
                 leaf_node.dir = "south"
-                leaf_node.data = [pos[0], pos[1], pos[2] + self.agent_forward_step, 0, 0, 0, 0]
+                z += self.agent_forward_step
             else:
                 raise Exception("Invalid node direction")
+            leaf_node.position = [x, y, z]
 
         return leaf_node
 
@@ -153,12 +160,12 @@ class BFTree(object):
         return np.linalg.norm(loc_2 - loc_1)
 
     def find_the_best_child(self, vec):
-        agent_loc = [self.root_node.data[0], self.root_node.data[2]]
+        agent_loc = [self.root_node.position[0], self.root_node.position[2]]
         similarities = []
         future_dists = []
         future_vecs = []
         for node in self.branch_leaf_nodes:
-            future_loc = [node.data[0], node.data[2]]
+            future_loc = [node.position[0], node.position[2]]
             future_vec = self.compute_the_heuristic_vec(agent_loc, future_loc)
             future_dist = self.l2_distance(agent_loc, future_loc)
             future_dists.append(future_dist)
@@ -168,34 +175,34 @@ class BFTree(object):
             similarities.append(similarity)
         scores = np.multiply(future_dists, similarities).tolist()
         idx = scores.index(np.max(scores))
-        # print(self.branch_leaf_nodes[idx].data, future_vecs[idx])
+        # print(self.branch_leaf_nodes[idx].position, future_vecs[idx])
 
         return self.branch_leaf_nodes[idx]
 
-    @staticmethod
-    def quaternion_to_angle(quaternion_array):
-        quaternion = quat_from_coeffs(quaternion_array)
-        # get the orientation and reference axis
-        agent_angle, refer_axis = quat_to_angle_axis(quaternion)
+    # @staticmethod
+    # def quaternion_to_angle(quaternion_array):
+    #     quaternion = quat_from_coeffs(quaternion_array)
+    #     # get the orientation and reference axis
+    #     agent_angle, refer_axis = quat_to_angle_axis(quaternion)
 
-        # compute the direction vector
-        head_vector = [np.cos(agent_angle), 0, np.sin(agent_angle)]
+    #     # compute the direction vector
+    #     head_vector = [np.cos(agent_angle), 0, np.sin(agent_angle)]
 
-        if np.array_equal(refer_axis, np.array([0, 1, 0])):
-            # rotate along x axis
-            rot_mat_x = np.array([[1, 0, 0],
-                                  [0, np.cos(-np.pi), -np.sin(-np.pi)],
-                                  [0, np.sin(-np.pi), np.cos(-np.pi)]])
-            head_vector = np.matmul(rot_mat_x, head_vector)
+    #     if np.array_equal(refer_axis, np.array([0, 1, 0])):
+    #         # rotate along x axis
+    #         rot_mat_x = np.array([[1, 0, 0],
+    #                               [0, np.cos(-np.pi), -np.sin(-np.pi)],
+    #                               [0, np.sin(-np.pi), np.cos(-np.pi)]])
+    #         head_vector = np.matmul(rot_mat_x, head_vector)
 
-        # rotate along z axis
-        rot_mat_z = np.array([[np.cos(np.pi), -np.sin(np.pi), 0],
-                              [np.sin(np.pi), np.cos(np.pi), 0],
-                              [0, 0, 1]])
-        head_vector_map = np.matmul(rot_mat_z, head_vector)
+    #     # rotate along z axis
+    #     rot_mat_z = np.array([[np.cos(np.pi), -np.sin(np.pi), 0],
+    #                           [np.sin(np.pi), np.cos(np.pi), 0],
+    #                           [0, 0, 1]])
+    #     head_vector_map = np.matmul(rot_mat_z, head_vector)
 
-        # compute the angle
-        angle = np.arctan2(head_vector_map[2], head_vector_map[0])
+    #     # compute the angle
+    #     angle = np.arctan2(head_vector_map[2], head_vector_map[0])
 
-        return angle
+    #     return angle
 

@@ -5,7 +5,8 @@ Basic datatypes that will be used throughout the project.
 """
 
 import numpy as np
-from math import remainder, pi, tau
+from math import remainder, pi, tau, atan2, asin
+from typing import Tuple, List
 
 class Pose:
     yaw = None # Orientation in radians. 0 = right/east. In range [-pi,pi]
@@ -29,6 +30,18 @@ class Pose:
             return "west"
         else:
             return "south"
+        
+        # Method from Chengguang's code:
+        # rot_control = int(np.round(self.yaw / (np.pi / 2)))
+        # if rot_control == 1:
+        #     agent_dir = "east"
+        # elif rot_control == -1:
+        #     agent_dir = "west"
+        # elif rot_control == 0:
+        #     agent_dir = "south"
+        # else:
+        #     agent_dir = "north"
+        # return agent_dir
         
 
 class PoseMeters(Pose):

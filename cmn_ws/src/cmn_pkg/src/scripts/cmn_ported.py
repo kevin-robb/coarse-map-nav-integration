@@ -41,8 +41,6 @@ from scripts.map_handler import clamp, MapFrameManager
 from scripts.rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
 from scripts.basic_types import PoseMeters, PosePixels
 
-#### GLOBAL VARIABLES ####
-
 
 def compute_norm_heuristic_vec(loc_1, loc_2):
     arr_1 = np.array(loc_1)
@@ -51,6 +49,7 @@ def compute_norm_heuristic_vec(loc_1, loc_2):
     return heu_vec / np.linalg.norm(heu_vec)
 
 
+# TODO make this not inherit the base class.
 class CoarseMapNavWrapper(CoarseMapNav):
     """
     Original functions from Chengguang Xu, modified to suit the format/architecture of this project.
@@ -85,6 +84,19 @@ class CoarseMapNavWrapper(CoarseMapNav):
     goal_map_idx = None
     noise_trans_prob = None
 
+
+
+    # ======= Create visualization figures =======
+    fig, grid = None, None
+    # For observations
+    ax_pano_rgb, art_pano_rgb = None, None
+    ax_local_occ_gt, art_local_occ_gt = None, None
+    ax_local_occ_pred, art_local_occ_pred = None, None
+    ax_top_down_view, art_top_down_view = None, None
+    # For beliefs
+    ax_pred_update_bel, art_pred_update_bel = None, None
+    ax_obs_update_bel, art_obs_update_bel = None, None
+    ax_belief, art_belief = None, None
 
 
     def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False):
@@ -139,6 +151,10 @@ class CoarseMapNavWrapper(CoarseMapNav):
             ])
 
 
+        # Create environment (now done in sim).
+        # Randomly choose starting position and goal cell (done in sim).
+        # TODO set starting position in this class?
+
         # Setup the goal cell.
         self.goal_map_loc = goal_cell
         if self.coarse_map_arr[self.goal_map_loc[0], self.goal_map_loc[1]] != 0.0:
@@ -163,20 +179,9 @@ class CoarseMapNavWrapper(CoarseMapNav):
         self.updated_belief_map = np.zeros_like(self.coarse_map_arr)  # updated probability
 
 
-
-        # # ======= Create visualization figures =======
-        # self.fig, self.grid = None, None
-        # # For observations
-        # self.ax_pano_rgb, self.art_pano_rgb = None, None
-        # self.ax_local_occ_gt, self.art_local_occ_gt = None, None
-        # self.ax_local_occ_pred, self.art_local_occ_pred = None, None
-        # self.ax_top_down_view, self.art_top_down_view = None, None
-        # # For beliefs
-        # self.ax_pred_update_bel, self.art_pred_update_bel = None, None
-        # self.ax_obs_update_bel, self.art_obs_update_bel = None, None
-        # self.ax_belief, self.art_belief = None, None
-        # # Make the plots
+        # Make the plots
         # self.make_plot_figures()
+        # self.show_observation(self.env_name, observation, time_step=0, if_init=True)
 
 
     def run_one_iter(self, current_agent_pose:PoseMeters, pano_rgb=None, gt_observation=None):
@@ -187,15 +192,18 @@ class CoarseMapNavWrapper(CoarseMapNav):
         @param pano_rgb - Dictionary of four RGB images concatenated into a panorama.
         @param gt_observation - (optional) 2D numpy array containing (ground-truth) observation.
         """
+        if pano_rgb is None ^ gt_observation is None:
+            print("Error: Must provide exactly one of pano_rgb and gt_observation.")
+            exit(0)
 
-        # Convert robot state to format expected by CMN.
-        state = [current_agent_pose.x, current_agent_pose.y, 0] + quat_from_angle_axis(current_agent_pose.yaw, np.array([0, 1, 0]))  # pitch, yaw, roll
-    
+        # Get cardinal direction corresponding to agent orientation.
+        agent_dir_str = current_agent_pose.get_direction()
+
         # Select one action using CMN
-        action = self.cmn_planner(state[3:])
+        action = self.cmn_planner(current_agent_pose.yaw)
         # action = np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
 
-        # Obtain the next sensor measurement.
+        # Obtain the next sensor measurement --> local observation map.
         # TODO cmn_update_beliefs with pano_rgb
         if pano_rgb is not None:
             # Predict the local occupancy from panoramic RGB images.
@@ -207,40 +215,55 @@ class CoarseMapNavWrapper(CoarseMapNav):
             # Rotate the egocentric local occupancy to face NORTH.
             # So, to rotate it to face north, need to rotate by opposite of yaw, plus an additional 90 degrees.
             # NOTE even though the function doc says to provide the amount to rotate CCW, it seems like chengguang's code gives the negative of this.
-            map_obs = rotate(map_obs, -degrees(agent_yaw) + 90.0)
+            # map_obs = rotate(map_obs, -degrees(agent_yaw) + 90.0)
+
+            # Rotate the egocentric local occupancy to face NORTH
+            if agent_dir_str == "east":
+                map_obs = rotate(map_obs, -90)
+            elif agent_dir_str == "north":
+                pass
+            elif agent_dir_str == "west":
+                map_obs = rotate(map_obs, 90)
+            elif agent_dir_str == "south":
+                map_obs = rotate(map_obs, 180)
+            else:
+                raise Exception("Invalid agent direction")
             self.current_local_map = map_obs
-        elif gt_observation is None:
-            print("Must provide either pano_rgb or gt_observation arguments.")
-            exit(0)
         else:
             observation = gt_observation
 
+        # When we command a forward motion, the actual robot will always be commanded to move.
+        # However, we don't know if this motion is enough to correspond to motion between cells on the coarse map.
+        # i.e., the coarse map scale may be so large that it takes several forward motions to achieve a different cell.
+        # So, there is a probability here that the forward motion is not carried out in the cell representation.
+        if action == "move_forward":
+            # randomly sample a p from a uniform distribution between [0, 1]
+            self.noise_trans_prob = np.random.rand()
 
+        # Run the predictive update stage.
+        self.predictive_update_func(action, agent_dir_str)
 
+        # Run the measurement update stage.
+        self.measurement_update_func()
 
+        # Full Bayesian update with weights for both update stages.
+        log_belief = np.log(self.observation_prob_map + 1e-8) + np.log(self.predictive_belief_map + 1e-8)
+        belief = np.exp(log_belief)
+        normalized_belief = belief / belief.sum()
 
-    def run_meas_update_step(self):
+        # Record the belief for visualization
+        # self.last_agent_belief_map = self.agent_belief_map.copy()
+        # self.updated_belief_map = normalized_belief.copy()
+        # self.agent_belief_map = normalized_belief.copy()
+
+        
+
+    def predictive_update_func(self, agent_act:str, agent_dir:str):
         """
-        Run the measurement update step upon receiving a new observation.
+        Update the grid-based beliefs using the roll function in python
+        @param agent_act: Action commanded to the robot.
+        @param agent_dir: String representation of a cardinal direction for the robot orientation.
         """
-
-    def run_pred_update_step(self):
-        """
-        Run the prediction update step.
-        """
-
-
-
-    def render_local_map_info(self, loc):
-        """ Render the local map from the 2-D coarse map """
-        # Convert the real world coordinates to map coordinates
-        row, col = self.env.map_2d_to_grid_func(loc, self.coarse_map_arr.shape)
-        return row, col
-
-    # ======= CMN core functions =======
-
-    def predictive_update_func(self, agent_act, agent_dir):
-        # Update the grid-based beliefs using the roll function in python
         trans_dir_dict = {
             'east': {'shift': 1, 'axis': 1},
             'west': {'shift': -1, 'axis': 1},
@@ -284,10 +307,14 @@ class CoarseMapNavWrapper(CoarseMapNav):
         else:
             pred_belief = self.agent_belief_map.copy()
 
-        return pred_belief
+        # Update the belief map.
+        self.predictive_belief_map = pred_belief
 
 
-    def measurement_update_func(self, obs):
+    def measurement_update_func(self):
+        """
+        Use the current local map from generated observation to update our beliefs.
+        """
         # Define the measurement probability map
         measurement_prob_map = np.zeros_like(self.coarse_map_arr)
 
@@ -298,17 +325,15 @@ class CoarseMapNavWrapper(CoarseMapNav):
             candidate_map = up_scale_grid(m['map_arr'])
 
             # compute the similarity between predicted map and ground truth map
-            # score = compute_similarity_iou(obs, candidate_map)
-            score = compute_similarity_mse(obs, candidate_map)
+            # score = compute_similarity_iou(self.current_local_map, candidate_map)
+            score = compute_similarity_mse(self.current_local_map, candidate_map)
 
             # set the observation probability based on similarity
             # still: -1 is dealing with the mismatch
             measurement_prob_map[candidate_loc[0], candidate_loc[1]] = score
 
-        # Normalize it to [0, 1]
-        measurement_prob_map = measurement_prob_map / (np.max(measurement_prob_map) + 1e-8)
-
-        return measurement_prob_map
+        # Normalize it to [0, 1], and save to member var.
+        self.observation_prob_map = measurement_prob_map / (np.max(measurement_prob_map) + 1e-8)
 
 
     def predict_local_occupancy(self, pano_rgb_obs):
@@ -333,7 +358,14 @@ class CoarseMapNavWrapper(CoarseMapNav):
 
 
     def cmn_localizer(self):
-        # Final the locations with max estimated probability
+        """
+        Perform localization (discrete bayesian filter) using belief map.
+        For localization result, return 3-tuple of:
+        @return int: index of agent cell in local map.
+        @return Tuple[int]: cell location in local map, (r, c).
+        @return local occupancy grid map.
+        """
+        # Find all the locations with max estimated probability
         candidates = np.where(self.agent_belief_map == self.agent_belief_map.max())
         candidates = [[r, c] for r, c in zip(candidates[0].tolist(), candidates[1].tolist())]
 
@@ -350,7 +382,12 @@ class CoarseMapNavWrapper(CoarseMapNav):
         return local_map_idx, local_map_loc, local_map_occ
 
 
-    def cmn_planner(self, agent_orientation):
+    def cmn_planner(self, agent_yaw:float):
+        """
+        Perform localization and path planning to decide on the next action to take.
+        @param agent_yaw - Current orientation of the robot in radians.
+        @return next action to take.
+        """
         # Render the current map pose estimate using the latest belief
         agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer()
 
@@ -369,12 +406,11 @@ class CoarseMapNavWrapper(CoarseMapNav):
         # Compute the heuristic vector
         loc_1 = agent_map_loc
         loc_2 = self.coarse_map_graph.sampled_locations[path[1]]
-        heu_vec = self.compute_norm_heuristic_vec([loc_1[1], loc_1[0]],
+        heu_vec = compute_norm_heuristic_vec([loc_1[1], loc_1[0]],
                                                   [loc_2[1], loc_2[0]])
 
         # Do a k-step breadth first search based on the heuristic vector
-        relative_location = [0, 0, 0] + agent_orientation
-        root_node = TreeNode(relative_location)
+        root_node = TreeNode([0, 0, 0], agent_yaw)
         breadth_first_tree = BFTree(root_node,
                                     depth=self.configs['cmn_cfg']['forward_step_k'],
                                     agent_forward_step=self.configs['cmn_cfg']['forward_meter'])
@@ -388,3 +424,4 @@ class CoarseMapNavWrapper(CoarseMapNav):
 
         # based on the results select the best action
         return best_child_node.name
+    
