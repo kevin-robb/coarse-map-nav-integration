@@ -5,43 +5,46 @@ Basic datatypes that will be used throughout the project.
 """
 
 import numpy as np
-from math import remainder, pi, tau, atan2, asin
-from typing import Tuple, List
+from math import remainder, pi, tau
+
+def yaw_to_cardinal_dir(yaw:float):
+    """
+    Discretize the yaw into the nearest cardinal direction.
+    @return string representation of the agent's direction, either 'east', 'north', 'west', or 'south'.
+    """
+    if yaw is None:
+        return "none"
+    dist_to_east = abs(remainder(yaw, tau))
+    dist_to_north = abs(remainder(yaw - pi/2, tau))
+    dist_to_west = abs(remainder(yaw - pi, tau))
+    dist_to_south = abs(remainder(yaw + pi/2, tau))
+    if dist_to_east < min([dist_to_north, dist_to_west, dist_to_south]):
+        return "east"
+    elif dist_to_north < min([dist_to_west, dist_to_south]):
+        return "north"
+    elif dist_to_west < dist_to_south:
+        return "west"
+    else:
+        return "south"
+    
+    # Method from Chengguang's code:
+    # rot_control = int(np.round(yaw / (np.pi / 2)))
+    # if rot_control == 1:
+    #     agent_dir = "east"
+    # elif rot_control == -1:
+    #     agent_dir = "west"
+    # elif rot_control == 0:
+    #     agent_dir = "south"
+    # else:
+    #     agent_dir = "north"
+    # return agent_dir
+    
 
 class Pose:
     yaw = None # Orientation in radians. 0 = right/east. In range [-pi,pi]
 
     def get_direction(self) -> str:
-        """
-        Discretize the yaw into the nearest cardinal direction.
-        @return string representation of the agent's direction, either 'east', 'north', 'west', or 'south'.
-        """
-        if self.yaw is None:
-            return "none"
-        dist_to_east = abs(remainder(self.yaw, tau))
-        dist_to_north = abs(remainder(self.yaw - pi/2, tau))
-        dist_to_west = abs(remainder(self.yaw - pi, tau))
-        dist_to_south = abs(remainder(self.yaw + pi/2, tau))
-        if dist_to_east < min([dist_to_north, dist_to_west, dist_to_south]):
-            return "east"
-        elif dist_to_north < min([dist_to_west, dist_to_south]):
-            return "north"
-        elif dist_to_west < dist_to_south:
-            return "west"
-        else:
-            return "south"
-        
-        # Method from Chengguang's code:
-        # rot_control = int(np.round(self.yaw / (np.pi / 2)))
-        # if rot_control == 1:
-        #     agent_dir = "east"
-        # elif rot_control == -1:
-        #     agent_dir = "west"
-        # elif rot_control == 0:
-        #     agent_dir = "south"
-        # else:
-        #     agent_dir = "north"
-        # return agent_dir
+        return yaw_to_cardinal_dir(self.yaw)
         
 
 class PoseMeters(Pose):

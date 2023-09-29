@@ -59,11 +59,9 @@ def timer_update_loop(event=None):
     pano_rgb = None
     if not g_use_ground_truth_map_to_generate_observations:
         pano_rgb = get_pano_meas()
-    g_cmn_interface.compute_new_observation(pano_rgb)
-    
-    g_cmn_interface.run_localization()
 
-    g_cmn_interface.choose_motion_to_command(g_dt)
+    # Run an iteration. (It will internally run either continuous or discrete case).
+    g_cmn_interface.run(pano_rgb, g_dt)
 
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
@@ -107,16 +105,16 @@ def get_pano_meas():
         rospy.loginfo("Raw RS image has shape {:}".format(pano_meas["color_sensor_front"].shape))
     pano_meas["color_sensor_front"] = cv2.resize(pano_meas["color_sensor_front"], (g_meas_height,g_meas_width,3))
     # Pivot in-place 90 deg CW to get another measurement.
-    g_cmn_interface.motion_planner.cmd_discrete_action("90_RIGHT")
+    g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
     pano_meas["color_sensor_right"] = pop_from_RS_buffer()
     pano_meas["color_sensor_right"] = cv2.resize(pano_meas["color_sensor_right"], (g_meas_height,g_meas_width,3))
-    g_cmn_interface.motion_planner.cmd_discrete_action("90_RIGHT")
+    g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
     pano_meas["color_sensor_back"] = pop_from_RS_buffer()
     pano_meas["color_sensor_back"] = cv2.resize(pano_meas["color_sensor_back"], (g_meas_height,g_meas_width,3))
-    g_cmn_interface.motion_planner.cmd_discrete_action("90_RIGHT")
+    g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
     pano_meas["color_sensor_left"] = pop_from_RS_buffer()
     pano_meas["color_sensor_left"] = cv2.resize(pano_meas["color_sensor_left"], (g_meas_height,g_meas_width,3))
-    g_cmn_interface.motion_planner.cmd_discrete_action("90_RIGHT")
+    g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
     # Vehicle should now be facing forwards again (its original direction).
     # Combine these images into a panorama.
     pano_rgb = np.concatenate([pano_meas['color_sensor_front'][:, :, 0:3],

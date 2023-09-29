@@ -4,11 +4,8 @@
 Functions ported from Chengguang Xu's original CoarseMapNav class.
 """
 
-import rospkg, yaml, cv2, rospy, os, sys
+import yaml, rospy, os, sys
 import numpy as np
-from math import sin, cos, remainder, tau, ceil, pi, degrees
-from random import random, randrange
-from cv_bridge import CvBridge, CvBridgeError
 
 # Allow this to be imported from a higher directory.
 parent_package_dir = os.path.abspath(os.path.join(__file__, ".."))
@@ -17,29 +14,20 @@ parent_package_dir = os.path.abspath(os.path.join(__file__, "../.."))
 sys.path.append(parent_package_dir)
 
 # CMN related
-from scripts.cmn.utils.Parser import YamlParser
 from scripts.cmn.Model.local_occupancy_predictor import LocalOccNet
 from scripts.cmn.utils.AnyTree import TreeNode, BFTree
 from scripts.cmn.utils.Map import TopoMap, compute_similarity_iou, up_scale_grid, compute_similarity_mse
-from scripts.cmn.main_run_cmn import CoarseMapNav
-from scripts.cmn.Env.habitat_env import quat_from_angle_axis
 
 # Pytorch related
 import torch
 from torchvision.transforms import Compose, Normalize, PILToTensor
-import torch.nn as nn
-import torchvision.models as models
 
 # Image process related
 from PIL import Image
-from skimage.transform import resize, rotate
-from skimage.color import rgb2gray
-from matplotlib.gridspec import GridSpec
-import matplotlib.pyplot as plt
+from skimage.transform import rotate
 
-from scripts.map_handler import clamp, MapFrameManager
-from scripts.rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
-from scripts.basic_types import PoseMeters, PosePixels
+from scripts.map_handler import MapFrameManager
+from scripts.basic_types import yaw_to_cardinal_dir
 
 
 def compute_norm_heuristic_vec(loc_1, loc_2):
@@ -49,14 +37,13 @@ def compute_norm_heuristic_vec(loc_1, loc_2):
     return heu_vec / np.linalg.norm(heu_vec)
 
 
-# TODO make this not inherit the base class.
-class CoarseMapNavWrapper(CoarseMapNav):
+class CoarseMapNavDiscrete:
     """
     Original functions from Chengguang Xu, modified to suit the format/architecture of this project.
     """
     # Instances of utility classes.
     mfm:MapFrameManager = None # For coordinate transforms between localization estimate and the map frame. Will be set after init by runner.
-    
+    send_random_commands:bool = False # Flag to send random discrete actions instead of planning.
     configs = None # CMN configs dictionary.
 
     # Coarse map itself.
@@ -99,12 +86,13 @@ class CoarseMapNavWrapper(CoarseMapNav):
     ax_belief, art_belief = None, None
 
 
-    def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False):
+    def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False, send_random_commands:bool=False):
         """
         Initialize the CMN instance.
         @param mfm - Reference to MapFrameManager which has already loaded in the coarse map and processed it by adding a border.
         @param goal_cell - Tuple of goal cell (r,c) on coarse map. If provided, do some more setup with it.
         @param skip_load_model (optional, default False) Flag to skip loading the observation model. Useful to run on a computer w/o nvidia gpu.
+        @param send_random_commands (optional, default False) Flag to send random discrete actions instead of planning. Useful for basic demo.
         """
         # Save reference to map frame manager.
         self.mfm = mfm
@@ -112,6 +100,8 @@ class CoarseMapNavWrapper(CoarseMapNav):
         self.coarse_map_arr = self.mfm.inv_map_with_border
         # Setup filepaths using mfm's pkg path.
         cmn_path = os.path.join(mfm.pkg_path, "src/scripts/cmn")
+
+        self.send_random_commands = send_random_commands
 
         # Read config params from yaml.
         with open(self.mfm.pkg_path+'/config/config.yaml', 'r') as file:
@@ -184,35 +174,36 @@ class CoarseMapNavWrapper(CoarseMapNav):
         # self.show_observation(self.env_name, observation, time_step=0, if_init=True)
 
 
-    def run_one_iter(self, current_agent_pose:PoseMeters, pano_rgb=None, gt_observation=None):
+    def run_one_iter(self, agent_yaw:float, pano_rgb=None, gt_observation=None) -> str:
         """
         Run one iteration of CMN.
-        @param current_agent_pose - Estimate of the current robot pose.
+        @param agent_dir_str - Current direction the robot is facing. Should be one of ["north", "west", "south", "east"].
         NOTE: Must provide either pano_rgb (sensor data to run model to generate observation) or observation (ground-truth from sim).
         @param pano_rgb - Dictionary of four RGB images concatenated into a panorama.
         @param gt_observation - (optional) 2D numpy array containing (ground-truth) observation.
+        @return str: chosen action, so that our motion planner can command this to the robot.
         """
-        if pano_rgb is None ^ gt_observation is None:
+        if not ((pano_rgb is None) ^ (gt_observation is None)):
             print("Error: Must provide exactly one of pano_rgb and gt_observation.")
             exit(0)
 
         # Get cardinal direction corresponding to agent orientation.
-        agent_dir_str = current_agent_pose.get_direction()
+        agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
 
-        # Select one action using CMN
-        action = self.cmn_planner(current_agent_pose.yaw)
-        # action = np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
+        if self.send_random_commands:
+            action = np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
+        else:
+            # Select one action using CMN
+            action = self.cmn_planner(agent_yaw)
 
-        # Obtain the next sensor measurement --> local observation map.
+        # Obtain the next sensor measurement --> local observation map (self.current_local_map).
         # TODO cmn_update_beliefs with pano_rgb
         if pano_rgb is not None:
             # Predict the local occupancy from panoramic RGB images.
-            observation = self.predict_local_occupancy(pano_rgb)
-
-            # Robot yaw is represented in radians with 0 being right (east), increasing CCW.
-            agent_yaw = current_agent_pose.yaw
+            map_obs = self.predict_local_occupancy(pano_rgb)
 
             # Rotate the egocentric local occupancy to face NORTH.
+            # Robot yaw is represented in radians with 0 being right (east), increasing CCW.
             # So, to rotate it to face north, need to rotate by opposite of yaw, plus an additional 90 degrees.
             # NOTE even though the function doc says to provide the amount to rotate CCW, it seems like chengguang's code gives the negative of this.
             # map_obs = rotate(map_obs, -degrees(agent_yaw) + 90.0)
@@ -230,7 +221,7 @@ class CoarseMapNavWrapper(CoarseMapNav):
                 raise Exception("Invalid agent direction")
             self.current_local_map = map_obs
         else:
-            observation = gt_observation
+            self.current_local_map = gt_observation
 
         # When we command a forward motion, the actual robot will always be commanded to move.
         # However, we don't know if this motion is enough to correspond to motion between cells on the coarse map.
@@ -255,6 +246,9 @@ class CoarseMapNavWrapper(CoarseMapNav):
         # self.last_agent_belief_map = self.agent_belief_map.copy()
         # self.updated_belief_map = normalized_belief.copy()
         # self.agent_belief_map = normalized_belief.copy()
+
+        # Return the chosen action so that our motion planner can command this to the robot.
+        return action
 
         
 

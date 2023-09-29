@@ -249,7 +249,7 @@ class DiscreteMotionPlanner(MotionPlanner):
     Class to command discrete actions to the robot.
     """
     # Define allowable discrete actions.
-    discrete_actions = ["90_LEFT", "90_RIGHT", "FORWARD"]
+    discrete_actions = ["turn_left", "turn_right", "move_forward"]
     # Create MotionTracker instance.
     motion_tracker = MotionTracker()
     # Flag to keep publishing commands until the robot odometry indicates the motion has finished.
@@ -284,16 +284,16 @@ class DiscreteMotionPlanner(MotionPlanner):
         @param action - str representing a defined discrete action.
         @return fwd, ang distances moved, which will allow us to propagate our simulated robot pose.
         """
-        if action == "90_LEFT":
+        if action == "turn_left":
             if self.wait_for_motion_to_complete:
                 # NOTE under-command the angle slightly since we tend to over-turn.
                 self.cmd_discrete_ang_motion(radians(82))
             return 0.0, radians(90)
-        elif action == "90_RIGHT":
+        elif action == "turn_right":
             if self.wait_for_motion_to_complete:
                 self.cmd_discrete_ang_motion(radians(-82))
             return 0.0, radians(-90)
-        elif action == "FORWARD":
+        elif action == "move_forward":
             # Forward motions have a chance to not occur when commanded.
             if random() < self.discrete_forward_skip_probability:
                 rospy.loginfo("DMP: Fwd motion requested, but hit random chance to skip.")
