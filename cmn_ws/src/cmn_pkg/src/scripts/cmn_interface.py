@@ -7,7 +7,7 @@ Wrapper for the original CMN Habitat code from Chengguang Xu to work with my cus
 import rospy
 import numpy as np
 from math import degrees
-from skimage.transform import resize, rotate
+from skimage.transform import rotate
 
 from scripts.basic_types import PoseMeters, PosePixels
 from scripts.map_handler import Simulator, MapFrameManager
@@ -36,7 +36,7 @@ class CoarseMapNavInterface():
     # Visualizer is only possible when running the sim on host PC.
     visualizer:Visualizer = None # Will be initialized only if enabled.
 
-    current_agent_pose:PoseMeters = PoseMeters(0,0,0) # Current pose of the agent, (x, y, yaw) in meters & radians.
+    current_agent_pose:PoseMeters = PoseMeters(0,0,0) # Current estimated pose of the agent, (x, y, yaw) in meters & radians. For discrete case, assume yaw is ground truth (known).
 
 
     def __init__(self, enable_sim:bool, run_mode:str, enable_viz:bool, cmd_vel_pub, enable_localization:bool=True, enable_ml_model:bool=False):
@@ -109,6 +109,9 @@ class CoarseMapNavInterface():
             # Run the continuous version of the project.
             if current_local_map is None:
                 current_local_map = self.compute_observation_continuous(pano_rgb)
+                # Save this observation for the viz.
+                if self.enable_viz:
+                    self.visualizer.set_observation(current_local_map)
             self.run_particle_filter(current_local_map)
             self.command_motion_continuous(dt)
         else:
@@ -122,7 +125,7 @@ class CoarseMapNavInterface():
             # Run discrete CMN.
             action_str = self.cmn_node.run_one_iter(agent_yaw, pano_rgb, current_local_map)
             # Save the data it computed for the visualizer.
-            if self.enable_viz:
+            if not self.enable_sim and self.enable_viz:
                 self.visualizer.set_observation(self.cmn_node.current_local_map)
 
             # If localization is running, get the veh pose estimate to use.

@@ -318,6 +318,7 @@ class CoarseMapNavDiscrete:
         for m in self.coarse_map_graph.local_maps:
             # compute the similarity
             candidate_loc = m['loc']
+            # TODO why was this being upscaled to 128x128? And how was that being compared to current_local_map, which should be small, like 3x3 or 5x5?
             candidate_map = m['map_arr']
             # candidate_map = up_scale_grid(m['map_arr'])
 
