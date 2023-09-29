@@ -141,10 +141,10 @@ class Visualizer:
         # Plot the new observation.
         if self.observation is not None:
             ax1.imshow(self.observation, cmap="gray", vmin=0, vmax=1)
-        # Plot the vehicle pose relative to the observation.
-        if self.veh_pose_in_obs_region is not None:
-            # Unpack the dictionary of its data that we computed earlier.
-            ax1.arrow(**self.veh_pose_in_obs_region, color="blue", zorder = 2)
+            # Plot the vehicle pose relative to the observation.
+            if self.veh_pose_in_obs_region is not None:
+                # Unpack the dictionary of its data that we computed earlier.
+                ax1.arrow(**self.veh_pose_in_obs_region, color="blue", zorder = 2)
 
         # Add the legend, including info from both plots.
         ax0.legend(loc="upper left")

@@ -56,7 +56,6 @@ def timer_update_loop(event=None):
     if not g_use_ground_truth_map_to_generate_observations:
         pano_rgb = get_pano_meas()
 
-    rospy.logwarn("calling run loop")
     # Run an iteration. (It will internally run either continuous or discrete case).
     g_cmn_interface.run(pano_rgb, g_dt)
 

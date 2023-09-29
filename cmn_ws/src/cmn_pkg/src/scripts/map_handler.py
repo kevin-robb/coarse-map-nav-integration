@@ -132,9 +132,10 @@ class CoarseMapProcessor:
         self.occ_map = np.round(occ_map_img)
 
         # Expand occluded cells so path planning won't take us right next to obstacles.
-        if self.obs_balloon_radius == 0:
-            rospy.logwarn("CMP: For some reason everything breaks if we skip the ballooning step, so running with minimal radius of 1.")
-            self.obs_balloon_radius = 1
+        if len(img.shape) >= 3 and img.shape[2] >= 3:
+            if self.obs_balloon_radius == 0:
+                rospy.logwarn("CMP: For some reason everything breaks if we skip the ballooning step, so running with minimal radius of 1.")
+                self.obs_balloon_radius = 1
         # Determine index pairs to select all neighbors when ballooning obstacles.
         nbrs = []
         for i in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
