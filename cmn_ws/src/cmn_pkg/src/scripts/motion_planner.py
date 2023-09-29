@@ -273,10 +273,6 @@ class DiscreteMotionPlanner(MotionPlanner):
             # Params for discrete actions.
             # g_use_discrete_actions = config["actions"]["use_discrete_actions"]
             self.discrete_forward_dist = abs(config["actions"]["discrete_forward_dist"])
-            self.discrete_forward_skip_probability = config["actions"]["discrete_forward_skip_probability"]
-            if self.discrete_forward_skip_probability < 0.0 or self.discrete_forward_skip_probability > 1.0:
-                rospy.logwarn("DMP: Invalid value of discrete_forward_skip_probability. Must lie in range [0, 1]. Setting to 0.")
-                self.discrete_forward_skip_probability = 0
 
     def cmd_discrete_action(self, action:str):
         """
@@ -294,10 +290,7 @@ class DiscreteMotionPlanner(MotionPlanner):
                 self.cmd_discrete_ang_motion(radians(-82))
             return 0.0, radians(-90)
         elif action == "move_forward":
-            # Forward motions have a chance to not occur when commanded.
-            if random() < self.discrete_forward_skip_probability:
-                rospy.loginfo("DMP: Fwd motion requested, but hit random chance to skip.")
-                return 0.0, 0.0
+            # Only command the motion and wait for it to finish if we're using a physical robot.
             if self.wait_for_motion_to_complete:
                 self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
             return self.discrete_forward_dist, 0.0

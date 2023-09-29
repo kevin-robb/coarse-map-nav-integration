@@ -4,13 +4,10 @@
 Wrapper for the original CMN Habitat code from Chengguang Xu to work with my custom simulator or a physical robot.
 """
 
-import rospy, rospkg
-import os, sys
+import rospy
 import numpy as np
 from math import degrees
 from skimage.transform import resize, rotate
-
-from enum import IntEnum
 
 from scripts.basic_types import PoseMeters
 from scripts.map_handler import Simulator, MapFrameManager
@@ -18,10 +15,7 @@ from scripts.motion_planner import DiscreteMotionPlanner, MotionPlanner
 from scripts.particle_filter import ParticleFilter
 from scripts.visualizer import Visualizer
 
-# from scripts.cmn.main_run_cmn import CoarseMapNav
-from scripts.cmn_ported import CoarseMapNavDiscrete
-from scripts.cmn.utils.Parser import YamlParser
-from scripts.cmn.Env.habitat_env import quat_from_angle_axis
+from scripts.cmn.cmn_ported import CoarseMapNavDiscrete
 
 
 class CoarseMapNavInterface():
@@ -45,30 +39,30 @@ class CoarseMapNavInterface():
     current_agent_pose:PoseMeters = PoseMeters(0,0,0) # Current pose of the agent, (x, y, yaw) in meters & radians.
 
 
-    def __init__(self, enable_sim:bool, use_discrete_space:bool, enable_viz:bool, cmd_vel_pub, enable_localization:bool=True, enable_ml_model:bool=False):
+    def __init__(self, enable_sim:bool, run_mode:str, enable_viz:bool, cmd_vel_pub, enable_localization:bool=True, enable_ml_model:bool=False):
         """
         Initialize all modules needed for this project.
         @param enable_sim Flag to use the simulator to generate ground truth observations.
-        @param use_discrete_space Flag to use the discrete version of this project rather than continuous.
+        @param run_mode Mode for the project. Should be one of ["continuous", "discrete", "discrete_random"]
         @param enable_viz Flag to show a live visualization of the simulation running.
         @param cmd_vel_pub rospy publisher for Twist velocities, which the motion planner will use to command motion.
         @param enable_localization (optional, default True) Debug flag to allow disabling localization from running, using ground truth pose for planning.
         @param enable_ml_model (optional, default False) Debug flag to allow disabling the ML model from being loaded. Allows running on a computer with no GPU.
         """
         self.enable_sim = enable_sim
-        self.use_discrete_space = use_discrete_space
+        self.use_discrete_space = "discrete" in run_mode
         self.enable_viz = enable_viz
         self.enable_localization = enable_localization and enable_sim
 
         # Init the map manager / simulator.
         if enable_sim:
-            self.map_frame_manager = Simulator(use_discrete_space)
+            self.map_frame_manager = Simulator(self.use_discrete_space)
         else:
-            self.map_frame_manager = MapFrameManager(use_discrete_space)
+            self.map_frame_manager = MapFrameManager(self.use_discrete_space)
         # We will give reference to map manager to all other modules so they can use the map and perform coordinate transforms.
 
         # Init the motion planner.
-        if use_discrete_space:
+        if self.use_discrete_space:
             self.motion_planner = DiscreteMotionPlanner()
         else:
             self.motion_planner = MotionPlanner()
@@ -79,12 +73,15 @@ class CoarseMapNavInterface():
         # Select a random goal point.
         self.motion_planner.set_goal_point_random()
 
-        # Init the localization module.
-        self.particle_filter = ParticleFilter()
-        self.particle_filter.set_map_frame_manager(self.map_frame_manager)
+        if not self.use_discrete_space:
+            # Init the localization module.
+            self.particle_filter = ParticleFilter()
+            self.particle_filter.set_map_frame_manager(self.map_frame_manager)
 
-        # Create Coarse Map Navigator (CMN), disabling the ML model if flag is set.
-        self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, self.motion_planner.goal_pos_px.as_tuple(), not enable_ml_model)
+        if self.use_discrete_space or not self.enable_sim:
+            # Create Coarse Map Navigator (CMN) node.
+            # NOTE For continuous, only need it to process sensor data into local occupancy map.
+            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, self.motion_planner.goal_pos_px.as_tuple(), not enable_ml_model, "random" in run_mode)
 
         # Init the visualizer only if it's enabled.
         if enable_viz:

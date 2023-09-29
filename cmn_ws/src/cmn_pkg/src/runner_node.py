@@ -12,13 +12,9 @@ import rospkg, yaml, sys, os
 from cv_bridge import CvBridge
 from math import pi, atan2, asin
 import numpy as np
-
-# from scripts.map_handler import Simulator
-# from scripts.motion_planner import DiscreteMotionPlanner
-# from scripts.particle_filter import ParticleFilter
-# from scripts.visualizer import Visualizer
-from scripts.cmn_interface import CoarseMapNavInterface
 import cv2
+
+from scripts.cmn_interface import CoarseMapNavInterface
 
 ############ GLOBAL VARIABLES ###################
 g_cv_bridge = CvBridge()
@@ -60,6 +56,7 @@ def timer_update_loop(event=None):
     if not g_use_ground_truth_map_to_generate_observations:
         pano_rgb = get_pano_meas()
 
+    rospy.logwarn("calling run loop")
     # Run an iteration. (It will internally run either continuous or discrete case).
     g_cmn_interface.run(pano_rgb, g_dt)
 
@@ -79,10 +76,11 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(g_yaml_path, 'r') as file:
         config = yaml.safe_load(file)
-        global g_verbose, g_dt, g_enable_localization
+        global g_verbose, g_dt, g_enable_localization, g_enable_ml_model
         g_verbose = config["verbose"]
         g_dt = config["dt"]
         g_enable_localization = config["particle_filter"]["enable"]
+        g_enable_ml_model = not config["model"]["skip_loading"]
         # Settings for interfacing with CMN.
         global g_meas_topic, g_meas_width, g_meas_height
         g_meas_topic = config["measurements"]["topic"]
@@ -178,7 +176,7 @@ def main():
         g_show_live_viz = sys.argv[3].lower() == "true"
     
 
-    if g_run_mode not in ["continuous", "discrete"]:
+    if g_run_mode not in ["continuous", "discrete", "discrete_random"]:
         rospy.logerr("Invalid run_mode {:}. Exiting.".format(g_run_mode))
         exit()
 
@@ -195,7 +193,7 @@ def main():
 
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
-    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode == "discrete", g_show_live_viz, cmd_vel_pub, g_yaml_path, g_enable_localization)
+    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode, g_show_live_viz, cmd_vel_pub, g_enable_localization, g_enable_ml_model)
 
     rospy.Timer(rospy.Duration(g_dt), timer_update_loop)
 

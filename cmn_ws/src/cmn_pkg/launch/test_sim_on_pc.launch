@@ -1,7 +1,8 @@
 <launch>
     <!-- Setup some fundamental config params that change what we're trying to do. -->
-    <!-- Mode to use when running. options: discrete, continuous.
+    <!-- Mode to use when running. options: discrete, discrete_random, continuous.
         - discrete: Panoramic measurements, DBF for localization, discrete actions only.
+        - discrete_random: Same as discrete, but instead of planning, commands random actions.
         - continuous: Single-image measurements, PF for localization, continuous velocity commands. -->
     <arg name="run_mode" default="continuous"/>
     <!-- Set how observations will be generated.
