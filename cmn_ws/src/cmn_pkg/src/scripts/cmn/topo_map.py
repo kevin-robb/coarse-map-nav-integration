@@ -13,6 +13,10 @@ class TopoMap(object):
         # Binary map shape
         self.map_row, self.map_col = map_arr.shape
 
+        # Set the local map size
+        # TODO verify order of height, width is correct if using non-square observation region.
+        self.local_occ_size = [local_occ_height, local_occ_width]
+
         # Covert the map to binary: 0 for empty cell and 1 for occupied cell
         self.map_binary_arr = map_arr
 
@@ -22,9 +26,6 @@ class TopoMap(object):
         # Make the graph
         self.global_map_graph, self.global_map_dict, self.sampled_locations = self.make_graph()
 
-        # Set the local map size
-        # TODO verify order of height, width is correct if using non-square observation region.
-        self.local_occ_size = [local_occ_height, local_occ_width]
 
     def get_valid_locations(self):
         # obtain all empty cells
@@ -33,14 +34,16 @@ class TopoMap(object):
 
         # Crop 3 x 3 occupancy grids
         cropped_local_maps = []
+        # Loop over all candidates for the center pixel.
+        min_dist_to_edge = (self.local_occ_size[0] - 1) // 2
         for idx, space in enumerate(space_locs):
-            # remove free spaces on the edges
-            if (0 < space[0] < (self.map_row - 1)) and (0 < space[1] < (self.map_col - 1)):
+            # Only accept local maps that are completely within bounds.
+            if (min_dist_to_edge < space[0] < (self.map_row - min_dist_to_edge - 1)) and (min_dist_to_edge < space[1] < (self.map_col - min_dist_to_edge - 1)):
                 # crop the local map
-                from_r = space[0] - 1
-                to_r = space[0] + 2
-                from_c = space[1] - 1
-                to_c = space[1] + 2
+                from_r = space[0] - min_dist_to_edge
+                to_r = space[0] + min_dist_to_edge + 1
+                from_c = space[1] - min_dist_to_edge
+                to_c = space[1] + min_dist_to_edge + 1
                 local_map = self.map_binary_arr[from_r:to_r, from_c:to_c]
 
                 # save the local maps
@@ -186,21 +189,25 @@ def compute_similarity_mse(occ_map_1, occ_map_2):
 
 
 def up_scale_grid(grid):
-    """ Up scaling 3 x 3 grid to 128  x 128 grid"""
-    r1_left_block = grid[0, 0] * np.ones((42, 42))
-    r1_middle_block = grid[0, 1] * np.ones((42, 43))
-    r1_right_block = grid[0, 2] * np.ones((42, 43))
+    if grid.shape[0] == 3 and grid.shape[1] == 3:
+        """ Up scaling 3 x 3 grid to 128  x 128 grid"""
+        r1_left_block = grid[0, 0] * np.ones((42, 42))
+        r1_middle_block = grid[0, 1] * np.ones((42, 43))
+        r1_right_block = grid[0, 2] * np.ones((42, 43))
 
-    r2_left_block = grid[1, 0] * np.ones((43, 42))
-    r2_middle_block = grid[1, 1] * np.ones((43, 43))
-    r2_right_block = grid[1, 2] * np.ones((43, 43))
+        r2_left_block = grid[1, 0] * np.ones((43, 42))
+        r2_middle_block = grid[1, 1] * np.ones((43, 43))
+        r2_right_block = grid[1, 2] * np.ones((43, 43))
 
-    r3_left_block = grid[2, 0] * np.ones((43, 42))
-    r3_middle_block = grid[2, 1] * np.ones((43, 43))
-    r3_right_block = grid[2, 2] * np.ones((43, 43))
+        r3_left_block = grid[2, 0] * np.ones((43, 42))
+        r3_middle_block = grid[2, 1] * np.ones((43, 43))
+        r3_right_block = grid[2, 2] * np.ones((43, 43))
 
-    return np.block([
-        [r1_left_block, r1_middle_block, r1_right_block],
-        [r2_left_block, r2_middle_block, r2_right_block],
-        [r3_left_block, r3_middle_block, r3_right_block]
-    ])
+        return np.block([
+            [r1_left_block, r1_middle_block, r1_right_block],
+            [r2_left_block, r2_middle_block, r2_right_block],
+            [r3_left_block, r3_middle_block, r3_right_block]
+        ])
+    else:
+        # Generic resize.
+        return np.resize(grid, (128, 128))

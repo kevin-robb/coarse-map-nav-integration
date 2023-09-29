@@ -316,7 +316,8 @@ class CoarseMapNavDiscrete:
         for m in self.coarse_map_graph.local_maps:
             # compute the similarity
             candidate_loc = m['loc']
-            candidate_map = up_scale_grid(m['map_arr'])
+            candidate_map = m['map_arr']
+            # candidate_map = up_scale_grid(m['map_arr'])
 
             # compute the similarity between predicted map and ground truth map
             # score = compute_similarity_iou(self.current_local_map, candidate_map)
