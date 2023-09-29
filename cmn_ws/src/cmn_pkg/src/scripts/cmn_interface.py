@@ -9,7 +9,7 @@ import numpy as np
 from math import degrees
 from skimage.transform import resize, rotate
 
-from scripts.basic_types import PoseMeters
+from scripts.basic_types import PoseMeters, PosePixels
 from scripts.map_handler import Simulator, MapFrameManager
 from scripts.motion_planner import DiscreteMotionPlanner, MotionPlanner
 from scripts.particle_filter import ParticleFilter
@@ -102,6 +102,8 @@ class CoarseMapNavInterface():
             # Save this observation for the viz.
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
+                # Also save the ground truth pose for viz.
+                self.visualizer.veh_pose_true = self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true)
 
         if not self.use_discrete_space:
             # Run the continuous version of the project.
@@ -115,13 +117,22 @@ class CoarseMapNavInterface():
                 agent_yaw = self.map_frame_manager.veh_pose_true.yaw
             else:
                 agent_yaw = self.current_agent_pose.yaw # This is just whatever we initialized it to...
+                # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
 
             # Run discrete CMN.
             action_str = self.cmn_node.run_one_iter(agent_yaw, pano_rgb, current_local_map)
             # Save the data it computed for the visualizer.
             if self.enable_viz:
                 self.visualizer.set_observation(self.cmn_node.current_local_map)
-            
+
+            # If localization is running, get the veh pose estimate to use.
+            if self.cmn_node.agent_pose_estimate_px is not None:
+                # Save the localization estimate (and save in the visualizer).
+                localization_result_px = PosePixels(self.cmn_node.agent_pose_estimate_px[0], self.cmn_node.agent_pose_estimate_px[1], agent_yaw)
+                self.current_agent_pose = self.map_frame_manager.transform_pose_px_to_m(localization_result_px)
+                if self.enable_viz:
+                    self.visualizer.veh_pose_estimate = localization_result_px
+
             # Command the decided action to the robot/sim.
             fwd, ang = self.motion_planner.cmd_discrete_action(action_str)
             # fwd, ang = self.motion_planner.cmd_random_discrete_action()
@@ -174,9 +185,6 @@ class CoarseMapNavInterface():
             # Convert particle set to pixels for viz.
             self.visualizer.particle_set = self.particle_filter.get_particle_set_px()
             self.visualizer.veh_pose_estimate = self.map_frame_manager.transform_pose_m_to_px(self.current_agent_pose)
-            # If using the simulator, also save the ground truth pose for viz.
-            if self.enable_sim:
-                self.visualizer.veh_pose_true = self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true)
         # Run the PF resampling step.
         self.particle_filter.resample()
 

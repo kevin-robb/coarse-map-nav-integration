@@ -69,6 +69,8 @@ class CoarseMapNavDiscrete:
     goal_map_idx = None
     noise_trans_prob = None # Randomly sampled each iteration in range [0,1]. Chance that we don't modify our estimates after commanding a forward motion. Accounts for cell-based representation that relies on scale.
 
+    agent_pose_estimate_px = None # Current localization estimate of the robot pose on the coarse map in pixels.
+
 
 
     # ======= Create visualization figures =======
@@ -385,6 +387,8 @@ class CoarseMapNavDiscrete:
         """
         # Render the current map pose estimate using the latest belief
         agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer()
+        # Save this localization result for the viz to use.
+        self.agent_pose_estimate_px = agent_map_loc
 
         # Check if the agent reaches the goal location
         if agent_map_loc == self.goal_map_loc:
