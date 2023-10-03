@@ -73,7 +73,7 @@ class CoarseMapNavDiscrete:
 
     agent_pose_estimate_px = None # Current localization estimate of the robot pose on the coarse map in pixels.
 
-    visualizer:CoarseMapNavVisualizer = None # Visualizer for all the original CMN discrete stuff.
+    visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
 
 
     def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False, send_random_commands:bool=False):
@@ -160,9 +160,6 @@ class CoarseMapNavDiscrete:
         self.observation_prob_map = np.zeros_like(self.coarse_map_arr)  # observation probability
         self.updated_belief_map = np.zeros_like(self.coarse_map_arr)  # updated probability
 
-        # Init the visualizer.
-        self.visualizer = CoarseMapNavVisualizer((mfm.obs_height_px, mfm.obs_width_px))
-
 
     def run_one_iter(self, agent_yaw:float, pano_rgb=None, gt_observation=None) -> str:
         """
@@ -231,14 +228,7 @@ class CoarseMapNavDiscrete:
         log_belief = np.log(self.observation_prob_map + 1e-8) + np.log(self.predictive_belief_map + 1e-8)
         belief = np.exp(log_belief)
         normalized_belief = belief / belief.sum()
-
-        # Set data for the visualization.
-        self.visualizer.pano_rgb = pano_rgb
-        self.visualizer.current_predicted_local_map = self.current_local_map
-        # Record the belief for visualization
-        self.visualizer.last_agent_belief_map = self.agent_belief_map.copy()
-        self.visualizer.updated_belief_map = normalized_belief.copy()
-        self.visualizer.agent_belief_map = normalized_belief.copy()
+        self.updated_belief_map = normalized_belief.copy()
 
         # Return the chosen action so that our motion planner can command this to the robot.
         return action
