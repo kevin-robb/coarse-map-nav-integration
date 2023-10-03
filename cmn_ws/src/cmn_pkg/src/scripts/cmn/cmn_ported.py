@@ -12,6 +12,8 @@ from scripts.cmn.model.local_occupancy_predictor import LocalOccNet
 from scripts.cmn.tree_search import TreeNode, BFTree
 from scripts.cmn.topo_map import TopoMap, compute_similarity_iou, up_scale_grid, compute_similarity_mse
 
+from scripts.cmn.cmn_visualizer import CoarseMapNavVisualizer
+
 # Pytorch related
 import torch
 from torchvision.transforms import Compose, Normalize, PILToTensor
@@ -71,19 +73,7 @@ class CoarseMapNavDiscrete:
 
     agent_pose_estimate_px = None # Current localization estimate of the robot pose on the coarse map in pixels.
 
-
-
-    # ======= Create visualization figures =======
-    fig, grid = None, None
-    # For observations
-    ax_pano_rgb, art_pano_rgb = None, None
-    ax_local_occ_gt, art_local_occ_gt = None, None
-    ax_local_occ_pred, art_local_occ_pred = None, None
-    ax_top_down_view, art_top_down_view = None, None
-    # For beliefs
-    ax_pred_update_bel, art_pred_update_bel = None, None
-    ax_obs_update_bel, art_obs_update_bel = None, None
-    ax_belief, art_belief = None, None
+    visualizer:CoarseMapNavVisualizer = None # Visualizer for all the original CMN discrete stuff.
 
 
     def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False, send_random_commands:bool=False):
@@ -119,7 +109,7 @@ class CoarseMapNavDiscrete:
             # Create the local occupancy network
             model = LocalOccNet(self.local_occ_net_config)
             # Load the trained model
-            path_to_model = os.path.join(cmn_path, "Model/trained_local_occupancy_predictor_model.pt")
+            path_to_model = os.path.join(cmn_path, "model/trained_local_occupancy_predictor_model.pt")
             model.load_state_dict(torch.load(path_to_model, map_location="cpu"))
             # Disable the dropout
             model.eval()
@@ -170,10 +160,8 @@ class CoarseMapNavDiscrete:
         self.observation_prob_map = np.zeros_like(self.coarse_map_arr)  # observation probability
         self.updated_belief_map = np.zeros_like(self.coarse_map_arr)  # updated probability
 
-
-        # Make the plots
-        # self.make_plot_figures()
-        # self.show_observation(self.env_name, observation, time_step=0, if_init=True)
+        # Init the visualizer.
+        self.visualizer = CoarseMapNavVisualizer((mfm.obs_height_px, mfm.obs_width_px))
 
 
     def run_one_iter(self, agent_yaw:float, pano_rgb=None, gt_observation=None) -> str:
@@ -244,10 +232,13 @@ class CoarseMapNavDiscrete:
         belief = np.exp(log_belief)
         normalized_belief = belief / belief.sum()
 
+        # Set data for the visualization.
+        self.visualizer.pano_rgb = pano_rgb
+        self.visualizer.current_predicted_local_map = self.current_local_map
         # Record the belief for visualization
-        # self.last_agent_belief_map = self.agent_belief_map.copy()
-        # self.updated_belief_map = normalized_belief.copy()
-        # self.agent_belief_map = normalized_belief.copy()
+        self.visualizer.last_agent_belief_map = self.agent_belief_map.copy()
+        self.visualizer.updated_belief_map = normalized_belief.copy()
+        self.visualizer.agent_belief_map = normalized_belief.copy()
 
         # Return the chosen action so that our motion planner can command this to the robot.
         return action

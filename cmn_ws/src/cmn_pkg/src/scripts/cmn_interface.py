@@ -127,6 +127,7 @@ class CoarseMapNavInterface():
             # Save the data it computed for the visualizer.
             if not self.enable_sim and self.enable_viz:
                 self.visualizer.set_observation(self.cmn_node.current_local_map)
+                self.cmn_node.visualizer.current_ground_truth_local_map = current_local_map
 
             # If localization is running, get the veh pose estimate to use.
             if self.cmn_node.agent_pose_estimate_px is not None:

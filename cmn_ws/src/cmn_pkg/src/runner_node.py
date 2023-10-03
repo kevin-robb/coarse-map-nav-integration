@@ -35,6 +35,7 @@ g_viz_paused = False
 def timer_update_loop(event=None):
     # Update the visualization, if enabled.
     if g_cmn_interface.visualizer is not None:
+        # viz_img = g_cmn_interface.cmn_node.visualizer.get_updated_img()
         viz_img = g_cmn_interface.visualizer.get_updated_img()
         cv2.imshow('viz image', viz_img)
         key = cv2.waitKey(int(g_dt * 1000))
