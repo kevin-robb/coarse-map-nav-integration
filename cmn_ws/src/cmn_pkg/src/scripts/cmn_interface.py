@@ -102,7 +102,8 @@ class CoarseMapNavInterface():
             # Save this observation for the viz.
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
-                self.cmn_node.visualizer.current_ground_truth_local_map = current_local_map
+                if self.cmn_node is not None:
+                    self.cmn_node.visualizer.current_ground_truth_local_map = current_local_map
                 # Also save the ground truth pose for viz.
                 self.visualizer.veh_pose_true = self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true)
 
@@ -128,14 +129,16 @@ class CoarseMapNavInterface():
             # Save the data it computed for the visualizer.
             if self.enable_viz:
                 if not self.enable_sim:
+                    # The observation was not set yet, since we don't have ground truth. So, use predicted for viz instead.
                     self.visualizer.set_observation(self.cmn_node.current_local_map)
 
-                # Set data for the CMN visualization.
-                self.cmn_node.visualizer.pano_rgb = pano_rgb
-                self.cmn_node.visualizer.current_predicted_local_map = self.cmn_node.current_local_map
-                self.cmn_node.visualizer.predictive_belief_map = self.cmn_node.predictive_belief_map
-                self.cmn_node.visualizer.observation_prob_map = self.cmn_node.observation_prob_map
-                self.cmn_node.visualizer.agent_belief_map = self.cmn_node.updated_belief_map
+                if self.cmn_node is not None:
+                    # Set data for the CMN visualization.
+                    self.cmn_node.visualizer.pano_rgb = pano_rgb
+                    self.cmn_node.visualizer.current_predicted_local_map = self.cmn_node.current_local_map
+                    self.cmn_node.visualizer.predictive_belief_map = self.cmn_node.predictive_belief_map
+                    self.cmn_node.visualizer.observation_prob_map = self.cmn_node.observation_prob_map
+                    self.cmn_node.visualizer.agent_belief_map = self.cmn_node.updated_belief_map
 
             # If localization is running, get the veh pose estimate to use.
             if self.cmn_node.agent_pose_estimate_px is not None:

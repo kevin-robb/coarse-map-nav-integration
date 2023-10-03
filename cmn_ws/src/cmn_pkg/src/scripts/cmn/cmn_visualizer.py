@@ -49,7 +49,7 @@ class CoarseMapNavVisualizer:
         @return new viz image as a cv/numpy matrix.
         """
         # Make a Figure and attach it to a canvas.
-        fig = Figure(figsize=(12, 8), dpi=100)
+        fig = Figure(figsize=(8, 6), dpi=100)
         canvas = FigureCanvasAgg(fig)
         grid = GridSpec(3, 3, figure=fig)
 

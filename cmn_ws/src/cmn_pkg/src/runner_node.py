@@ -35,9 +35,14 @@ g_viz_paused = False
 def timer_update_loop(event=None):
     # Update the visualization, if enabled.
     if g_cmn_interface.visualizer is not None:
-        viz_img = g_cmn_interface.cmn_node.visualizer.get_updated_img()
-        # viz_img = g_cmn_interface.visualizer.get_updated_img()
+        # Simulator viz.
+        viz_img = g_cmn_interface.visualizer.get_updated_img()
         cv2.imshow('viz image', viz_img)
+        # CMN viz.
+        if g_cmn_interface.cmn_node is not None and g_cmn_interface.cmn_node.visualizer is not None:
+            cmn_viz_img = g_cmn_interface.cmn_node.visualizer.get_updated_img()
+            cv2.imshow('cmn viz image', cmn_viz_img)
+
         key = cv2.waitKey(int(g_dt * 1000))
         # Special keypress conditions.
         if key == 113: # q for quit.
@@ -51,7 +56,7 @@ def timer_update_loop(event=None):
         if g_viz_paused:
             # Skip all operations, so the same viz image will just keep being displayed until unpaused.
             return
-        
+
     # Only gather a pano RGB if needed.
     pano_rgb = None
     if not g_use_ground_truth_map_to_generate_observations:
