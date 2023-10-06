@@ -24,6 +24,7 @@ g_cmn_interface:CoarseMapNavInterface = None
 # RealSense measurements buffer.
 g_most_recent_realsense_measurement = None
 # Configs.
+g_run_modes = ["continuous", "discrete", "discrete_random"] # Allowed/supported run modes.
 g_run_mode = None # "discrete" or "continuous"
 g_use_ground_truth_map_to_generate_observations = False
 g_show_live_viz = False
@@ -91,6 +92,25 @@ def read_params():
         g_meas_topic = config["measurements"]["topic"]
         g_meas_height = config["measurements"]["height"]
         g_meas_width = config["measurements"]["width"]
+
+def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None):
+    """
+    Set global params specified by the launch file/runner.
+    @param run_mode - Mode to run the project in.
+    @param use_sim - Flag to use the simulator instead of requiring robot sensor data.
+    @param use_viz - Flag to show the live visualization. Only possible on host PC.
+    @param cmd_vel_pub (optional) - ROS publisher for command velocities.
+    """
+    # Set the global params.
+    global g_run_mode, g_use_ground_truth_map_to_generate_observations, g_show_live_viz
+    g_run_mode = run_mode
+    g_use_ground_truth_map_to_generate_observations = use_sim
+    g_show_live_viz = use_viz
+
+    # Init the main (non-ROS-specific) part of the project.
+    global g_cmn_interface
+    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode, g_show_live_viz, cmd_vel_pub, g_enable_localization, g_enable_ml_model)
+
 
 ######################## CALLBACKS ########################
 def get_pano_meas():
@@ -173,15 +193,17 @@ def main():
 
     read_params()
 
+    # Publish control commands (velocities in m/s and rad/s).
+    cmd_vel_pub = rospy.Publisher("/locobot/mobile_base/commands/velocity", Twist, queue_size=1)
+
     # Get any params specified in args from launch file.
     if len(sys.argv) > 3:
-        global g_run_mode, g_use_ground_truth_map_to_generate_observations, g_show_live_viz
-        g_run_mode = sys.argv[1]
-        g_use_ground_truth_map_to_generate_observations = sys.argv[2].lower() == "true"
-        g_show_live_viz = sys.argv[3].lower() == "true"
-    
+        set_global_params(sys.argv[1], sys.argv[2].lower() == "true", sys.argv[3].lower() == "true", cmd_vel_pub)
+    else:
+        print("Missing required arguments.")
+        exit()
 
-    if g_run_mode not in ["continuous", "discrete", "discrete_random"]:
+    if g_run_mode not in g_run_modes:
         rospy.logerr("Invalid run_mode {:}. Exiting.".format(g_run_mode))
         exit()
 
@@ -192,13 +214,6 @@ def main():
 
     # Subscribe to robot odometry.
     rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)
-
-    # Publish control commands (velocities in m/s and rad/s).
-    cmd_vel_pub = rospy.Publisher("/locobot/mobile_base/commands/velocity", Twist, queue_size=1)
-
-    # Init the main (non-ROS-specific) part of the project.
-    global g_cmn_interface
-    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode, g_show_live_viz, cmd_vel_pub, g_enable_localization, g_enable_ml_model)
 
     rospy.Timer(rospy.Duration(g_dt), timer_update_loop)
 

@@ -94,9 +94,11 @@ class MotionPlanner:
         ang = clamp(ang, -self.max_ang_cmd, self.max_ang_cmd)
         if self.verbose:
             rospy.loginfo("MP: Publishing a command ({:}, {:})".format(fwd, ang))
-        # Create ROS message.
-        msg = Twist(Vector3(fwd, 0, 0), Vector3(0, 0, ang))
-        self.cmd_vel_pub.publish(msg)
+        
+        if self.cmd_vel_pub is not None: # May be undefined when using sim.
+            # Create ROS message.
+            msg = Twist(Vector3(fwd, 0, 0), Vector3(0, 0, ang))
+            self.cmd_vel_pub.publish(msg)
 
     def set_test_motion_type(self, type:str):
         """

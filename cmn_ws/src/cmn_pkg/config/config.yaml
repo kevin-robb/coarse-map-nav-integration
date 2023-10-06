@@ -7,7 +7,7 @@ dt: 0.1 # timer period in seconds.
 
 model:
   skip_loading: false # Flag to skip using the ML model. Does not work on laptop w/o GPU, so true by default.
-  device: "cpu" # Where to load model. Options: "cuda:0" (requires nvidia GPU) or "cpu".
+  device: "cpu" # Where to load model. Options: "cuda:0" (requires nvidia GPU) or "cpu"
   local_occ_net:
       dropout: 0.5
       use_pretrained_resnet18: True
@@ -34,7 +34,7 @@ map:
 # Config params defining how the observation output from the perception model relates to the robot.
 # These should be known, since they are determined by the observation "ground truth" outputs used to train the model in the first place.
 observation:
-  resolution: 0.03 # Image resolution, in meters/pixel.
+  resolution: 0.05 # Image resolution, in meters/pixel.
   height: 5 # in pixels. forward distance ahead of vehicle.
   width: 5 # in pixels. lateral span.
   # Coordinates on the observation image frame the vehicle's POV is.
