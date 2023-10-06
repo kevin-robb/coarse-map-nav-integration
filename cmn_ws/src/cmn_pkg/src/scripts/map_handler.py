@@ -400,14 +400,14 @@ class Simulator(MapFrameManager):
         """
         # TODO Perturb with some noise.
         # Compute a proposed new vehicle pose, and check if it's allowed before moving officially.
-        veh_pose_proposed = self.veh_pose_true # make a copy.
-        veh_pose_proposed.x += lin * cos(veh_pose_proposed.yaw)
-        veh_pose_proposed.y += lin * sin(veh_pose_proposed.yaw)
+        veh_pose_proposed = PoseMeters()
+        veh_pose_proposed.x = self.veh_pose_true.x + lin * cos(self.veh_pose_true.yaw)
+        veh_pose_proposed.y = self.veh_pose_true.y + lin * sin(self.veh_pose_true.yaw)
         # Clamp the vehicle pose to remain inside the map bounds.
         veh_pose_proposed.x = clamp(veh_pose_proposed.x, self.map_x_min_meters, self.map_x_max_meters)
         veh_pose_proposed.y = clamp(veh_pose_proposed.y, self.map_y_min_meters, self.map_y_max_meters)
         # Keep yaw normalized to (-pi, pi).
-        veh_pose_proposed.yaw = remainder(veh_pose_proposed.yaw + ang, tau)
+        veh_pose_proposed.yaw = remainder(self.veh_pose_true.yaw + ang, tau)
         # Determine if this vehicle pose is allowed.
         if not self.allow_motion_through_occupied_cells and self.veh_pose_m_in_collision(veh_pose_proposed):
             rospy.logwarn("SIM: Command would move vehicle to invalid pose. Only allowing angular motion.")

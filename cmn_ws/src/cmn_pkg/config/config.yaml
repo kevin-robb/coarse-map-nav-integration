@@ -35,8 +35,8 @@ map:
 # These should be known, since they are determined by the observation "ground truth" outputs used to train the model in the first place.
 observation:
   resolution: 0.05 # Image resolution, in meters/pixel.
-  height: 5 # in pixels. forward distance ahead of vehicle.
-  width: 5 # in pixels. lateral span.
+  height: 3 # in pixels. forward distance ahead of vehicle.
+  width: 3 # in pixels. lateral span.
   # Coordinates on the observation image frame the vehicle's POV is.
   veh_horz_pos_ratio: 0.5 # relative position from left (0) to right (1). Use 0.5 to center it.
   veh_vert_pos_ratio: 0.0 # relative position from bottom (0) to top (1). Use 0.5 to center it.
@@ -48,7 +48,7 @@ particle_filter:
   random_sampling_rate: 0.1 # Proportion in range [0, 1] of population that will be sampled randomly instead of from the previous generation.
 
 actions:
-  discrete_forward_dist: 0.15 # meters forward to move for discrete motion action.
+  discrete_forward_dist: 0.1 # meters forward to move for discrete motion action.
 
 path_planning:
   do_path_planning: false # if true, use A* to compute a full path to the goal point, then use pure pursuit to choose a motion command. if false, navigate directly towards goal point.
@@ -67,7 +67,7 @@ simulator:
     veh_x_initial: 0.0 # meters from left.
     veh_y_initial: 0.0 # meters from bottom.
     veh_yaw_initial: 0.0 # radians. 0 = facing right, increases CCW.
-  allow_motion_through_occupied_cells: true # if true, robot is allowed to be in occluded cells.
+  allow_motion_through_occupied_cells: false # if true, robot is allowed to be in occluded cells.
 
 constraints:
   fwd: 0.6 # commanded linear velocity must be between 0 and this amount (meters/sec).
