@@ -20,7 +20,7 @@ from torchvision.transforms import Compose, Normalize, PILToTensor
 
 # Image process related
 from PIL import Image
-from skimage.transform import rotate
+# from skimage.transform import rotate
 
 from scripts.map_handler import MapFrameManager
 from scripts.basic_types import yaw_to_cardinal_dir
@@ -194,13 +194,16 @@ class CoarseMapNavDiscrete:
 
             # Rotate the egocentric local occupancy to face NORTH
             if agent_dir_str == "east":
-                map_obs = rotate(map_obs, -90)
+                map_obs = np.rot90(map_obs, k=-1)
+                # map_obs = rotate(map_obs, -90)
             elif agent_dir_str == "north":
                 pass
             elif agent_dir_str == "west":
-                map_obs = rotate(map_obs, 90)
+                map_obs = np.rot90(map_obs, k=1)
+                # map_obs = rotate(map_obs, 90)
             elif agent_dir_str == "south":
-                map_obs = rotate(map_obs, 180)
+                map_obs = np.rot90(map_obs, k=2)
+                # map_obs = rotate(map_obs, 180)
             else:
                 raise Exception("Invalid agent direction")
             self.current_local_map = map_obs

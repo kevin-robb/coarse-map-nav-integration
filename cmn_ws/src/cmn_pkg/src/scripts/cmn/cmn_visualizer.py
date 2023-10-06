@@ -5,11 +5,6 @@ from matplotlib.figure import Figure
 from matplotlib.gridspec import GridSpec
 import cv2
 import numpy as np
-from typing import Tuple
-
-from skimage.transform import resize, rotate
-from skimage.color import rgb2gray
-
 
 class CoarseMapNavVisualizer:
     """

@@ -7,7 +7,7 @@ Wrapper for the original CMN Habitat code from Chengguang Xu to work with my cus
 import rospy
 import numpy as np
 from math import degrees
-from skimage.transform import rotate
+# from skimage.transform import rotate
 import cv2, os
 
 from scripts.basic_types import PoseMeters, PosePixels
@@ -195,7 +195,8 @@ class CoarseMapNavInterface():
         # Robot yaw is represented in radians with 0 being right (east), increasing CCW.
         # So, to rotate it to face north, need to rotate by opposite of yaw, plus an additional 90 degrees.
         # NOTE even though the function doc says to provide the amount to rotate CCW, it seems like chengguang's code gives the negative of this.
-        map_obs = rotate(map_obs, -degrees(self.current_agent_pose.yaw) + 90.0)
+        # map_obs = rotate(map_obs, -degrees(self.current_agent_pose.yaw) + 90.0)
+        # TODO find a way to do this continuous rotation without using skimage.rotate; may be able to use the other existing submodule.
         self.cmn_node.current_local_map = map_obs
         return map_obs
 
