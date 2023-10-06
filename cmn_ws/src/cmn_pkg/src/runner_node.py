@@ -13,6 +13,7 @@ from cv_bridge import CvBridge
 from math import pi, atan2, asin
 import numpy as np
 import cv2
+from time import strftime
 
 from scripts.cmn_interface import CoarseMapNavInterface
 
@@ -29,6 +30,9 @@ g_run_mode = None # "discrete" or "continuous"
 g_use_ground_truth_map_to_generate_observations = False
 g_show_live_viz = False
 g_verbose = False
+# Data saving params.
+g_save_training_data:bool = False # Flag to save data when running on robot for later training/evaluation.
+g_training_data_dirpath:str = None # Location of directory to save data to.
 # Live flags.
 g_viz_paused = False
 #################################################
@@ -92,6 +96,18 @@ def read_params():
         g_meas_topic = config["measurements"]["topic"]
         g_meas_height = config["measurements"]["height"]
         g_meas_width = config["measurements"]["width"]
+        # Settings for saving data for later training/evaluation.
+        global g_save_training_data, g_training_data_dirpath
+        g_save_training_data = config["save_data_for_training"]
+        if g_save_training_data:
+            g_training_data_dirpath = config["training_data_dirpath"]
+            if g_training_data_dirpath[0] != "/":
+                # Make path relative to cmn_pkg directory.
+                g_training_data_dirpath = os.path.join(pkg_path, g_training_data_dirpath)
+            # Append datetime and create data directory.
+            g_training_data_dirpath = os.path.join(g_training_data_dirpath, strftime("%Y%m%d-%H%M%S"))
+            os.makedirs(g_training_data_dirpath, exist_ok=True)
+
 
 def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None):
     """
@@ -110,6 +126,10 @@ def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
     g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode, g_show_live_viz, cmd_vel_pub, g_enable_localization, g_enable_ml_model)
+
+    # Set data saving params.
+    g_cmn_interface.save_training_data = g_save_training_data
+    g_cmn_interface.training_data_dirpath = g_training_data_dirpath
 
 
 ######################## CALLBACKS ########################

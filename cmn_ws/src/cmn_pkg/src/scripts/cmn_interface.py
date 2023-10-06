@@ -8,6 +8,7 @@ import rospy
 import numpy as np
 from math import degrees
 from skimage.transform import rotate
+import cv2, os
 
 from scripts.basic_types import PoseMeters, PosePixels
 from scripts.map_handler import Simulator, MapFrameManager
@@ -37,6 +38,11 @@ class CoarseMapNavInterface():
     visualizer:Visualizer = None # Will be initialized only if enabled.
 
     current_agent_pose:PoseMeters = PoseMeters(0,0,0) # Current estimated pose of the agent, (x, y, yaw) in meters & radians. For discrete case, assume yaw is ground truth (known).
+    
+    # Params for saving training/eval data during the run.
+    save_training_data:bool = False # Flag to save data when running on robot for later training/evaluation.
+    training_data_dirpath:str = None # Location of directory to save data to.
+    iteration:int = 0 # Current iteration number. Used for filenames when saving data.
 
 
     def __init__(self, enable_sim:bool, run_mode:str, enable_viz:bool, cmd_vel_pub, enable_localization:bool=True, enable_ml_model:bool=False):
@@ -154,6 +160,16 @@ class CoarseMapNavInterface():
             # In the simulator, propagate the true vehicle pose by this discrete action.
             if self.enable_sim:
                 self.map_frame_manager.propagate_with_dist(fwd, ang)
+
+        # Save all desired data for later training/evaluation.
+        if self.save_training_data:
+            self.iteration += 1
+            if pano_rgb is not None:
+                cv2.imwrite(os.path.join(self.training_data_dirpath, "pano_rgb_{:03}.png".format(self.iteration)), pano_rgb)
+            if current_local_map is not None:
+                # local_map_bgr = cv2.cvtColor(current_local_map, cv2.COLOR_GRAY2BGR)
+                # cv2.imshow('local_map_to_save', local_map_bgr); cv2.waitKey(0)
+                cv2.imwrite(os.path.join(self.training_data_dirpath, "local_map_{:03}.png".format(self.iteration)), current_local_map)
 
 
     def set_new_odom(self, x, y, yaw):

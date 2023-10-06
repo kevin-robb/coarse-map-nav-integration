@@ -61,9 +61,7 @@ class CoarseMapNavDiscrete:
     predictive_belief_map = None  # predictive prob
     observation_prob_map = None  # measurement prob
     updated_belief_map = None  # updated prob
-
     agent_belief_map = None  # current agent pose belief on the map
-    last_agent_belief_map = None  # last agent pose belief on the map
 
     current_local_map = None
     empty_cell_map = None
@@ -152,7 +150,6 @@ class CoarseMapNavDiscrete:
         # Initialize the belief as a uniform distribution over all empty spaces
         init_belief = 1.0 - self.coarse_map_arr
         self.agent_belief_map = init_belief / init_belief.sum()
-        self.last_agent_belief_map = init_belief / init_belief.sum()
         # record the space map:
         self.empty_cell_map = 1 - self.coarse_map_arr
         # init other beliefs
@@ -228,7 +225,9 @@ class CoarseMapNavDiscrete:
         log_belief = np.log(self.observation_prob_map + 1e-8) + np.log(self.predictive_belief_map + 1e-8)
         belief = np.exp(log_belief)
         normalized_belief = belief / belief.sum()
+        # Record this new belief map.
         self.updated_belief_map = normalized_belief.copy()
+        self.agent_belief_map = normalized_belief.copy()
 
         # Return the chosen action so that our motion planner can command this to the robot.
         return action
