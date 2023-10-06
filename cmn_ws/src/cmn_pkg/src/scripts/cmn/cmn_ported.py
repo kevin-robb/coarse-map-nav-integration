@@ -8,15 +8,10 @@ import yaml, rospy, os
 import numpy as np
 
 # CMN related
-from scripts.cmn.model.local_occupancy_predictor import LocalOccNet
 from scripts.cmn.tree_search import TreeNode, BFTree
 from scripts.cmn.topo_map import TopoMap, compute_similarity_iou, up_scale_grid, compute_similarity_mse
 
 from scripts.cmn.cmn_visualizer import CoarseMapNavVisualizer
-
-# Pytorch related
-import torch
-from torchvision.transforms import Compose, Normalize, PILToTensor
 
 # Image process related
 from PIL import Image
@@ -102,6 +97,11 @@ class CoarseMapNavDiscrete:
 
         # Load in the ML model, if enabled.
         if not skip_load_model:
+            # Pytorch related
+            from scripts.cmn.model.local_occupancy_predictor import LocalOccNet
+            import torch
+            from torchvision.transforms import Compose, Normalize, PILToTensor
+
             # Load the trained local occupancy predictor
             self.device = torch.device(self.device_str)
             # Create the local occupancy network
@@ -325,6 +325,7 @@ class CoarseMapNavDiscrete:
             # Convert observation from PIL.Image to tensor
             pano_rgb_obs_tensor = self.transformation(obs)
 
+            import torch
             with torch.no_grad():
                 # Predict the local occupancy
                 pred_local_occ = self.model(pano_rgb_obs_tensor)
