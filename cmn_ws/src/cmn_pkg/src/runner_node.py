@@ -8,6 +8,7 @@ import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Empty, Bool
 import rospkg, yaml, sys, os
 from cv_bridge import CvBridge
 from math import pi, atan2, asin
@@ -15,7 +16,7 @@ import numpy as np
 import cv2
 from time import strftime
 
-from scripts.cmn_interface import CoarseMapNavInterface
+from scripts.cmn_interface import CoarseMapNavInterface, CmnConfig
 
 ############ GLOBAL VARIABLES ###################
 g_cv_bridge = CvBridge()
@@ -109,7 +110,7 @@ def read_params():
             os.makedirs(g_training_data_dirpath, exist_ok=True)
 
 
-def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None):
+def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None, discrete_cmd_pub=None):
     """
     Set global params specified by the launch file/runner.
     @param run_mode - Mode to run the project in.
@@ -123,9 +124,17 @@ def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None
     g_use_ground_truth_map_to_generate_observations = use_sim
     g_show_live_viz = use_viz
 
+    # Setup configs for CMN interface.
+    config = CmnConfig()
+    config.run_mode = run_mode
+    config.enable_sim = use_sim
+    config.enable_viz = use_viz
+    config.enable_ml_model = g_enable_ml_model
+    config.enable_localization = g_enable_localization
+
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
-    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode, g_show_live_viz, cmd_vel_pub, g_enable_localization, g_enable_ml_model)
+    g_cmn_interface = CoarseMapNavInterface(config, cmd_vel_pub, discrete_cmd_pub)
 
     # Set data saving params.
     g_cmn_interface.save_training_data = g_save_training_data
@@ -156,6 +165,8 @@ def get_pano_meas():
                                pano_meas_right[:, :, 0:3],
                                pano_meas_back[:, :, 0:3],
                                pano_meas_left[:, :, 0:3]], axis=1)
+    # Convert from RGB to BGR so OpenCV knows how to use it.
+    pano_rgb = cv2.cvtColor(pano_rgb, cv2.COLOR_RGB2BGR)
     return pano_rgb
 
 def pop_from_RS_buffer():
@@ -171,9 +182,9 @@ def pop_from_RS_buffer():
     # Ensure this same measurement will not be used again.
     g_most_recent_realsense_measurement = None
 
-    cv2.imshow("color image", cv_img_meas); cv2.waitKey(0); cv2.destroyAllWindows()
     # Resize the image to the size expected by CMN.
     if g_verbose:
+        # cv2.imshow("color image", cv_img_meas); cv2.waitKey(0); cv2.destroyAllWindows()
         rospy.loginfo("Trying to resize image from shape {:} to {:}".format(cv_img_meas.shape, g_desired_meas_shape))
     cv_img_meas = cv2.resize(cv_img_meas, g_desired_meas_shape)
 
@@ -207,17 +218,32 @@ def get_odom(msg):
     if g_verbose:
         rospy.loginfo("Got odom {:}.".format((x, y, roll)))
 
+def get_discrete_motion_completed(success_msg:Bool):
+    """
+    Get a message from the discrete motion planner when the motion has finished.
+    """
+    # This should never be called unless we're using discrete motions, but protect against error just in case.
+    if g_cmn_interface.use_discrete_space:
+        rospy.logwarn("Got message that discrete motion is complete.")
+        g_cmn_interface.motion_planner.discrete_motion_in_progress = False
+
+
 def main():
     rospy.init_node('runner_node')
 
     read_params()
 
-    # Publish control commands (velocities in m/s and rad/s).
+    # Publishers for control commands.
+    # Continuous velocity command publisher.
     cmd_vel_pub = rospy.Publisher("/locobot/mobile_base/commands/velocity", Twist, queue_size=1)
+    # Discrete commands will be read by our motion_cmd_node, which will convert them into velocities and wait for the motion to finish.
+    discrete_cmd_pub = rospy.Publisher("/cmn/motion_command", Twist, queue_size=1)
+    # Subscriber to know when the motion_cmd_node has finished executing a discrete motion.
+    rospy.Subscriber("/cmd/motion_finished", Bool, get_discrete_motion_completed, queue_size=1)
 
     # Get any params specified in args from launch file.
     if len(sys.argv) > 3:
-        set_global_params(sys.argv[1], sys.argv[2].lower() == "true", sys.argv[3].lower() == "true", cmd_vel_pub)
+        set_global_params(sys.argv[1], sys.argv[2].lower() == "true", sys.argv[3].lower() == "true", cmd_vel_pub, discrete_cmd_pub)
     else:
         print("Missing required arguments.")
         exit()
@@ -226,6 +252,9 @@ def main():
         rospy.logerr("Invalid run_mode {:}. Exiting.".format(g_run_mode))
         exit()
 
+    # Reset the robot odometry.
+    odom_reset_pub = rospy.Publisher("/locobot/mobile_base/commands/reset_odometry", Empty, queue_size=1)
+    odom_reset_pub.publish(Empty())
 
     # Subscribe to sensor images from RealSense.
     # TODO may want to check /locobot/camera/color/camera_info
@@ -233,6 +262,10 @@ def main():
 
     # Subscribe to robot odometry.
     rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)
+
+    # Wait to make sure the motion_cmd_node has time to initialize.
+    if g_cmn_interface.use_discrete_space:
+        rospy.sleep(1.0)
 
     rospy.Timer(rospy.Duration(g_dt), timer_update_loop)
 

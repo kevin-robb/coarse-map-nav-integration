@@ -9,6 +9,7 @@ from math import radians, pi, sqrt
 from random import random, randint
 from time import time
 from geometry_msgs.msg import Twist, Vector3
+from std_msgs.msg import Bool
 
 from scripts.map_handler import clamp, MapFrameManager
 from scripts.astar import Astar
@@ -72,12 +73,6 @@ class MotionPlanner:
             # Path planning.
             self.do_path_planning = config["path_planning"]["do_path_planning"]
             self.pure_pursuit.use_finite_lookahead_dist = self.do_path_planning
-
-    def set_vel_pub(self, pub):
-        """
-        Set our publisher for velocity commands, which are sent to the robot and used for updating viz.
-        """
-        self.cmd_vel_pub = pub
 
     def set_odom(self, odom):
         """
@@ -257,6 +252,10 @@ class DiscreteMotionPlanner(MotionPlanner):
     # Flag to keep publishing commands until the robot odometry indicates the motion has finished.
     # Since the sim does not publish robot odom or subscribe to these velocity commands, this is a simpler solution.
     wait_for_motion_to_complete = True
+    # Publisher for discrete motions.
+    discrete_motion_pub = None
+    # Flag for when a discrete motion is complete.
+    discrete_motion_in_progress = False
 
     def __init__(self):
         self.read_params()
@@ -282,23 +281,24 @@ class DiscreteMotionPlanner(MotionPlanner):
         @param action - str representing a defined discrete action.
         @return fwd, ang distances moved, which will allow us to propagate our simulated robot pose.
         """
-        if action == "turn_left":
-            if self.wait_for_motion_to_complete:
-                # NOTE under-command the angle slightly since we tend to over-turn.
-                self.cmd_discrete_ang_motion(radians(82))
-            return 0.0, radians(90)
-        elif action == "turn_right":
-            if self.wait_for_motion_to_complete:
-                self.cmd_discrete_ang_motion(radians(-82))
-            return 0.0, radians(-90)
-        elif action == "move_forward":
-            # Only command the motion and wait for it to finish if we're using a physical robot.
-            if self.wait_for_motion_to_complete:
-                self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
-            return self.discrete_forward_dist, 0.0
-        else:
-            rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))
-            return 0.0, 0.0
+        # Convert string to twist values.
+        fwd = self.discrete_forward_dist if action == "move_forward" else 0.0
+        ang = radians(-90.0 if action == "turn_right" else (90.0 if action == "turn_left" else 0.0))
+
+        # Only command the motion and wait for it to finish if we're using a physical robot.
+        if self.wait_for_motion_to_complete:
+            # Publish the motion to the discrete planner, and wait to be told it has finished.
+            rospy.logwarn("Starting a discrete motion")
+            self.discrete_motion_in_progress = True
+            msg = Twist(Vector3(fwd, 0, 0), Vector3(0, 0, ang))
+            self.discrete_motion_pub.publish(msg)
+            while (self.discrete_motion_in_progress):
+                rospy.logwarn("Waiting for discrete motion to finish.")
+                rospy.sleep(0.1)
+
+        rospy.logwarn("Discrete motion finished")
+        return fwd, ang
+
     
     def cmd_random_discrete_action(self):
         """
@@ -307,46 +307,48 @@ class DiscreteMotionPlanner(MotionPlanner):
         """
         return self.cmd_discrete_action(self.discrete_actions[randint(0,len(self.discrete_actions)-1)])
 
-    def cmd_discrete_ang_motion(self, angle:float):
-        """
-        Turn the robot in-place by a discrete amount, and then stop.
-        @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
-        """
-        if self.verbose:
-            rospy.loginfo("DMP: Commanding a discrete pivot of {:} radians.".format(angle))
-        # Get turn direction.
-        turn_dir_sign = angle / abs(angle)
-        # Keep waiting until motion has completed.
-        self.motion_tracker.reset()
-        while abs(self.motion_tracker.update_for_pivot(self.odom[2])) < abs(angle):
-            # Command the max possible turn speed, in the desired direction.
-            # NOTE since there is no "ramping down" in the speed, we may over-turn slightly.
-            self.pub_velocity_cmd(0, self.max_ang_cmd * turn_dir_sign)
-            rospy.sleep(0.001)
-        # When the motion has finished, send a command to stop.
-        self.pub_velocity_cmd(0, 0)
-        # Insert a small pause to help differentiate adjacent discrete motions.
-        rospy.sleep(0.5)
+    # def cmd_discrete_ang_motion(self, angle:float):
+    #     """
+    #     Turn the robot in-place by a discrete amount, and then stop.
+    #     @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
+    #     """
+    #     if self.verbose:
+    #         rospy.loginfo("DMP: Commanding a discrete pivot of {:} radians.".format(angle))
+    #     # Get turn direction.
+    #     turn_dir_sign = angle / abs(angle)
+    #     # Keep waiting until motion has completed.
+    #     self.motion_tracker.reset()
+    #     while abs(self.motion_tracker.update_for_pivot(self.odom[2])) < abs(angle):
+    #         # Command the max possible turn speed, in the desired direction.
+    #         # NOTE since there is no "ramping down" in the speed, we may over-turn slightly.
+    #         # ang_vel_to_cmd = max(0.3, self.max_ang_cmd * (1 - (abs(self.motion_tracker.ang_motion) / abs(angle)**3)))
+    #         ang_vel_to_cmd = self.max_ang_cmd
+    #         self.pub_velocity_cmd(0, ang_vel_to_cmd * turn_dir_sign)
+    #         rospy.sleep(0.001)
+    #     # When the motion has finished, send a command to stop.
+    #     self.pub_velocity_cmd(0, 0)
+    #     # Insert a small pause to help differentiate adjacent discrete motions.
+    #     rospy.sleep(0.5)
 
-    def cmd_discrete_fwd_motion(self, dist:float):
-        """
-        Move the robot forwards by a discrete distance, and then stop.
-        @param dist - distance in meters to move. Positive is forwards, negative for backwards.
-        """
-        if self.verbose:
-            rospy.loginfo("DMP: Commanding a discrete forward motion of {:} meters.".format(dist))
-        # Get direction of motion.
-        motion_sign = dist / abs(dist)
-        # Save the starting odom.
-        init_odom = self.odom
-        # Keep waiting until motion has completed.
-        while sqrt((self.odom[0]-init_odom[0])**2 + (self.odom[1]-init_odom[1])**2) < dist:
-            # Command the max possible move speed, in the desired direction.
-            # NOTE since there is no "ramping down" in the speed, we may move slightly further than intended.
-            self.pub_velocity_cmd(self.max_fwd_cmd * motion_sign, 0)
-            rospy.sleep(0.001)
-        # When the motion has finished, send a command to stop.
-        self.pub_velocity_cmd(0, 0)
-        # Insert a small pause to help differentiate adjacent discrete motions.
-        rospy.sleep(0.5)
+    # def cmd_discrete_fwd_motion(self, dist:float):
+    #     """
+    #     Move the robot forwards by a discrete distance, and then stop.
+    #     @param dist - distance in meters to move. Positive is forwards, negative for backwards.
+    #     """
+    #     if self.verbose:
+    #         rospy.loginfo("DMP: Commanding a discrete forward motion of {:} meters.".format(dist))
+    #     # Get direction of motion.
+    #     motion_sign = dist / abs(dist)
+    #     # Save the starting odom.
+    #     init_odom = self.odom
+    #     # Keep waiting until motion has completed.
+    #     while sqrt((self.odom[0]-init_odom[0])**2 + (self.odom[1]-init_odom[1])**2) < dist:
+    #         # Command the max possible move speed, in the desired direction.
+    #         # NOTE since there is no "ramping down" in the speed, we may move slightly further than intended.
+    #         self.pub_velocity_cmd(self.max_fwd_cmd * motion_sign, 0)
+    #         rospy.sleep(0.001)
+    #     # When the motion has finished, send a command to stop.
+    #     self.pub_velocity_cmd(0, 0)
+    #     # Insert a small pause to help differentiate adjacent discrete motions.
+    #     rospy.sleep(0.5)
 

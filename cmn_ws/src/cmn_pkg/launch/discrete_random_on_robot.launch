@@ -12,6 +12,9 @@
     <!-- Set whether the live visualization will attempt to run. -->
     <arg name="show_live_viz" default="false"/>
 
+    <!-- Start the node that converts our discrete commands into robot motion. -->
+    <node pkg="cmn_pkg" type="motion_cmd_node" name="motion_cmd_node" output="screen" />
+
     <!-- Start the node that drives the project -->
     <node pkg="cmn_pkg" type="runner_node.py" name="runner_node" args="$(arg run_mode) $(arg use_ground_truth_map_to_generate_observations) $(arg show_live_viz)" output="screen" />
 </launch>
