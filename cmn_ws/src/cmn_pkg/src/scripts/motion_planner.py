@@ -282,23 +282,20 @@ class DiscreteMotionPlanner(MotionPlanner):
         @param action - str representing a defined discrete action.
         @return fwd, ang distances moved, which will allow us to propagate our simulated robot pose.
         """
-        if action == "turn_left":
-            if self.wait_for_motion_to_complete:
+        # Convert string to twist values.
+        fwd = self.discrete_forward_dist if action == "move_forward" else 0.0
+        ang = radians(-90.0 if action == "turn_right" else (90.0 if action == "turn_left" else 0.0))
+        # Only command the motion and wait for it to finish if we're using a physical robot.
+        if self.wait_for_motion_to_complete:
+            if action in ["turn_left", "turn_right"]:
                 # NOTE under-command the angle slightly since we tend to over-turn.
-                self.cmd_discrete_ang_motion(radians(82))
-            return 0.0, radians(90)
-        elif action == "turn_right":
-            if self.wait_for_motion_to_complete:
-                self.cmd_discrete_ang_motion(radians(-82))
-            return 0.0, radians(-90)
-        elif action == "move_forward":
-            # Only command the motion and wait for it to finish if we're using a physical robot.
-            if self.wait_for_motion_to_complete:
-                self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
-            return self.discrete_forward_dist, 0.0
-        else:
-            rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))
-            return 0.0, 0.0
+                self.cmd_discrete_ang_motion(0.8 * ang)
+            elif action == "move_forward":
+                self.cmd_discrete_fwd_motion(fwd)
+            else:
+                rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))
+                fwd, ang = 0.0, 0.0
+        return fwd, ang
     
     def cmd_random_discrete_action(self):
         """

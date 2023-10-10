@@ -18,6 +18,18 @@ from scripts.visualizer import Visualizer
 
 from scripts.cmn.cmn_ported import CoarseMapNavDiscrete
 
+class CmnConfig():
+    # Flag to track whether we are using discrete or continuous state/action space.
+    # Should be one of ["continuous", "discrete", "discrete_random"].
+    run_mode:str = "continuous"
+    # Flag to use the simulator to generate ground truth observations.
+    enable_sim:bool = False
+    # Flag to show a live visualization of the simulation running.
+    enable_viz:bool = False
+    # Debug flag to allow disabling the ML model from loading/running, since it can't run on all machines.
+    enable_ml_model:bool = False
+    # Debug flag to allow disabling localization from running, using ground truth pose for planning.
+    enable_localization:bool = True
 
 class CoarseMapNavInterface():
     # Overarching run modes for the project.
@@ -45,23 +57,19 @@ class CoarseMapNavInterface():
     iteration:int = 0 # Current iteration number. Used for filenames when saving data.
 
 
-    def __init__(self, enable_sim:bool, run_mode:str, enable_viz:bool, cmd_vel_pub, enable_localization:bool=True, enable_ml_model:bool=False):
+    def __init__(self, config:CmnConfig, cmd_vel_pub):
         """
         Initialize all modules needed for this project.
-        @param enable_sim Flag to use the simulator to generate ground truth observations.
-        @param run_mode Mode for the project. Should be one of ["continuous", "discrete", "discrete_random"]
-        @param enable_viz Flag to show a live visualization of the simulation running.
+        @param config Relevant params/flags for how we should run.
         @param cmd_vel_pub rospy publisher for Twist velocities, which the motion planner will use to command motion.
-        @param enable_localization (optional, default True) Debug flag to allow disabling localization from running, using ground truth pose for planning.
-        @param enable_ml_model (optional, default False) Debug flag to allow disabling the ML model from being loaded. Allows running on a computer with no GPU.
         """
-        self.enable_sim = enable_sim
-        self.use_discrete_space = "discrete" in run_mode
-        self.enable_viz = enable_viz
-        self.enable_localization = enable_localization and enable_sim
+        self.enable_sim = config.enable_sim
+        self.use_discrete_space = "discrete" in config.run_mode
+        self.enable_viz = config.enable_viz
+        self.enable_localization = config.enable_localization and config.enable_sim
 
         # Init the map manager / simulator.
-        if enable_sim:
+        if self.enable_sim:
             self.map_frame_manager = Simulator(self.use_discrete_space)
         else:
             self.map_frame_manager = MapFrameManager(self.use_discrete_space)
@@ -75,7 +83,7 @@ class CoarseMapNavInterface():
         self.motion_planner.set_vel_pub(cmd_vel_pub)
         self.motion_planner.set_map_frame_manager(self.map_frame_manager)
         # Discrete motion commands internally publish velocity commands for the robot and wait for the motion to be complete, which cannot be run without a robot (i.e., in the sim).
-        self.motion_planner.wait_for_motion_to_complete = not enable_sim
+        self.motion_planner.wait_for_motion_to_complete = not self.enable_sim
         # Select a random goal point.
         self.motion_planner.set_goal_point_random()
 
@@ -87,10 +95,10 @@ class CoarseMapNavInterface():
         if self.use_discrete_space or not self.enable_sim:
             # Create Coarse Map Navigator (CMN) node.
             # NOTE For continuous, only need it to process sensor data into local occupancy map.
-            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, self.motion_planner.goal_pos_px.as_tuple(), not enable_ml_model, "random" in run_mode)
+            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, self.motion_planner.goal_pos_px.as_tuple(), not self.enable_ml_model, "random" in config.run_mode)
 
         # Init the visualizer only if it's enabled.
-        if enable_viz:
+        if self.enable_viz:
             self.visualizer = Visualizer()
             self.visualizer.set_map_frame_manager(self.map_frame_manager)
             self.visualizer.goal_cell = self.motion_planner.goal_pos_px

@@ -8,6 +8,7 @@ import rospy
 from geometry_msgs.msg import Twist
 from sensor_msgs.msg import Image
 from nav_msgs.msg import Odometry
+from std_msgs.msg import Empty, Bool
 import rospkg, yaml, sys, os
 from cv_bridge import CvBridge
 from math import pi, atan2, asin
@@ -15,7 +16,7 @@ import numpy as np
 import cv2
 from time import strftime
 
-from scripts.cmn_interface import CoarseMapNavInterface
+from scripts.cmn_interface import CoarseMapNavInterface, CmnConfig
 
 ############ GLOBAL VARIABLES ###################
 g_cv_bridge = CvBridge()
@@ -123,9 +124,17 @@ def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None
     g_use_ground_truth_map_to_generate_observations = use_sim
     g_show_live_viz = use_viz
 
+    # Setup configs for CMN interface.
+    config = CmnConfig()
+    config.run_mode = run_mode
+    config.enable_sim = use_sim
+    config.enable_viz = use_viz
+    config.enable_ml_model = g_enable_ml_model
+    config.enable_localization = g_enable_localization
+
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
-    g_cmn_interface = CoarseMapNavInterface(g_use_ground_truth_map_to_generate_observations, g_run_mode, g_show_live_viz, cmd_vel_pub, g_enable_localization, g_enable_ml_model)
+    g_cmn_interface = CoarseMapNavInterface(config, cmd_vel_pub)
 
     # Set data saving params.
     g_cmn_interface.save_training_data = g_save_training_data
@@ -156,6 +165,9 @@ def get_pano_meas():
                                pano_meas_right[:, :, 0:3],
                                pano_meas_back[:, :, 0:3],
                                pano_meas_left[:, :, 0:3]], axis=1)
+    # Convert from RGB to BGR so OpenCV will show/save it properly.
+    # TODO determine if this should be done for the model input or not.
+    pano_rgb = cv2.cvtColor(pano_rgb, cv2.COLOR_RGB2BGR)
     return pano_rgb
 
 def pop_from_RS_buffer():
@@ -171,9 +183,9 @@ def pop_from_RS_buffer():
     # Ensure this same measurement will not be used again.
     g_most_recent_realsense_measurement = None
 
-    cv2.imshow("color image", cv_img_meas); cv2.waitKey(0); cv2.destroyAllWindows()
     # Resize the image to the size expected by CMN.
     if g_verbose:
+        # cv2.imshow("color image", cv_img_meas); cv2.waitKey(0); cv2.destroyAllWindows()
         rospy.loginfo("Trying to resize image from shape {:} to {:}".format(cv_img_meas.shape, g_desired_meas_shape))
     cv_img_meas = cv2.resize(cv_img_meas, g_desired_meas_shape)
 
@@ -211,6 +223,10 @@ def main():
     rospy.init_node('runner_node')
 
     read_params()
+
+    # Reset the robot odometry.
+    odom_reset_pub = rospy.Publisher("/locobot/mobile_base/commands/reset_odometry", Empty, queue_size=1)
+    odom_reset_pub.publish(Empty())
 
     # Publish control commands (velocities in m/s and rad/s).
     cmd_vel_pub = rospy.Publisher("/locobot/mobile_base/commands/velocity", Twist, queue_size=1)
