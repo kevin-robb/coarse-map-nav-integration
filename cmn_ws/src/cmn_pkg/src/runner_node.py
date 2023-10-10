@@ -24,6 +24,7 @@ g_cmn_interface:CoarseMapNavInterface = None
 
 # RealSense measurements buffer.
 g_most_recent_realsense_measurement = None
+g_desired_meas_shape = None # Shape (h, w, c) to resize each color image from RS to.
 # Configs.
 g_run_modes = ["continuous", "discrete", "discrete_random"] # Allowed/supported run modes.
 g_run_mode = None # "discrete" or "continuous"
@@ -92,10 +93,9 @@ def read_params():
         g_enable_localization = config["particle_filter"]["enable"]
         g_enable_ml_model = not config["model"]["skip_loading"]
         # Settings for interfacing with CMN.
-        global g_meas_topic, g_meas_width, g_meas_height
+        global g_meas_topic, g_desired_meas_shape
         g_meas_topic = config["measurements"]["topic"]
-        g_meas_height = config["measurements"]["height"]
-        g_meas_width = config["measurements"]["width"]
+        g_desired_meas_shape = (config["measurements"]["height"], config["measurements"]["width"])
         # Settings for saving data for later training/evaluation.
         global g_save_training_data, g_training_data_dirpath
         g_save_training_data = config["save_data_for_training"]
@@ -141,29 +141,21 @@ def get_pano_meas():
     """
     if g_verbose:
         rospy.loginfo("Attempting to generate a panoramic measurement by commanding four 90 degree pivots.")
-    pano_meas = {}
-    pano_meas["color_sensor_front"] = pop_from_RS_buffer()
-    # Resize to desired shape for input to CMN code.
-    if g_verbose:
-        rospy.loginfo("Raw RS image has shape {:}".format(pano_meas["color_sensor_front"].shape))
-    pano_meas["color_sensor_front"] = cv2.resize(pano_meas["color_sensor_front"], (g_meas_height,g_meas_width,3))
+    pano_meas_front = pop_from_RS_buffer()
     # Pivot in-place 90 deg CW to get another measurement.
     g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
-    pano_meas["color_sensor_right"] = pop_from_RS_buffer()
-    pano_meas["color_sensor_right"] = cv2.resize(pano_meas["color_sensor_right"], (g_meas_height,g_meas_width,3))
+    pano_meas_right = pop_from_RS_buffer()
     g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
-    pano_meas["color_sensor_back"] = pop_from_RS_buffer()
-    pano_meas["color_sensor_back"] = cv2.resize(pano_meas["color_sensor_back"], (g_meas_height,g_meas_width,3))
+    pano_meas_back = pop_from_RS_buffer()
     g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
-    pano_meas["color_sensor_left"] = pop_from_RS_buffer()
-    pano_meas["color_sensor_left"] = cv2.resize(pano_meas["color_sensor_left"], (g_meas_height,g_meas_width,3))
+    pano_meas_left = pop_from_RS_buffer()
     g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
     # Vehicle should now be facing forwards again (its original direction).
     # Combine these images into a panorama.
-    pano_rgb = np.concatenate([pano_meas['color_sensor_front'][:, :, 0:3],
-                               pano_meas['color_sensor_right'][:, :, 0:3],
-                               pano_meas['color_sensor_back'][:, :, 0:3],
-                               pano_meas['color_sensor_left'][:, :, 0:3]], axis=1)
+    pano_rgb = np.concatenate([pano_meas_front[:, :, 0:3],
+                               pano_meas_right[:, :, 0:3],
+                               pano_meas_back[:, :, 0:3],
+                               pano_meas_left[:, :, 0:3]], axis=1)
     return pano_rgb
 
 def pop_from_RS_buffer():
@@ -178,6 +170,13 @@ def pop_from_RS_buffer():
     cv_img_meas = g_cv_bridge.imgmsg_to_cv2(g_most_recent_realsense_measurement, desired_encoding='passthrough')
     # Ensure this same measurement will not be used again.
     g_most_recent_realsense_measurement = None
+
+    cv2.imshow("color image", cv_img_meas); cv2.waitKey(0); cv2.destroyAllWindows()
+    # Resize the image to the size expected by CMN.
+    if g_verbose:
+        rospy.loginfo("Trying to resize image from shape {:} to {:}".format(cv_img_meas.shape, g_desired_meas_shape))
+    cv_img_meas = cv2.resize(cv_img_meas, g_desired_meas_shape)
+
     return cv_img_meas
 
 def get_RS_image(msg):
