@@ -161,7 +161,7 @@ class CoarseMapNavDiscrete:
     def run_one_iter(self, agent_yaw:float, pano_rgb=None, gt_observation=None) -> str:
         """
         Run one iteration of CMN.
-        @param agent_dir_str - Current direction the robot is facing. Should be one of ["north", "west", "south", "east"].
+        @param agent_yaw - Current robot yaw in radians, with 0=east, increasing CCW. In range [-pi, pi].
         NOTE: Must provide either pano_rgb (sensor data to run model to generate observation) or observation (ground-truth from sim).
         @param pano_rgb - Dictionary of four RGB images concatenated into a panorama.
         @param gt_observation - (optional) 2D numpy array containing (ground-truth) observation.

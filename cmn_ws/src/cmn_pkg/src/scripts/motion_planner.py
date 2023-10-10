@@ -289,7 +289,7 @@ class DiscreteMotionPlanner(MotionPlanner):
         if self.wait_for_motion_to_complete:
             if action in ["turn_left", "turn_right"]:
                 # NOTE under-command the angle slightly since we tend to over-turn.
-                self.cmd_discrete_ang_motion(0.8 * ang)
+                self.cmd_discrete_ang_motion(ang)
             elif action == "move_forward":
                 self.cmd_discrete_fwd_motion(fwd)
             else:
@@ -315,7 +315,7 @@ class DiscreteMotionPlanner(MotionPlanner):
         turn_dir_sign = angle / abs(angle)
         # Keep waiting until motion has completed.
         self.motion_tracker.reset()
-        while abs(self.motion_tracker.update_for_pivot(self.odom[2])) < abs(angle):
+        while abs(self.motion_tracker.update_for_pivot(self.odom[2])) < abs(0.8 * angle):
             # Command the max possible turn speed, in the desired direction.
             # NOTE since there is no "ramping down" in the speed, we may over-turn slightly.
             self.pub_velocity_cmd(0, self.max_ang_cmd * turn_dir_sign)
