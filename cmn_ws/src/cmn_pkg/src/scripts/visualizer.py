@@ -146,10 +146,10 @@ class Visualizer:
             # Plot the vehicle pose relative to the observation.
             if self.veh_pose_in_obs_region is not None:
                 # Unpack the dictionary of its data that we computed earlier.
-                ax1.arrow(**self.veh_pose_in_obs_region, color="blue", zorder = 2)
+                # ax1.arrow(**self.veh_pose_in_obs_region, color="blue", zorder = 2)
 
-                # ax1.scatter(self.veh_pose_in_obs_region["x"], self.veh_pose_in_obs_region["y"], color="blue")
-                # ax1.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, self.veh_pose_displ_len*cos(self.veh_pose_estimate.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_estimate.yaw), color="green", width=self.veh_pose_displ_wid, zorder = 3, head_width=0.01, head_length=0.1)
+                ax1.scatter(self.veh_pose_in_obs_region["x"], self.veh_pose_in_obs_region["y"], color="blue")
+                ax1.arrow(self.veh_pose_in_obs_region["x"], self.veh_pose_in_obs_region["y"], self.veh_pose_in_obs_region["dx"], self.veh_pose_in_obs_region["dy"], color="blue", width=self.veh_pose_in_obs_region["width"], zorder = 2, head_width=0.01, head_length=0.25)
 
         # Add the legend, including info from both plots.
         ax0.legend(loc="upper left")
