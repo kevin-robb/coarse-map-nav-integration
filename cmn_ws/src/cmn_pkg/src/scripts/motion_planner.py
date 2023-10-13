@@ -135,7 +135,7 @@ class MotionPlanner:
         """
         self.mfm = mfm
         # Save the map in A* to use as well.
-        self.astar.map = self.mfm.map_with_border
+        self.astar.map = self.mfm.map_with_border.copy()
 
     def set_goal_point_random(self):
         """

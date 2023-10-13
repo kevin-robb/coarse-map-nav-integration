@@ -213,7 +213,7 @@ class MapFrameManager(CoarseMapProcessor):
         Determine valid vehicle bounds, and add padding around the map border.
         """
         # Set the map as it is temporarily so we can use it to determine vehicle bounds.
-        self.map_with_border = self.occ_map
+        self.map_with_border = self.occ_map.copy()
         # Set the map bounds in meters. This prevents true vehicle pose from leaving the map.
         self.map_x_min_meters, self.map_y_min_meters = self.transform_map_px_to_m(self.map_with_border.shape[1]-1, 0)
         self.map_x_max_meters, self.map_y_max_meters = self.transform_map_px_to_m(0, self.map_with_border.shape[0]-1)
@@ -308,6 +308,18 @@ class MapFrameManager(CoarseMapProcessor):
         if obs_img is None:
             rospy.logerr("MFM: Could not generate observation image.")
             return None, None
+        
+        debug_obs = False
+        if debug_obs:
+            # make copy of the map image to show exactly what is being selected.
+            img = cv2.cvtColor(self.map_with_border.copy(), cv2.COLOR_GRAY2BGR)
+            img = cv2.circle(img, [int(p) for p in center], 1, (255,0,0), -1)
+            cv2.imshow("obs center on map", img)
+            # show the cropped observation before resizing.
+            obs_img_viz = cv2.cvtColor(obs_img.copy(), cv2.COLOR_GRAY2BGR)
+            cv2.imshow("cropped obs at full res", obs_img_viz)
+            cv2.waitKey(0)
+
         # Resize observation to desired resolution.
         obs_img = cv2.resize(obs_img, (self.obs_height_px, self.obs_width_px))
         # Return both the image and the rect points for the viz to use for plotting.
