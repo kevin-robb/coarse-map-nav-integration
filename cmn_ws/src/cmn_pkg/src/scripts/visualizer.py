@@ -69,8 +69,8 @@ class Visualizer:
         self.set_veh_pose_in_obs_region()
 
         # Choose size to show robot pose(s) to ensure consistency and staying in frame.
-        self.veh_pose_displ_len = 0.01 * self.mfm.map_resolution_desired / self.mfm.map_downscale_ratio # Must be nonzero so direction is stored, but make very small so we only see the triangle.
-        self.veh_pose_displ_wid = 10.0 * self.mfm.map_resolution_desired / self.mfm.map_downscale_ratio # This controls the size of the triangle part of the arrow (what we care about).
+        self.veh_pose_displ_len = 10 * self.mfm.map_resolution_desired / self.mfm.map_downscale_ratio # Must be nonzero so direction is stored, but make very small so we only see the triangle.
+        self.veh_pose_displ_wid = 0.01 * self.mfm.map_resolution_desired / self.mfm.map_downscale_ratio # This controls the size of the triangle part of the arrow (what we care about).
 
 
     def set_veh_pose_in_obs_region(self):
@@ -107,11 +107,13 @@ class Visualizer:
 
         # Add the new (ground truth) vehicle pose to the viz.
         if self.veh_pose_true is not None:
-            ax0.arrow(self.veh_pose_true.c, self.veh_pose_true.r, self.veh_pose_displ_len*cos(self.veh_pose_true.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_true.yaw), color="blue", width=self.veh_pose_displ_wid, label="True Vehicle Pose")
+            ax0.scatter(self.veh_pose_true.c, self.veh_pose_true.r, color="blue", label="True Vehicle Pose")
+            ax0.arrow(self.veh_pose_true.c, self.veh_pose_true.r, self.veh_pose_displ_len*cos(self.veh_pose_true.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_true.yaw), color="blue", width=self.veh_pose_displ_wid, head_width=0.01, head_length=0.1)
 
         # Add the most recent localization estimate to the viz.
         if self.veh_pose_estimate is not None:
-            ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, self.veh_pose_displ_len*cos(self.veh_pose_estimate.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_estimate.yaw), color="green", width=self.veh_pose_displ_wid, zorder = 3, label="Veh Pose Estimate")
+            ax0.scatter(self.veh_pose_estimate.c, self.veh_pose_estimate.r, color="green", label="Vehicle Pose Estimate")
+            ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, self.veh_pose_displ_len*cos(self.veh_pose_estimate.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_estimate.yaw), color="green", width=self.veh_pose_displ_wid, zorder = 3, head_width=0.01, head_length=0.1)
 
         # Plot the set of particles in the PF.
         if self.particle_set is not None:
@@ -145,6 +147,9 @@ class Visualizer:
             if self.veh_pose_in_obs_region is not None:
                 # Unpack the dictionary of its data that we computed earlier.
                 ax1.arrow(**self.veh_pose_in_obs_region, color="blue", zorder = 2)
+
+                # ax1.scatter(self.veh_pose_in_obs_region["x"], self.veh_pose_in_obs_region["y"], color="blue")
+                # ax1.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, self.veh_pose_displ_len*cos(self.veh_pose_estimate.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_estimate.yaw), color="green", width=self.veh_pose_displ_wid, zorder = 3, head_width=0.01, head_length=0.1)
 
         # Add the legend, including info from both plots.
         ax0.legend(loc="upper left")

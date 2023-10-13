@@ -40,7 +40,7 @@ observation:
   width: 3 # in pixels. lateral span.
   # Coordinates on the observation image frame the vehicle's POV is.
   veh_horz_pos_ratio: 0.5 # relative position from left (0) to right (1). Use 0.5 to center it.
-  veh_vert_pos_ratio: 0.0 # relative position from bottom (0) to top (1). Use 0.5 to center it.
+  veh_vert_pos_ratio: 0.5 # relative position from back (0) to front (1). Use 0.5 to center it. Use 0.0 to have the obs region entirely in front of the robot.
 
 particle_filter:
   enable: false # For debugging, localization can be disabled entirely with this flag.

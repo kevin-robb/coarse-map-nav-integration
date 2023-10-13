@@ -96,7 +96,7 @@ class CoarseMapNavInterface():
         if self.use_discrete_space or not self.enable_sim:
             # Create Coarse Map Navigator (CMN) node.
             # NOTE For continuous, only need it to process sensor data into local occupancy map.
-            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, self.motion_planner.goal_pos_px.as_tuple(), not self.enable_ml_model, "random" in config.run_mode)
+            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, self.motion_planner.goal_pos_px.as_tuple(), not config.enable_ml_model, "random" in config.run_mode)
 
         # Init the visualizer only if it's enabled.
         if self.enable_viz:
