@@ -315,11 +315,16 @@ class DiscreteMotionPlanner(MotionPlanner):
         turn_dir_sign = angle / abs(angle)
         # Keep waiting until motion has completed.
         self.motion_tracker.reset()
-        while abs(self.motion_tracker.update_for_pivot(self.odom[2])) < abs(0.8 * angle):
+        remaining_turn_rads = abs(angle)
+        # while abs(self.motion_tracker.update_for_pivot(self.odom[2])) < abs(0.8 * angle):
+        while remaining_turn_rads > 0:
             # Command the max possible turn speed, in the desired direction.
-            # NOTE since there is no "ramping down" in the speed, we may over-turn slightly.
-            self.pub_velocity_cmd(0, self.max_ang_cmd * turn_dir_sign)
+            # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
+            abs_ang_vel_to_cmd = (1 - remaining_turn_rads / abs(angle)) * self.max_ang_cmd
+            self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
+            # Compute new remaining radians to turn.
+            remaining_turn_rads = abs(angle) - abs(self.motion_tracker.update_for_pivot(self.odom[2]))
         # When the motion has finished, send a command to stop.
         self.pub_velocity_cmd(0, 0)
         # Insert a small pause to help differentiate adjacent discrete motions.
