@@ -299,17 +299,39 @@ class MapFrameManager(CoarseMapProcessor):
         center_col = veh_pose_px.c + (self.obs_height_px_on_map / 2 - self.veh_px_vert_from_bottom_on_map) * cos(veh_pose_px.yaw)
         center_row = veh_pose_px.r - (self.obs_height_px_on_map / 2 - self.veh_px_vert_from_bottom_on_map) * sin(veh_pose_px.yaw)
         center = (center_col, center_row)
-        # Create the rotated rectangle.
+        # Rotate by agent yaw to get relative observation.
         angle = -np.rad2deg(veh_pose_px.yaw)
-        rect = (center, (self.obs_height_px_on_map, self.obs_width_px_on_map), angle)
-        # Crop out the rotated rectangle and reorient it.
-        obs_img = crop_rotated_rectangle(image = self.map_with_border, rect = rect)
-        # If area was partially outside the image, this will return None.
-        if obs_img is None:
-            rospy.logerr("MFM: Could not generate observation image.")
-            return None, None
+        rect = None
+        # Extract and rotate the region differently based on run mode.
+        if not self.use_discrete_state_space:
+            # Create the rotated rectangle.
+            rect = (center, (self.obs_height_px_on_map, self.obs_width_px_on_map), angle)
+            # Crop out the rotated rectangle and reorient it.
+            obs_img = crop_rotated_rectangle(image = self.map_with_border, rect = rect)
+            # If area was partially outside the image, this will return None.
+            if obs_img is None:
+                rospy.logerr("MFM: Could not generate observation image.")
+                return None, None
         
-        debug_obs = False
+        else: # Discrete case. Only need to rotate by 90 degree increments.
+            # NOTE assumes obs is square for simplicity. Can expand complexity later if needed.
+            half_obs_dim = self.obs_height_px_on_map // 2 # rounds down.
+            obs_img = self.map_with_border[int(center_row)-half_obs_dim:int(center_row)+half_obs_dim+1, int(center_col)-half_obs_dim:int(center_col)+half_obs_dim+1]
+            # Rotate by agent yaw.
+            agent_dir_str = veh_pose_px.get_direction()
+            # Rotate the egocentric local occupancy to face EAST
+            if agent_dir_str == "east":
+                pass
+            elif agent_dir_str == "north":
+                obs_img = np.rot90(obs_img, k=1)
+            elif agent_dir_str == "west":
+                obs_img = np.rot90(obs_img, k=2)
+            elif agent_dir_str == "south":
+                obs_img = np.rot90(obs_img, k=-1)
+            else:
+                raise Exception("Invalid agent direction")
+
+        debug_obs = True
         if debug_obs:
             # make copy of the map image to show exactly what is being selected.
             img = cv2.cvtColor(self.map_with_border.copy(), cv2.COLOR_GRAY2BGR)
