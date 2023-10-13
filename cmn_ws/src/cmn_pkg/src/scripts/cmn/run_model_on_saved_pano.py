@@ -2,6 +2,10 @@
 
 """
 Interface to run the observation-generating ML model on saved pano RGB measurements for offline debugging.
+
+Example: From cmn_ws directory, run:
+
+python3 src/cmn_pkg/src/scripts/cmn/run_model_on_saved_pano.py -d ~/dev/coarse-map-turtlebot/cmn_ws/src/cmn_pkg/data/20231010-111506 -m ~/dev/coarse-map-turtlebot/cmn_ws/src/cmn_pkg/src/scripts/cmn/model/trained_local_occupancy_predictor_model.pt
 """
 
 import argparse, os, cv2
@@ -26,7 +30,7 @@ class CmnModelRunner:
         Run the model for every pano rgb image in data_dir.
         """
         # Get all pano RGB image files in this dir.
-        files = [f for f in os.listdir(data_dir) if "pano_rgb" in str(f)]
+        files = [f for f in os.listdir(data_dir) if "pano_rgb" in f]
         files.sort()
         print("Found {:} pano_rgb files in data_dir.".format(len(files)))
         for f in files:
