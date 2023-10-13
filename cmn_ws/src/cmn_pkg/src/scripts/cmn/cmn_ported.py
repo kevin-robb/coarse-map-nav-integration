@@ -78,7 +78,7 @@ class CoarseMapNavDiscrete:
     visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
 
 
-    def __init__(self, mfm:MapFrameManager=None, goal_cell=None, skip_load_model:bool=False, send_random_commands:bool=False):
+    def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False, send_random_commands:bool=False):
         """
         Initialize the CMN instance.
         @param mfm - Reference to MapFrameManager which has already loaded in the coarse map and processed it by adding a border.
@@ -86,7 +86,7 @@ class CoarseMapNavDiscrete:
         @param skip_load_model (optional, default False) Flag to skip loading the observation model. Useful to run on a computer w/o nvidia gpu.
         @param send_random_commands (optional, default False) Flag to send random discrete actions instead of planning. Useful for basic demo.
         """
-        # If this was initialized with no arguments, it is just being used by a runner and should skip normal setup.
+        # If this was initialized with None arguments, it is just being used by a runner and should skip normal setup.
         if mfm is None:
             return
 

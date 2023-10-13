@@ -11,7 +11,7 @@ class CmnModelRunner:
     """
     Class to init and run the ML model for observation generation.
     """
-    cmn:CoarseMapNavDiscrete = CoarseMapNavDiscrete()
+    cmn:CoarseMapNavDiscrete = CoarseMapNavDiscrete(None, None)
 
     def __init__(self, path_to_model:str):
         """
@@ -26,10 +26,13 @@ class CmnModelRunner:
         Run the model for every pano rgb image in data_dir.
         """
         # Get all pano RGB image files in this dir.
-        files = [f for f in os.listdir(data_dir) if os.path.isfile(f) and "pano_rgb" in f]
+        files = [f for f in os.listdir(data_dir) if "pano_rgb" in str(f)]
         files.sort()
+        print("Found {:} pano_rgb files in data_dir.".format(len(files)))
         for f in files:
-            pano_rgb = cv2.imread(f)
+            # Read the pano RGB image.
+            pano_rgb = cv2.imread(os.path.join(data_dir, f))
+            # Run the model on this measurement.
             local_occ = self.cmn.predict_local_occupancy(pano_rgb)
             # Visualize these.
             self.cmn.visualizer.pano_rgb = pano_rgb

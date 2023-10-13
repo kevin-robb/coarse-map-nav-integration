@@ -10,7 +10,7 @@ class LocalOccNet(nn.Module):
     def __init__(self, configs):
         super(LocalOccNet, self).__init__()
         # Network configurations
-        self.configs = configs
+        self.configs = configs if configs is not None else {"dropout" : 0.5, "use_pretrained_resnet18" : True}
 
         # Define the visual encoder: use convolutional layers in Resnet18
         self.conv_layer = nn.Sequential(*self.obtain_resnet18_conv_layers())
