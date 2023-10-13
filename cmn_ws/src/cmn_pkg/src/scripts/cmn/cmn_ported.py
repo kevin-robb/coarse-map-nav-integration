@@ -4,8 +4,13 @@
 Functions ported from Chengguang Xu's original CoarseMapNav class.
 """
 
-import yaml, rospy, os
+import yaml, rospy, os, sys
 import numpy as np
+
+# Add parent dirs to the path so this can be imported by runner scripts.
+sys.path.append(os.path.abspath(os.path.join(__file__, "..")))
+sys.path.append(os.path.abspath(os.path.join(__file__, "../..")))
+sys.path.append(os.path.abspath(os.path.join(__file__, "../../..")))
 
 # CMN related
 from scripts.cmn.tree_search import TreeNode, BFTree
@@ -16,6 +21,11 @@ from scripts.cmn.cmn_visualizer import CoarseMapNavVisualizer
 # Image process related
 from PIL import Image
 # from skimage.transform import rotate
+
+# Pytorch related
+from scripts.cmn.model.local_occupancy_predictor import LocalOccNet
+import torch
+from torchvision.transforms import Compose, Normalize, PILToTensor
 
 from scripts.map_handler import MapFrameManager
 from scripts.basic_types import yaw_to_cardinal_dir
@@ -38,7 +48,6 @@ class CoarseMapNavDiscrete:
     # Configs from yaml:
     forward_step_k:int = None # Tree search param.
     forward_step_meters:float = None # Tree search param.
-    device_str:str = None # Name of device to use for ML model.
     local_occ_net_config = None # Dictionary of params for local occ net.
 
     # Coarse map itself.
@@ -69,7 +78,7 @@ class CoarseMapNavDiscrete:
     visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
 
 
-    def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False, send_random_commands:bool=False):
+    def __init__(self, mfm:MapFrameManager=None, goal_cell=None, skip_load_model:bool=False, send_random_commands:bool=False):
         """
         Initialize the CMN instance.
         @param mfm - Reference to MapFrameManager which has already loaded in the coarse map and processed it by adding a border.
@@ -77,6 +86,10 @@ class CoarseMapNavDiscrete:
         @param skip_load_model (optional, default False) Flag to skip loading the observation model. Useful to run on a computer w/o nvidia gpu.
         @param send_random_commands (optional, default False) Flag to send random discrete actions instead of planning. Useful for basic demo.
         """
+        # If this was initialized with no arguments, it is just being used by a runner and should skip normal setup.
+        if mfm is None:
+            return
+
         # Save reference to map frame manager.
         self.mfm = mfm
         # Load the coarse occupancy map: 1.0 for occupied cell and 0.0 for empty cell
@@ -92,44 +105,13 @@ class CoarseMapNavDiscrete:
             # Save as dictionary, same format as original CMN.
             self.forward_step_k = config["path_planning"]["tree_search"]["forward_step_k"]
             self.forward_step_meters = config["path_planning"]["tree_search"]["forward_meter"]
-            self.device_str = config["model"]["device"]     
+            device_str = config["model"]["device"]     
             self.local_occ_net_config = config["model"]["local_occ_net"]       
 
         # Load in the ML model, if enabled.
         if not skip_load_model:
-            # Pytorch related
-            from scripts.cmn.model.local_occupancy_predictor import LocalOccNet
-            import torch
-            from torchvision.transforms import Compose, Normalize, PILToTensor
-
-            # Load the trained local occupancy predictor
-            self.device = torch.device(self.device_str)
-            # Create the local occupancy network
-            model = LocalOccNet(self.local_occ_net_config)
-            # Load the trained model
             path_to_model = os.path.join(cmn_path, "model/trained_local_occupancy_predictor_model.pt")
-            model.load_state_dict(torch.load(path_to_model, map_location="cpu"))
-            # Disable the dropout
-            model.eval()
-            self.model = model.to(self.device)
-
-            # Define the transformation to transform the observation suitable to the
-            # local occupancy model
-            # Convert PIL.Image to tensor
-            # Convert uint8 to float
-            # Convert [0, 255] to [0, 1]
-            # Normalize the observation
-            # Reshape the tensor by adding the batch dimension
-            # Put the tensor to GPU
-            self.transformation = Compose([
-                PILToTensor(),
-                lambda x: x.float(),
-                lambda x: x / 255.0,
-                Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-                lambda x: x.unsqueeze(dim=0),
-                lambda x: x.to(self.device)
-            ])
-
+            self.load_ml_model(path_to_model, device_str)
 
         # Create environment (now done in sim).
         # Randomly choose starting position and goal cell (done in sim).
@@ -156,6 +138,40 @@ class CoarseMapNavDiscrete:
         self.predictive_belief_map = np.zeros_like(self.coarse_map_arr)  # predictive probability
         self.observation_prob_map = np.zeros_like(self.coarse_map_arr)  # observation probability
         self.updated_belief_map = np.zeros_like(self.coarse_map_arr)  # updated probability
+
+
+    def load_ml_model(self, path_to_model:str, device_str:str="cpu"):
+        """
+        Load in the local occupancy predictor ML model.
+        @param path_to_model - Filepath the saved model.pt file.
+        @param device_str (optional) - Device to use to load model. e.g., "cpu", "cuda:0".
+        """
+        # Load the trained local occupancy predictor
+        self.device = torch.device(device_str)
+        # Create the local occupancy network
+        model = LocalOccNet(self.local_occ_net_config)
+        # Load the trained model
+        model.load_state_dict(torch.load(path_to_model, map_location="cpu"))
+        # Disable the dropout
+        model.eval()
+        self.model = model.to(self.device)
+
+        # Define the transformation to transform the observation suitable to the
+        # local occupancy model
+        # Convert PIL.Image to tensor
+        # Convert uint8 to float
+        # Convert [0, 255] to [0, 1]
+        # Normalize the observation
+        # Reshape the tensor by adding the batch dimension
+        # Put the tensor to GPU
+        self.transformation = Compose([
+            PILToTensor(),
+            lambda x: x.float(),
+            lambda x: x / 255.0,
+            Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+            lambda x: x.unsqueeze(dim=0),
+            lambda x: x.to(self.device)
+        ])
 
 
     def run_one_iter(self, agent_yaw:float, pano_rgb=None, gt_observation=None) -> str:
@@ -325,7 +341,6 @@ class CoarseMapNavDiscrete:
             # Convert observation from PIL.Image to tensor
             pano_rgb_obs_tensor = self.transformation(obs)
 
-            import torch
             with torch.no_grad():
                 # Predict the local occupancy
                 pred_local_occ = self.model(pano_rgb_obs_tensor)
