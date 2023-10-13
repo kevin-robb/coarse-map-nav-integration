@@ -50,7 +50,8 @@ class CoarseMapNavInterface():
     visualizer:Visualizer = None # Will be initialized only if enabled.
 
     current_agent_pose:PoseMeters = PoseMeters(0,0,0) # Current estimated pose of the agent, (x, y, yaw) in meters & radians. For discrete case, assume yaw is ground truth (known).
-    
+    pano_rgb = None # If we perform an action of turning in-place, we don't need to retake the measurement. Instead, we shift it to be centered on the new orientation, and save it here.
+
     # Params for saving training/eval data during the run.
     save_training_data:bool = False # Flag to save data when running on robot for later training/evaluation.
     training_data_dirpath:str = None # Location of directory to save data to.
@@ -140,6 +141,23 @@ class CoarseMapNavInterface():
 
             # Run discrete CMN.
             action_str = self.cmn_node.run_one_iter(agent_yaw, pano_rgb, current_local_map)
+            
+            if pano_rgb is not None:
+                # If the action we've chosen to take is a rotation in-place, we don't need to retake the pano RGB measurement next iteration, but can just shift it instead.
+                # NOTE pano_rgb = [front, right, back, left].
+                width_each_img = pano_rgb.shape[1] // 4
+                if action_str == "move_forward":
+                    # Will need to retake measurement.
+                    self.pano_rgb = None
+                elif action_str == "turn_right":
+                    # Shift images to the left by one, so "right" becomes "front".
+                    self.pano_rgb = np.roll(pano_rgb, shift=-width_each_img, axis=1)
+                    # self.pano_rgb = np.concatenate([pano_rgb[:, width_each_img:, :], pano_rgb[:, :width_each_img, :]], axis=1)
+                elif action_str == "turn_left":
+                    # Shift images to the right by one, so "left" becomes "front".
+                    self.pano_rgb = np.roll(pano_rgb, shift=width_each_img, axis=1)
+                    # self.pano_rgb = np.concatenate([pano_rgb[:, 3*width_each_img:, :], pano_rgb[:, :3*width_each_img, :]], axis=1)
+                    
             # Save the data it computed for the visualizer.
             if self.enable_viz:
                 if not self.enable_sim:

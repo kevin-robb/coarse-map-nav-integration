@@ -66,7 +66,7 @@ def timer_update_loop(event=None):
 
     # Only gather a pano RGB if needed.
     pano_rgb = None
-    if not g_use_ground_truth_map_to_generate_observations:
+    if not g_use_ground_truth_map_to_generate_observations and g_cmn_interface.pano_rgb is not None:
         pano_rgb = get_pano_meas()
 
     # Run an iteration. (It will internally run either continuous or discrete case).
