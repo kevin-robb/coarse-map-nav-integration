@@ -321,6 +321,7 @@ class DiscreteMotionPlanner(MotionPlanner):
             # Command the max possible turn speed, in the desired direction.
             # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
             abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_cmd
+            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, 0.2)
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
             # Compute new remaining radians to turn.

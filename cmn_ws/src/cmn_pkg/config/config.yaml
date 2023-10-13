@@ -14,7 +14,7 @@ model:
 
 # Flag to enable collection of training data for the model. Requires the coarse map be set to a high-fidelity map (i.e., from cartographer in the same environment).
 # Save measurements, true odom pose on map, and "observation" pulled from the map, all with timestamps & frame numbers to associate them. This data can be used to retrain the ML model, and also allows re-running the project to evaluate the model & localization to compare to ground truth. May also need to save commands or relative motions depending on how the localization is implemented. NOTE could use rosbags for the replaying aspect, but for training the model we still need a way to get associated measurements + "observations".
-save_data_for_training: false
+save_data_for_training: true
 training_data_dirpath: "data" # Path to folder to save training data. New dir will be created here named as current datetime. Relative to cmn_pkg directory unless it begins with "/".
 
 # Details about the measurements that will be used to generate observations.
