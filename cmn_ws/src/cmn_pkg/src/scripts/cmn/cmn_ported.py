@@ -6,6 +6,7 @@ Functions ported from Chengguang Xu's original CoarseMapNav class.
 
 import yaml, rospy, os, sys
 import numpy as np
+import cv2
 
 # Add parent dirs to the path so this can be imported by runner scripts.
 sys.path.append(os.path.abspath(os.path.join(__file__, "..")))
@@ -197,36 +198,28 @@ class CoarseMapNavDiscrete:
             action = self.cmn_planner(agent_yaw)
 
         # Obtain the next sensor measurement --> local observation map (self.current_local_map).
-        # TODO cmn_update_beliefs with pano_rgb
         if pano_rgb is not None:
             # Predict the local occupancy from panoramic RGB images.
             map_obs = self.predict_local_occupancy(pano_rgb)
 
-            # Rotate the egocentric local occupancy to face NORTH.
-            # Robot yaw is represented in radians with 0 being right (east), increasing CCW.
-            # So, to rotate it to face north, need to rotate by opposite of yaw, plus an additional 90 degrees.
-            # NOTE even though the function doc says to provide the amount to rotate CCW, it seems like chengguang's code gives the negative of this.
-            # map_obs = rotate(map_obs, -degrees(agent_yaw) + 90.0)
-
-            # Rotate the egocentric local occupancy to face NORTH
-            if agent_dir_str == "east":
-                map_obs = np.rot90(map_obs, k=-1)
-                # map_obs = rotate(map_obs, -90)
-            elif agent_dir_str == "north":
-                pass
-            elif agent_dir_str == "west":
-                map_obs = np.rot90(map_obs, k=1)
-                # map_obs = rotate(map_obs, 90)
-            elif agent_dir_str == "south":
-                map_obs = np.rot90(map_obs, k=2)
-                # map_obs = rotate(map_obs, 180)
-            else:
-                raise Exception("Invalid agent direction")
-            self.current_local_map = map_obs
         else:
-            self.current_local_map = gt_observation
+            # Scale observation up to 128x128 to match the output from the model.
+            map_obs = up_scale_grid(gt_observation)
             if self.visualizer is not None:
                 self.visualizer.current_ground_truth_local_map = gt_observation
+
+        # Rotate the egocentric local occupancy to face NORTH
+        if agent_dir_str == "east":
+            map_obs = np.rot90(map_obs, k=-1)
+        elif agent_dir_str == "north":
+            pass
+        elif agent_dir_str == "west":
+            map_obs = np.rot90(map_obs, k=1)
+        elif agent_dir_str == "south":
+            map_obs = np.rot90(map_obs, k=2)
+        else:
+            raise Exception("Invalid agent direction")
+        self.current_local_map = map_obs
 
         # When we command a forward motion, the actual robot will always be commanded to move.
         # However, we don't know if this motion is enough to correspond to motion between cells on the coarse map.
@@ -313,7 +306,7 @@ class CoarseMapNavDiscrete:
         Use the current local map from generated observation to update our beliefs.
         """
         # Define the measurement probability map
-        measurement_prob_map = np.zeros_like(self.coarse_map_arr)
+        measurement_prob_map = np.zeros_like(self.coarse_map_arr).astype(float)
 
         # Compute the measurement probability for all cells on the map
         for m in self.coarse_map_graph.local_maps:

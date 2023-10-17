@@ -140,6 +140,7 @@ class Visualizer:
 
         ######### RIGHT SUBPLOT ###########
         ax1 = fig.add_subplot(1, 4, 4)
+        ax1.set_title("GT local occ\n(rel to robot east)")
         # Plot the new observation.
         if self.observation is not None:
             ax1.imshow(self.observation, cmap="gray", vmin=0, vmax=1)

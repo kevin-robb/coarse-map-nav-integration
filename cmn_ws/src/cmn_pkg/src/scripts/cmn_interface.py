@@ -137,8 +137,8 @@ class CoarseMapNavInterface():
                 agent_yaw = self.current_agent_pose.yaw # This is just whatever we initialized it to...
                 # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
 
-            # Ground-truth observation has robot facing east, so rotate to north for CMN convention.
-            current_local_map = np.rot90(current_local_map, k=-1)
+            # Ground-truth observation is relative to robot, with robot facing east, so rotate to global north for CMN convention.
+            current_local_map = np.rot90(current_local_map, k=1)
 
             # Run discrete CMN.
             action_str = self.cmn_node.run_one_iter(agent_yaw, pano_rgb, current_local_map)
