@@ -175,13 +175,14 @@ class CoarseMapNavDiscrete:
         ])
 
 
-    def run_one_iter(self, agent_yaw:float, pano_rgb=None, gt_observation=None) -> str:
+    def run_one_iter(self, agent_yaw:float, pano_rgb=None, gt_observation=None, facing_a_wall:bool=False) -> str:
         """
         Run one iteration of CMN.
         @param agent_yaw - Current robot yaw in radians, with 0=east, increasing CCW. In range [-pi, pi].
         NOTE: Must provide either pano_rgb (sensor data to run model to generate observation) or observation (ground-truth from sim).
         @param pano_rgb - Dictionary of four RGB images concatenated into a panorama.
         @param gt_observation - (optional) 2D numpy array containing (ground-truth) observation.
+        @param facing_a_wall - (optional) If we are facing a wall, we cannot move forwards. So, don't update the belief if we decide to move_forward. This shouldn't be commanded, except in random actions mode.
         @return str: chosen action, so that our motion planner can command this to the robot.
         """
         if not ((pano_rgb is None) ^ (gt_observation is None)):
@@ -230,8 +231,10 @@ class CoarseMapNavDiscrete:
             # randomly sample a p from a uniform distribution between [0, 1]
             self.noise_trans_prob = np.random.rand()
 
-        # Run the predictive update stage.
-        self.predictive_update_func(action, agent_dir_str)
+        # Check if the action is able to happen. i.e., if this commanded action will be ignored because of a wall, don't move the predictive belief.
+        if action != "move_forward" or not facing_a_wall:
+            # Run the predictive update stage.
+            self.predictive_update_func(action, agent_dir_str)
 
         # Run the measurement update stage.
         self.measurement_update_func()

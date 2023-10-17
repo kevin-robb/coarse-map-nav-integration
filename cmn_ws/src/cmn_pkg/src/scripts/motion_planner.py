@@ -274,7 +274,6 @@ class DiscreteMotionPlanner(MotionPlanner):
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
             # Params for discrete actions.
-            # g_use_discrete_actions = config["actions"]["use_discrete_actions"]
             self.discrete_forward_dist = abs(config["actions"]["discrete_forward_dist"])
 
     def cmd_discrete_action(self, action:str):

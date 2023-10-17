@@ -396,6 +396,8 @@ class Simulator(MapFrameManager):
     veh_pose_true = None # (x,y,yaw) in meters and radians.
     veh_pose_true_se2 = None # 3x3 matrix of SE(2) representation.
 
+    discrete_forward_dist:float = None # Forward distance corresponding to a discrete "move_forward" action. Used to check if a motion would result in collision.
+
     def __init__(self, use_discrete_state_space):
         """
         Use the MapFrameManager's setup functions to assign the map and setup all validity conditions such as bounds and free cells.
@@ -411,6 +413,8 @@ class Simulator(MapFrameManager):
             self.max_fwd_cmd = config["constraints"]["fwd"]
             self.max_ang_cmd = config["constraints"]["ang"]
             self.allow_motion_through_occupied_cells = config["simulator"]["allow_motion_through_occupied_cells"]
+            # Params for discrete motion that are good to know.
+            self.discrete_forward_dist = abs(config["actions"]["discrete_forward_dist"])
             # Debug flag (can only be true when using simulator).
             self.show_obs_gen_debug = config["simulator"]["show_obs_gen_debug"]
         # Initialize the ground truth vehicle pose randomly on the map.
@@ -428,11 +432,12 @@ class Simulator(MapFrameManager):
         # Use our other function to command this distance.
         self.propagate_with_dist(fwd_dist, dtheta)
 
-    def propagate_with_dist(self, lin:float, ang:float):
+    def get_veh_pose_after_motion(self, lin:float, ang:float) -> PoseMeters:
         """
-        Given a commanded motion, move the robot accordingly.
+        Apply a motion to the ground truth vehicle pose to get the resulting pose.
         @param lin, Commanded linear distance (m).
         @param ang, Commanded angular distance (rad).
+        @return PoseMeters, the resulting pose.
         """
         # TODO Perturb with some noise.
         # Compute a proposed new vehicle pose, and check if it's allowed before moving officially.
@@ -444,6 +449,15 @@ class Simulator(MapFrameManager):
         veh_pose_proposed.y = clamp(veh_pose_proposed.y, self.map_y_min_meters, self.map_y_max_meters)
         # Keep yaw normalized to (-pi, pi).
         veh_pose_proposed.yaw = remainder(self.veh_pose_true.yaw + ang, tau)
+        return veh_pose_proposed
+
+    def propagate_with_dist(self, lin:float, ang:float):
+        """
+        Given a commanded motion, move the robot accordingly.
+        @param lin, Commanded linear distance (m).
+        @param ang, Commanded angular distance (rad).
+        """
+        veh_pose_proposed = self.get_veh_pose_after_motion(lin, ang)
         # Determine if this vehicle pose is allowed.
         if not self.allow_motion_through_occupied_cells and self.veh_pose_m_in_collision(veh_pose_proposed):
             rospy.logwarn("SIM: Command would move vehicle to invalid pose. Only allowing angular motion.")
@@ -460,4 +474,10 @@ class Simulator(MapFrameManager):
         # Use more general utilities class to generate the observation, using the known true vehicle pose.
         return self.extract_observation_region(self.veh_pose_true)
 
+    def agent_is_facing_wall(self) -> bool:
+        """
+        Check if the agent is currently facing a wall. If so, a forward motion will not be allowed to happen.
+        """
+        # Propagate the true vehicle pose forward by the discrete forward motion distance, and check if that cell is occupied.
+        return self.veh_pose_m_in_collision(self.get_veh_pose_after_motion(self.discrete_forward_dist, 0.0))
 

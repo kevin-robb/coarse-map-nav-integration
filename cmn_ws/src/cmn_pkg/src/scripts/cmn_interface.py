@@ -130,7 +130,7 @@ class CoarseMapNavInterface():
             self.run_particle_filter(current_local_map)
             self.command_motion_continuous(dt)
         else:
-            # TODO CMN requires the ground truth yaw?
+            # NOTE CMN requires knowing the robot yaw. If we have the ground truth, use that.
             if self.enable_sim:
                 agent_yaw = self.map_frame_manager.veh_pose_true.yaw
             else:
@@ -140,8 +140,13 @@ class CoarseMapNavInterface():
             # Ground-truth observation is relative to robot, with robot facing east, so rotate to global north for CMN convention.
             current_local_map = np.rot90(current_local_map, k=1)
 
+            # Check if we are facing a wall. If we try to move forward while facing a wall, the robot will not move, but the predictive belief will update, becoming incorrect.
+            facing_a_wall:bool = False
+            if self.enable_sim:
+                facing_a_wall = self.map_frame_manager.agent_is_facing_wall()
+
             # Run discrete CMN.
-            action_str = self.cmn_node.run_one_iter(agent_yaw, pano_rgb, current_local_map)
+            action_str = self.cmn_node.run_one_iter(agent_yaw, pano_rgb, current_local_map, facing_a_wall)
             
             if pano_rgb is not None:
                 # If the action we've chosen to take is a rotation in-place, we don't need to retake the pano RGB measurement next iteration, but can just shift it instead.
