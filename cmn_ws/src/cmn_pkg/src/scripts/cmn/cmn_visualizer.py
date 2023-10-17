@@ -62,9 +62,9 @@ class CoarseMapNavVisualizer:
         # Set titles and remove axis
         ax_pano_rgb.set_title("Panoramic RGB observation")
         ax_pano_rgb.axis("off")
-        ax_local_occ_gt.set_title("GT local occ\n(rel to robot north)")
+        ax_local_occ_gt.set_title("GT local occ")
         ax_local_occ_gt.axis("off")
-        ax_local_occ_pred.set_title("Pred local occ\n(global orientation)")
+        ax_local_occ_pred.set_title("Pred local occ")
         ax_local_occ_pred.axis("off")
         # ax_top_down_view.set_title("Top down view")
         # ax_top_down_view.axis("off")
@@ -77,6 +77,7 @@ class CoarseMapNavVisualizer:
 
         # Add data to all plots.
         if self.pano_rgb is not None:
+            self.pano_rgb = cv2.cvtColor(self.pano_rgb, cv2.COLOR_RGB2BGR)
             ax_pano_rgb.imshow(self.pano_rgb)
 
         if self.current_ground_truth_local_map is not None:

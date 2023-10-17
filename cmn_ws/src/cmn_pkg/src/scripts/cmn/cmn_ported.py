@@ -206,9 +206,6 @@ class CoarseMapNavDiscrete:
         else:
             # Scale observation up to 128x128 to match the output from the model.
             map_obs = up_scale_grid(gt_observation)
-            # map_obs = up_scale_grid(1 - gt_observation)
-            if self.visualizer is not None:
-                self.visualizer.current_ground_truth_local_map = gt_observation
 
         # Rotate the egocentric local occupancy to face NORTH
         if agent_dir_str == "east":
@@ -222,6 +219,10 @@ class CoarseMapNavDiscrete:
         else:
             raise Exception("Invalid agent direction")
         self.current_local_map = map_obs
+
+        # If this is ground-truth, assign it to that as well.
+        if self.visualizer is not None and gt_observation is not None:
+            self.visualizer.current_ground_truth_local_map = self.current_local_map
 
         # When we command a forward motion, the actual robot will always be commanded to move.
         # However, we don't know if this motion is enough to correspond to motion between cells on the coarse map.

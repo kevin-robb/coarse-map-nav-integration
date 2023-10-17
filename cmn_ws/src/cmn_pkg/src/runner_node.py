@@ -51,19 +51,24 @@ def timer_update_loop(event=None):
     # Update the visualization, if enabled.
     if g_cmn_interface.visualizer is not None:
         # Simulator viz.
-        sim_viz_img = g_cmn_interface.visualizer.get_updated_img()
+        sim_viz_img = None
+        if g_use_ground_truth_map_to_generate_observations:
+            sim_viz_img = g_cmn_interface.visualizer.get_updated_img()
         # CMN viz.
         cmn_viz_img = None
         if g_cmn_interface.cmn_node is not None and g_cmn_interface.cmn_node.visualizer is not None:
             cmn_viz_img = g_cmn_interface.cmn_node.visualizer.get_updated_img()
             
         if g_pub_viz_images:
-            g_sim_viz_pub.publish(g_cv_bridge.cv2_to_imgmsg(sim_viz_img))
+            # Publish to rostopics for some external viz to use.
+            if sim_viz_img is not None:
+                g_sim_viz_pub.publish(g_cv_bridge.cv2_to_imgmsg(sim_viz_img))
             if cmn_viz_img is not None:
-                rospy.logwarn("Publishing CMN viz image")
                 g_cmn_viz_pub.publish(g_cv_bridge.cv2_to_imgmsg(cmn_viz_img))
         else:
-            cv2.imshow('viz image', sim_viz_img)
+            # Manage the viz here.
+            if sim_viz_img is not None:
+                cv2.imshow('viz image', sim_viz_img)
             if cmn_viz_img is not None:
                 cv2.imshow('cmn viz image', cmn_viz_img)
             key = cv2.waitKey(int(g_dt * 1000))
