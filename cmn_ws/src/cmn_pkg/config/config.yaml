@@ -1,12 +1,12 @@
 # Parameters for the project
 
-verbose: false # Show a lot more debug information.
+verbose: true # Show a lot more debug information.
 
 # Rate at which to publish velocity commands to the robot.
 dt: 0.1 # timer period in seconds.
 
 model:
-  skip_loading: true # Flag to skip using the ML model. Does not work on laptop w/o GPU, so true by default.
+  skip_loading: false # Flag to skip using the ML model.
   device: "cpu" # Where to load model. Options: "cuda:0" (requires nvidia GPU) or "cpu"
   local_occ_net:
       dropout: 0.5

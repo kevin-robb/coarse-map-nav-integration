@@ -91,6 +91,15 @@ class PoseMeters(Pose):
                          [np.sin(self.yaw), np.cos(self.yaw), self.y],
                          [0, 0, 1]])
 
+    def make_relative(self, pose):
+        """
+        Shift this pose to be relative to the provided one.
+        """
+        self.x -= pose.x
+        self.y -= pose.y
+        if self.yaw is not None:
+            self.yaw = remainder(self.yaw - pose.yaw, tau)
+
 
 class PosePixels(Pose):
     """

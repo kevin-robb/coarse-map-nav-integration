@@ -198,13 +198,12 @@ class CoarseMapNavInterface():
                 cv2.imwrite(os.path.join(self.training_data_dirpath, "local_map_{:03}.png".format(self.iteration)), current_local_map)
 
 
-    def set_new_odom(self, x, y, yaw):
+    def set_new_odom(self, odom_pose:PoseMeters):
         """
         Get a new odometry message from the robot.
-        @param x, y - Position in meters.
-        @param yaw - Orientation in radians.
+        @param odom_pose - pose containing x,y in meters, yaw in radians.
         """
-        self.motion_planner.set_odom((x, y, yaw))
+        self.motion_planner.set_odom(odom_pose)
 
 
     def compute_observation_continuous(self, pano_rgb=None):

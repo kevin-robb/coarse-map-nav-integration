@@ -1,8 +1,0 @@
-<launch>
-    <!-- Arguments for the motion planner specifically for testing motion on the robot. -->
-    <arg name="run_test_motion" default="true"/> <!-- if true, motion_planning_node will start its own timer to publish motion commands regularly. -->
-    <arg name="test_motion_type" default="circle"/> <!-- Options: none, circle, straight, random_discrete -->
-
-    <!-- Start only the motion planning & control node -->
-    <node pkg="cmn_pkg" type="motion_planning_node.py" name="motion_planning_node" args="$(arg run_test_motion) $(arg test_motion_type)"  output="screen" />
-</launch>

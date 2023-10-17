@@ -47,7 +47,7 @@ class MotionPlanner:
     path_px_reversed = None # List of PosePixels objects.
 
     # Current robot odometry.
-    odom = (0,0,0)
+    odom = PoseMeters(0,0,0)
 
 
     def __init__(self):
@@ -79,11 +79,12 @@ class MotionPlanner:
         """
         self.cmd_vel_pub = pub
 
-    def set_odom(self, odom):
+    def set_odom(self, odom_pose:PoseMeters):
         """
         Update our motion progress based on a new odometry measurement.
+        @param odom_pose - pose containing x,y in meters, yaw in radians.
         """
-        self.odom = odom
+        self.odom = odom_pose
 
     def pub_velocity_cmd(self, fwd, ang):
         """
@@ -325,7 +326,7 @@ class DiscreteMotionPlanner(MotionPlanner):
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
             # Compute new remaining radians to turn.
-            remaining_turn_rads = abs(angle) - abs(self.motion_tracker.update_for_pivot(self.odom[2]))
+            remaining_turn_rads = abs(angle) - abs(self.motion_tracker.update_for_pivot(self.odom.yaw))
         # When the motion has finished, send a command to stop.
         self.pub_velocity_cmd(0, 0)
         # Insert a small pause to help differentiate adjacent discrete motions.
@@ -343,7 +344,7 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Save the starting odom.
         init_odom = self.odom
         # Keep waiting until motion has completed.
-        while sqrt((self.odom[0]-init_odom[0])**2 + (self.odom[1]-init_odom[1])**2) < dist:
+        while sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2) < dist:
             # Command the max possible move speed, in the desired direction.
             # NOTE since there is no "ramping down" in the speed, we may move slightly further than intended.
             self.pub_velocity_cmd(self.max_fwd_cmd * motion_sign, 0)

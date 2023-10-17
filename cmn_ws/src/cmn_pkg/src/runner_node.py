@@ -14,9 +14,10 @@ from cv_bridge import CvBridge
 from math import pi, atan2, asin
 import numpy as np
 import cv2
-from time import strftime
+from time import strftime, time
 
 from scripts.cmn_interface import CoarseMapNavInterface, CmnConfig
+from scripts.basic_types import PoseMeters
 
 ############ GLOBAL VARIABLES ###################
 g_cv_bridge = CvBridge()
@@ -26,6 +27,8 @@ g_cmn_interface:CoarseMapNavInterface = None
 # RealSense measurements buffer.
 g_most_recent_realsense_measurement = None
 g_desired_meas_shape = None # Shape (h, w, c) to resize each color image from RS to.
+# Odom measurements.
+g_first_odom:PoseMeters = None # Used to offset odom frame to always have origin at start pose.
 # Configs.
 g_run_modes = ["continuous", "discrete", "discrete_random"] # Allowed/supported run modes.
 g_run_mode = None # "discrete" or "continuous"
@@ -215,20 +218,35 @@ def get_odom(msg):
     # yaw = atan2(2.0*(q.y*q.z + q.w*q.x), q.w*q.w - q.x*q.x - q.y*q.y + q.z*q.z)
     # pitch = asin(-2.0*(q.x*q.z - q.w*q.y))
     roll = atan2(2.0*(q.x*q.y + q.w*q.z), q.w*q.w + q.x*q.x - q.y*q.y - q.z*q.z)
-    # Set the odom.
-    g_cmn_interface.set_new_odom(x, y, roll)
+    # Create a pose object.
+    odom_pose = PoseMeters(x, y, roll)
+
+    # Since resetting the locobot's odom doesn't seem to work, just save the first odom and use it to offset all future measurements.
+    global g_first_odom
+    if g_first_odom is None:
+        # This is the first measurement received. Use it as the origin for all future measurements.
+        g_first_odom = odom_pose
+    else:
+        odom_pose.make_relative(g_first_odom)
+
+    # Set this odom in our code.
+    g_cmn_interface.set_new_odom(odom_pose)
     
     if g_verbose:
-        rospy.loginfo("Got odom {:}.".format((x, y, roll)))
+        rospy.loginfo("Got odom: {:}".format(odom_pose))
 
 def main():
     rospy.init_node('runner_node')
 
     read_params()
 
-    # Reset the robot odometry.
-    odom_reset_pub = rospy.Publisher("/locobot/mobile_base/commands/reset_odometry", Empty, queue_size=1)
-    odom_reset_pub.publish(Empty())
+    # # Reset the robot odometry. NOTE this doesn't seem to work.
+    # odom_reset_pub = rospy.Publisher("/locobot/mobile_base/commands/reset_odometry", Empty, queue_size=10)
+    # # NOTE: odom reset messages take some time to actually get through, so keep publishing for a duration.
+    # odom_reset_pub_duration = 0.25 # seconds.
+    # timer = time()
+    # while time() - timer < odom_reset_pub_duration:
+    #     odom_reset_pub.publish(Empty())
 
     # Publish control commands (velocities in m/s and rad/s).
     cmd_vel_pub = rospy.Publisher("/locobot/mobile_base/commands/velocity", Twist, queue_size=1)
