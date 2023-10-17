@@ -117,8 +117,6 @@ class CoarseMapNavInterface():
             # Save this observation for the viz.
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
-                if self.cmn_node is not None:
-                    self.cmn_node.visualizer.current_ground_truth_local_map = current_local_map
                 # Also save the ground truth pose for viz.
                 self.visualizer.veh_pose_true = self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true)
 
@@ -138,6 +136,9 @@ class CoarseMapNavInterface():
             else:
                 agent_yaw = self.current_agent_pose.yaw # This is just whatever we initialized it to...
                 # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
+
+            # Ground-truth observation has robot facing east, so rotate to north for CMN convention.
+            current_local_map = np.rot90(current_local_map, k=-1)
 
             # Run discrete CMN.
             action_str = self.cmn_node.run_one_iter(agent_yaw, pano_rgb, current_local_map)
@@ -195,7 +196,9 @@ class CoarseMapNavInterface():
             if current_local_map is not None:
                 # local_map_bgr = cv2.cvtColor(current_local_map, cv2.COLOR_GRAY2BGR)
                 # cv2.imshow('local_map_to_save', local_map_bgr); cv2.waitKey(0)
-                cv2.imwrite(os.path.join(self.training_data_dirpath, "local_map_{:03}.png".format(self.iteration)), current_local_map)
+                # cv2.imwrite(os.path.join(self.training_data_dirpath, "local_map_{:03}.png".format(self.iteration)), current_local_map)
+                # TODO these are always blank.
+                pass
 
 
     def set_new_odom(self, odom_pose:PoseMeters):

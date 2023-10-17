@@ -225,6 +225,8 @@ class CoarseMapNavDiscrete:
             self.current_local_map = map_obs
         else:
             self.current_local_map = gt_observation
+            if self.visualizer is not None:
+                self.visualizer.current_ground_truth_local_map = gt_observation
 
         # When we command a forward motion, the actual robot will always be commanded to move.
         # However, we don't know if this motion is enough to correspond to motion between cells on the coarse map.
