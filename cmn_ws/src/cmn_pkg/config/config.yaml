@@ -60,6 +60,7 @@ path_planning:
 
 # Configs for running simulator node for basic testing.
 simulator:
+  show_obs_gen_debug: false # Show the observation extraction every frame.
   # ground_truth_map:
   #   use_diff_map_than_coarse_map: false # if true, use the following params to setup the ground truth map. If false, the coarse map will be used.
   #   fname: "igvc1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.

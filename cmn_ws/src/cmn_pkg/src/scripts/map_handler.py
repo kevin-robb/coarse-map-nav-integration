@@ -182,6 +182,7 @@ class MapFrameManager(CoarseMapProcessor):
 
     # Config flags. If using discrete state space, robot's yaw must be axis-aligned.
     use_discrete_state_space = False
+    show_obs_gen_debug:bool = False
 
     def __init__(self, use_discrete_state_space:bool):
         """
@@ -323,16 +324,15 @@ class MapFrameManager(CoarseMapProcessor):
             if agent_dir_str == "east":
                 pass
             elif agent_dir_str == "north":
-                obs_img = np.rot90(obs_img, k=1)
+                obs_img = np.rot90(obs_img, k=-1)
             elif agent_dir_str == "west":
                 obs_img = np.rot90(obs_img, k=2)
             elif agent_dir_str == "south":
-                obs_img = np.rot90(obs_img, k=-1)
+                obs_img = np.rot90(obs_img, k=1)
             else:
                 raise Exception("Invalid agent direction")
 
-        debug_obs = True
-        if debug_obs:
+        if self.show_obs_gen_debug:
             # make copy of the map image to show exactly what is being selected.
             img = cv2.cvtColor(self.map_with_border.copy(), cv2.COLOR_GRAY2BGR)
             img = cv2.circle(img, [int(p) for p in center], 1, (255,0,0), -1)
@@ -411,6 +411,8 @@ class Simulator(MapFrameManager):
             self.max_fwd_cmd = config["constraints"]["fwd"]
             self.max_ang_cmd = config["constraints"]["ang"]
             self.allow_motion_through_occupied_cells = config["simulator"]["allow_motion_through_occupied_cells"]
+            # Debug flag (can only be true when using simulator).
+            self.show_obs_gen_debug = config["simulator"]["show_obs_gen_debug"]
         # Initialize the ground truth vehicle pose randomly on the map.
         self.veh_pose_true = self.generate_random_valid_veh_pose()
 
