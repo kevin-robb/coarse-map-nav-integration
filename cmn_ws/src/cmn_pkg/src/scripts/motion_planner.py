@@ -247,7 +247,32 @@ class MotionTracker:
         self.last_yaw = new_yaw
         self.ang_motion += dtheta
         return self.ang_motion
+    
 
+class PController:
+    """
+    PID wihout the I and D, to perform some extremely basic motion control.
+    """
+    # Value on previous iteration.
+    last_v:float = None
+    # P-coefficient for the filter.
+    p = 0.1
+
+    def __init__(self, init_value:float=0.0, p:float=0.1):
+        """
+        For our case (linear velocity control), we will be stationary at the start of each discrete motion.
+        @param init_value - Initial filter value.
+        @param p - P-coefficient for the filter.
+        """
+        self.last_v = init_value
+        self.p = p
+
+    def update(self, target_v:float):
+        """
+        Update the filter with a new target value.
+        """
+        self.last_v = target_v * self.p + self.last_v * (1 - self.p)
+        return self.last_v
 
 class DiscreteMotionPlanner(MotionPlanner):
     """
@@ -398,13 +423,20 @@ class DiscreteMotionPlanner(MotionPlanner):
         motion_sign = dist / abs(dist)
         # Save the starting odom.
         init_odom = self.odom
+        # Init the p-controller, starting at 0 velocity.
+        pid = PController(0.0, 0.01)
+        ramp_threshold = 0.5 * dist # Distance threshold at which we will change the set point from max to min speed.
         # Keep waiting until motion has completed.
         remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
         while remaining_motion > self.lin_goal_reach_deviation:
-            # Command the max possible move speed, in the desired direction.
-            # NOTE since there is no "ramping down" in the speed, we may move slightly further than intended.
-            # TODO add ramp up and ramp down.
-            self.pub_velocity_cmd(self.max_lin_vel * motion_sign, 0)
+            if remaining_motion > ramp_threshold:
+                # Ramp up during the first part of the motion.
+                v = pid.update(self.max_lin_vel)
+            else:
+                # Ramp down in the last part of the motion.
+                v = pid.update(self.min_lin_vel)
+            # Command this speed in the desired direction.
+            self.pub_velocity_cmd(v * motion_sign, 0)
             rospy.sleep(0.001)
             # Compute new remaining distance to travel. NOTE we do not take absolute value, so if we pass the point we will still stop.
             remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
