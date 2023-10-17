@@ -29,13 +29,13 @@ class CmnModelRunner:
         """
         Run the model for every pano rgb image in data_dir.
         """
-        # Get all pano RGB image files in this dir.
-        files = [os.path.join(dp, f) for dp, dn, fn in os.walk(data_dir) for f in fn]
+        # Get all pano RGB image files in this dir and subdirs.
+        files = [os.path.join(dp, f) for dp, dn, fn in os.walk(data_dir) for f in fn if "pano_rgb" in f]
         files.sort()
-        print("Found {:} pano_rgb files in data_dir.".format(len(files)))
+        print("Found {:} pano_rgb files in data_dir and subdirectories.".format(len(files)))
         for f in files:
             # Read the pano RGB image.
-            pano_rgb = cv2.imread(os.path.join(data_dir, f))
+            pano_rgb = cv2.imread(f)
             # Run the model on this measurement.
             local_occ = self.cmn.predict_local_occupancy(pano_rgb)
             # Visualize these.
@@ -43,7 +43,10 @@ class CmnModelRunner:
             self.cmn.visualizer.current_predicted_local_map = local_occ
             cmn_viz_img = self.cmn.visualizer.get_updated_img()
             cv2.imshow('cmn viz image', cmn_viz_img)
-            cv2.waitKey(0) # Wait forever for keypress before continuing.
+            key = cv2.waitKey(0) # Wait forever for keypress before continuing.
+            if key == 113: # q for quit
+                print("Exiting on user 'Q' press.")
+                break
         cv2.destroyAllWindows()
 
 
