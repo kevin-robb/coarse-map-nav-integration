@@ -34,6 +34,9 @@ class CmnModelRunner:
         files.sort()
         print("Found {:} pano_rgb files in data_dir and subdirectories.".format(len(files)))
         for f in files:
+            # Exclude data from the d435, before we swapped to the wider-fov d455 realsense.
+            if "d435" in f:
+                continue
             # Read the pano RGB image.
             pano_rgb = cv2.imread(f)
             # Run the model on this measurement.

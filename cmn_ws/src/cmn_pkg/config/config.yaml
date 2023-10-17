@@ -1,6 +1,6 @@
 # Parameters for the project
 
-verbose: true # Show a lot more debug information.
+verbose: false # Show a lot more debug information.
 
 # Rate at which to publish velocity commands to the robot.
 dt: 0.1 # timer period in seconds.

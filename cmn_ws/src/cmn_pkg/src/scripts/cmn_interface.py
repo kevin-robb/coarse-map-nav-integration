@@ -137,8 +137,9 @@ class CoarseMapNavInterface():
                 agent_yaw = self.current_agent_pose.yaw # This is just whatever we initialized it to...
                 # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
 
-            # Ground-truth observation is relative to robot, with robot facing east, so rotate to global north for CMN convention.
-            current_local_map = np.rot90(current_local_map, k=1)
+            if current_local_map is not None:
+                # Ground-truth observation is relative to robot, with robot facing east, so rotate to global north for CMN convention.
+                current_local_map = np.rot90(current_local_map, k=1)
 
             # Check if we are facing a wall. If we try to move forward while facing a wall, the robot will not move, but the predictive belief will update, becoming incorrect.
             facing_a_wall:bool = False

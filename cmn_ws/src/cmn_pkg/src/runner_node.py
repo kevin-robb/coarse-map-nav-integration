@@ -40,32 +40,45 @@ g_save_training_data:bool = False # Flag to save data when running on robot for 
 g_training_data_dirpath:str = None # Location of directory to save data to.
 # Live flags.
 g_viz_paused = False
+
+# Publish visualizer images so we can view them with rqt without disrupting the run loop.
+g_pub_viz_images:bool = False
+g_sim_viz_pub = None
+g_cmn_viz_pub = None
 #################################################
 
 def timer_update_loop(event=None):
     # Update the visualization, if enabled.
     if g_cmn_interface.visualizer is not None:
         # Simulator viz.
-        viz_img = g_cmn_interface.visualizer.get_updated_img()
-        cv2.imshow('viz image', viz_img)
+        sim_viz_img = g_cmn_interface.visualizer.get_updated_img()
         # CMN viz.
+        cmn_viz_img = None
         if g_cmn_interface.cmn_node is not None and g_cmn_interface.cmn_node.visualizer is not None:
             cmn_viz_img = g_cmn_interface.cmn_node.visualizer.get_updated_img()
-            cv2.imshow('cmn viz image', cmn_viz_img)
+            
+        if g_pub_viz_images:
+            g_sim_viz_pub.publish(g_cv_bridge.cv2_to_imgmsg(sim_viz_img))
+            if cmn_viz_img is not None:
+                rospy.logwarn("Publishing CMN viz image")
+                g_cmn_viz_pub.publish(g_cv_bridge.cv2_to_imgmsg(cmn_viz_img))
+        else:
+            cv2.imshow('viz image', sim_viz_img)
+            if cmn_viz_img is not None:
+                cv2.imshow('cmn viz image', cmn_viz_img)
+            key = cv2.waitKey(int(g_dt * 1000))
+            # Special keypress conditions.
+            if key == 113: # q for quit.
+                cv2.destroyAllWindows()
+                rospy.signal_shutdown("User pressed Q key.")
+                exit()
+            elif key == 32: # spacebar.
+                global g_viz_paused
+                g_viz_paused = not g_viz_paused
 
-        key = cv2.waitKey(int(g_dt * 1000))
-        # Special keypress conditions.
-        if key == 113: # q for quit.
-            cv2.destroyAllWindows()
-            rospy.signal_shutdown("User pressed Q key.")
-            exit()
-        elif key == 32: # spacebar.
-            global g_viz_paused
-            g_viz_paused = not g_viz_paused
-
-        if g_viz_paused:
-            # Skip all operations, so the same viz image will just keep being displayed until unpaused.
-            return
+            if g_viz_paused:
+                # Skip all operations, so the same viz image will just keep being displayed until unpaused.
+                return
 
     # Only gather a pano RGB if needed.
     pano_rgb = None
@@ -269,6 +282,11 @@ def main():
 
     # Subscribe to robot odometry.
     rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)
+
+    # Publish viz images so we can view them in rqt without messing up the run loop.
+    global g_sim_viz_pub, g_cmn_viz_pub
+    g_sim_viz_pub = rospy.Publisher("/cmn/viz/sim", Image, queue_size=1)
+    g_cmn_viz_pub = rospy.Publisher("/cmn/viz/cmn", Image, queue_size=1)
 
     rospy.Timer(rospy.Duration(g_dt), timer_update_loop)
 
