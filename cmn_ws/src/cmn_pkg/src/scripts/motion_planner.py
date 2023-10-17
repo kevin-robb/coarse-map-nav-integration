@@ -5,7 +5,7 @@ Functions that will be useful in more than one node in this project.
 """
 
 import rospkg, yaml, rospy
-from math import radians, pi, sqrt
+from math import radians, pi, sqrt, remainder, tau
 from random import random, randint
 from time import time
 from geometry_msgs.msg import Twist, Vector3
@@ -13,7 +13,7 @@ from geometry_msgs.msg import Twist, Vector3
 from scripts.map_handler import clamp, MapFrameManager
 from scripts.astar import Astar
 from scripts.pure_pursuit import PurePursuit
-from scripts.basic_types import PoseMeters, PosePixels
+from scripts.basic_types import PoseMeters, PosePixels, yaw_to_cardinal_dir, cardinal_dir_to_yaw
 
 """
 Ideas to try:
@@ -290,7 +290,8 @@ class DiscreteMotionPlanner(MotionPlanner):
         if self.wait_for_motion_to_complete:
             if action in ["turn_left", "turn_right"]:
                 # NOTE under-command the angle slightly since we tend to over-turn.
-                self.cmd_discrete_ang_motion(ang)
+                # self.cmd_discrete_ang_motion_global(ang)
+                self.cmd_discrete_ang_motion_relative(ang)
             elif action == "move_forward":
                 self.cmd_discrete_fwd_motion(fwd)
             else:
@@ -305,7 +306,47 @@ class DiscreteMotionPlanner(MotionPlanner):
         """
         return self.cmd_discrete_action(self.discrete_actions[randint(0,len(self.discrete_actions)-1)])
 
-    def cmd_discrete_ang_motion(self, angle:float):
+    # TODO debug this!!
+    def cmd_discrete_ang_motion_global(self, angle:float):
+        """
+        Turn the robot in-place by a discrete amount, and then stop.
+        Do our best to stay axis-locked to a cardinal direction, so modify turn angle to achieve this.
+        @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
+        """
+        # Get closest direction to current orientation.
+        current_dir:str = self.odom.get_direction()
+        # Get desired turn direction.
+        turn_dir_sign = angle / abs(angle)
+        # Get desired final orientation after the pivot.
+        final_dir:str = yaw_to_cardinal_dir(self.odom.yaw + angle)
+        # Convert this to yaw.
+        final_yaw:float = cardinal_dir_to_yaw[final_dir]
+        # Compute actual amount we will turn.
+        actual_abs_amount_to_turn = abs(remainder(final_yaw - self.odom.yaw, tau))
+
+        if self.verbose:
+            rospy.loginfo("DMP: Commanding a discrete pivot from {:} to {:}".format(current_dir, final_dir))
+
+        # Get desired turn direction.
+        turn_dir_sign = angle / abs(angle)
+        # Keep waiting until motion has completed.
+        remaining_turn_rads = actual_abs_amount_to_turn
+        while remaining_turn_rads > 0:
+            # Command the max possible turn speed, in the desired direction.
+            # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
+            abs_ang_vel_to_cmd = remaining_turn_rads / actual_abs_amount_to_turn * self.max_ang_cmd
+            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, 0.2) # Enforce a minimum speed. TODO parameterize this.
+            self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
+            rospy.sleep(0.001)
+            # Compute new remaining radians to turn.
+            remaining_turn_rads = abs(remainder(final_yaw - self.odom.yaw, tau))
+
+        # When the motion has finished, send a command to stop.
+        self.pub_velocity_cmd(0, 0)
+        # Insert a small pause to help differentiate adjacent discrete motions.
+        rospy.sleep(0.5)
+
+    def cmd_discrete_ang_motion_relative(self, angle:float):
         """
         Turn the robot in-place by a discrete amount, and then stop.
         @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
@@ -322,7 +363,7 @@ class DiscreteMotionPlanner(MotionPlanner):
             # Command the max possible turn speed, in the desired direction.
             # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
             abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_cmd
-            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, 0.2)
+            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, 0.2) # Enforce a minimum speed. TODO parameterize this.
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
             # Compute new remaining radians to turn.

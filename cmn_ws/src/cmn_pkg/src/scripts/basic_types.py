@@ -7,6 +7,9 @@ Basic datatypes that will be used throughout the project.
 import numpy as np
 from math import remainder, pi, tau
 
+# Given a cardinal direction, this is the corresponding global orientation, assuming 0=east and CCW>0.
+cardinal_dir_to_yaw = {"east" : 0.0, "north" : pi/2, "west" : pi, "south" : -pi/2}
+
 def yaw_to_cardinal_dir(yaw:float):
     """
     Discretize the yaw into the nearest cardinal direction.
@@ -38,7 +41,7 @@ def yaw_to_cardinal_dir(yaw:float):
     # else:
     #     agent_dir = "north"
     # return agent_dir
-    
+
 
 class Pose:
     yaw = None # Orientation in radians. 0 = right/east. In range [-pi,pi]
