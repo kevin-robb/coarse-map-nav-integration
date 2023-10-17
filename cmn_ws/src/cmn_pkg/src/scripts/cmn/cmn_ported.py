@@ -205,6 +205,7 @@ class CoarseMapNavDiscrete:
         else:
             # Scale observation up to 128x128 to match the output from the model.
             map_obs = up_scale_grid(gt_observation)
+            # map_obs = up_scale_grid(1 - gt_observation)
             if self.visualizer is not None:
                 self.visualizer.current_ground_truth_local_map = gt_observation
 
@@ -312,25 +313,36 @@ class CoarseMapNavDiscrete:
         for m in self.coarse_map_graph.local_maps:
             # compute the similarity
             candidate_loc = m['loc']
-            # TODO why was this being upscaled to 128x128? And how was that being compared to current_local_map, which should be small, like 3x3 or 5x5?
             # NOTE The model outputs 128x128, so we need to upscale the grid to the same resolution.
-            #      The simulator outputs observations at normal size, so no upscaling is necessary.
-            if self.current_local_map.shape[0] == 128:
-                candidate_map = up_scale_grid(m['map_arr'])
-            else:
-                candidate_map = m['map_arr']
+            candidate_map = up_scale_grid(m['map_arr'])
 
             # compute the similarity between predicted map and ground truth map
             # score = compute_similarity_iou(self.current_local_map, candidate_map)
-            score = compute_similarity_mse(self.current_local_map, candidate_map)
+            score = compute_similarity_mse(1 - self.current_local_map, candidate_map)
 
             # set the observation probability based on similarity
             # still: -1 is dealing with the mismatch
             measurement_prob_map[candidate_loc[0], candidate_loc[1]] = score
 
+            # print(self.current_local_map)
+            # print(candidate_map)
+            # map_diff = np.abs(self.current_local_map - candidate_map)
+            # print("map diff for loc {:}, score: {:.3f}".format(candidate_loc, score))
+            # cv2.imshow("map_diff", map_diff)
+            # key = cv2.waitKey(0)
+            # if key == 113:
+            #     cv2.destroyAllWindows()
+            #     exit()
+
+
         # Normalize it to [0, 1], and save to member var.
         self.observation_prob_map = measurement_prob_map / (np.max(measurement_prob_map) + 1e-8)
 
+        # print(measurement_prob_map)
+        # print(np.min(self.observation_prob_map), np.max(self.observation_prob_map))
+        # self.observation_prob_map *= 255
+        # print(self.observation_prob_map.shape)
+        # cv2.imshow("obs map", measurement_prob_map.astype(float)); cv2.waitKey(0)
 
     def predict_local_occupancy(self, pano_rgb_obs):
         if self.model is not None:
