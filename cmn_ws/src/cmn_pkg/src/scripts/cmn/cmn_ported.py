@@ -318,8 +318,12 @@ class CoarseMapNavDiscrete:
             # compute the similarity
             candidate_loc = m['loc']
             # TODO why was this being upscaled to 128x128? And how was that being compared to current_local_map, which should be small, like 3x3 or 5x5?
-            candidate_map = m['map_arr']
-            # candidate_map = up_scale_grid(m['map_arr'])
+            # NOTE The model outputs 128x128, so we need to upscale the grid to the same resolution.
+            #      The simulator outputs observations at normal size, so no upscaling is necessary.
+            if self.current_local_map.shape[0] == 128:
+                candidate_map = up_scale_grid(m['map_arr'])
+            else:
+                candidate_map = m['map_arr']
 
             # compute the similarity between predicted map and ground truth map
             # score = compute_similarity_iou(self.current_local_map, candidate_map)
