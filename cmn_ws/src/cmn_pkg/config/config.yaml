@@ -72,7 +72,8 @@ simulator:
   allow_motion_through_occupied_cells: false # if true, robot is allowed to be in occluded cells.
 
 constraints:
-  max_lin_vel: 0.5 # (m/s) Maximum allowed linear velocity for any motion. (Minimum is 0).
+  min_lin_vel: 0.1 # (m/s) Minimum achievable linear velocity for non-pivots. (lin vel can be 0 during pivots).
+  max_lin_vel: 0.5 # (m/s) Maximum allowed linear velocity for any motion.
   min_ang_vel: 0.2 # (radians/s) Minimum achievable angular velocity for a pivot. (ang vel can be 0 during forward motion).
   max_ang_vel: 1 # (radians/s) Maximum allowed angular velocity for any motion.
 

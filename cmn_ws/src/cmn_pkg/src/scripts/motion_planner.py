@@ -67,6 +67,7 @@ class MotionPlanner:
             self.astar.verbose = self.verbose
             self.pure_pursuit.verbose = self.verbose
             # Constraints.
+            self.min_lin_vel = config["constraints"]["min_lin_vel"]
             self.max_lin_vel = config["constraints"]["max_lin_vel"]
             self.min_ang_vel = config["constraints"]["min_ang_vel"]
             self.max_ang_vel = config["constraints"]["max_ang_vel"]
@@ -329,26 +330,30 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Convert this to yaw.
         final_yaw:float = cardinal_dir_to_yaw[final_dir]
         # Compute actual amount we will turn.
-        actual_abs_amount_to_turn = abs(remainder(final_yaw - self.odom.yaw, tau))
+        actual_amount_to_turn = remainder(final_yaw - self.odom.yaw, tau)
 
         if self.verbose:
             rospy.loginfo("DMP: Commanding a discrete pivot from {:} to {:}".format(current_dir, final_dir))
-            # rospy.loginfo("starting yaw: {:.3f}, goal yaw: {:.3f}".format(self.odom.yaw, final_yaw))
+            # rospy.loginfo("DMP: starting yaw: {:.3f}, goal yaw: {:.3f}".format(self.odom.yaw, final_yaw))
 
         # Get desired turn direction.
-        turn_dir_sign = angle / abs(angle)
+        turn_dir_sign = actual_amount_to_turn / abs(actual_amount_to_turn)
         # Keep waiting until motion has completed.
-        remaining_turn_rads = actual_abs_amount_to_turn
+        remaining_turn_rads = abs(actual_amount_to_turn)
         while remaining_turn_rads > self.ang_goal_reach_deviation:
             # Command the max possible turn speed, in the desired direction.
             # NOTE if we don't "ramp down" the speed, we may over-turn slightly. Since we are realigning to global coord frame each turn. this matters less.
-            abs_ang_vel_to_cmd = remaining_turn_rads / actual_abs_amount_to_turn * self.max_ang_vel
+            abs_ang_vel_to_cmd = remaining_turn_rads / abs(actual_amount_to_turn) * self.max_ang_vel
             abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, self.min_ang_vel) # Enforce a minimum speed.
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
             # Compute new remaining radians to turn.
-            remaining_turn_rads = abs(remainder(final_yaw - self.odom.yaw, tau))
-            # rospy.loginfo("remaining_turn_rads is {:.3f}, with current yaw {:.3f}".format(remaining_turn_rads, self.odom.yaw))
+            rads_to_go = remainder(final_yaw - self.odom.yaw, tau)
+            remaining_turn_rads = abs(rads_to_go)
+            # Safety check for direction to goal, in case we pivoted quickly past it and didn't get a measurement in the stopping region.
+            if rads_to_go * turn_dir_sign < 0:
+                break
+            # rospy.loginfo("DMP: remaining_turn_rads is {:.3f}, with current yaw {:.3f}".format(remaining_turn_rads, self.odom.yaw))
 
         # When the motion has finished, send a command to stop.
         self.pub_velocity_cmd(0, 0)
@@ -394,11 +399,15 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Save the starting odom.
         init_odom = self.odom
         # Keep waiting until motion has completed.
-        while dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2) > self.lin_goal_reach_deviation:
+        remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
+        while remaining_motion > self.lin_goal_reach_deviation:
             # Command the max possible move speed, in the desired direction.
             # NOTE since there is no "ramping down" in the speed, we may move slightly further than intended.
+            # TODO add ramp up and ramp down.
             self.pub_velocity_cmd(self.max_lin_vel * motion_sign, 0)
             rospy.sleep(0.001)
+            # Compute new remaining distance to travel. NOTE we do not take absolute value, so if we pass the point we will still stop.
+            remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
         # When the motion has finished, send a command to stop.
         self.pub_velocity_cmd(0, 0)
         # Insert a small pause to help differentiate adjacent discrete motions.
