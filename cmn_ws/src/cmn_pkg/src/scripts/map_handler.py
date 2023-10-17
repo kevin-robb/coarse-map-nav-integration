@@ -410,8 +410,9 @@ class Simulator(MapFrameManager):
             config = yaml.safe_load(file)
             self.dt = config["dt"]
             # Constraints.
-            self.max_fwd_cmd = config["constraints"]["fwd"]
-            self.max_ang_cmd = config["constraints"]["ang"]
+            self.max_lin_vel = config["constraints"]["max_lin_vel"]
+            self.min_ang_vel = config["constraints"]["min_ang_vel"]
+            self.max_ang_vel = config["constraints"]["max_ang_vel"]
             self.allow_motion_through_occupied_cells = config["simulator"]["allow_motion_through_occupied_cells"]
             # Params for discrete motion that are good to know.
             self.discrete_forward_dist = abs(config["actions"]["discrete_forward_dist"])
@@ -427,8 +428,8 @@ class Simulator(MapFrameManager):
         @param ang, Commanded angular velocity (rad/s).
         """
         # Clamp commands to allowed values (redundant since clamping is done in MOT, but just to be safe).
-        fwd_dist = self.dt * clamp(lin, 0, self.max_fwd_cmd) # dt * meters/sec forward
-        dtheta = self.dt * clamp(ang, -self.max_ang_cmd, self.max_ang_cmd) # dt * radians/sec CCW
+        fwd_dist = self.dt * clamp(lin, 0, self.max_lin_vel) # dt * meters/sec forward
+        dtheta = self.dt * clamp(ang, -self.max_ang_vel, self.max_ang_vel) # dt * radians/sec CCW
         # Use our other function to command this distance.
         self.propagate_with_dist(fwd_dist, dtheta)
 

@@ -67,8 +67,9 @@ class MotionPlanner:
             self.astar.verbose = self.verbose
             self.pure_pursuit.verbose = self.verbose
             # Constraints.
-            self.max_fwd_cmd = config["constraints"]["fwd"]
-            self.max_ang_cmd = config["constraints"]["ang"]
+            self.max_lin_vel = config["constraints"]["max_lin_vel"]
+            self.min_ang_vel = config["constraints"]["min_ang_vel"]
+            self.max_ang_vel = config["constraints"]["max_ang_vel"]
             # Path planning.
             self.do_path_planning = config["path_planning"]["do_path_planning"]
             self.pure_pursuit.use_finite_lookahead_dist = self.do_path_planning
@@ -91,8 +92,8 @@ class MotionPlanner:
         Clamp a velocity command within valid values, and publish it to the vehicle.
         """
         # Clamp to allowed velocity ranges.
-        fwd = clamp(fwd, 0, self.max_fwd_cmd)
-        ang = clamp(ang, -self.max_ang_cmd, self.max_ang_cmd)
+        fwd = clamp(fwd, 0, self.max_lin_vel)
+        ang = clamp(ang, -self.max_ang_vel, self.max_ang_vel)
         if self.verbose:
             rospy.loginfo("MP: Publishing a command ({:}, {:})".format(fwd, ang))
         
@@ -120,9 +121,9 @@ class MotionPlanner:
         if self.cur_test_motion_type == "NONE":
             fwd, ang = 0.0, 0.0 # No motion.
         elif self.cur_test_motion_type == "CIRCLE":
-            fwd, ang = self.max_fwd_cmd, self.max_ang_cmd # Arc motion.
+            fwd, ang = self.max_lin_vel, self.max_ang_vel # Arc motion.
         elif self.cur_test_motion_type == "STRAIGHT":
-            fwd, ang = self.max_fwd_cmd, 0.0 # Forward-only motion.
+            fwd, ang = self.max_lin_vel, 0.0 # Forward-only motion.
         elif self.cur_test_motion_type == "RANDOM":
             rospy.logwarn("MP: Test motion type RANDOM is not yet implemented. Sending zero velocity.")
 
@@ -197,8 +198,8 @@ class MotionPlanner:
         fwd, ang = self.pure_pursuit.compute_command(veh_pose_est, path)
 
         # Keep within constraints.
-        fwd_clamped = clamp(fwd, 0, self.max_fwd_cmd)
-        ang_clamped = clamp(ang, -self.max_ang_cmd, self.max_ang_cmd)
+        fwd_clamped = clamp(fwd, 0, self.max_lin_vel)
+        ang_clamped = clamp(ang, -self.max_ang_vel, self.max_ang_vel)
         if self.verbose and (fwd != fwd_clamped or ang != ang_clamped):
             rospy.logwarn("MOT: Clamped pure pursuit output from ({:.2f}, {:.2f}) to ({:.2f}, {:.2f}).".format(fwd, ang, fwd_clamped, ang_clamped))
 
@@ -257,7 +258,12 @@ class DiscreteMotionPlanner(MotionPlanner):
     motion_tracker = MotionTracker()
     # Flag to keep publishing commands until the robot odometry indicates the motion has finished.
     # Since the sim does not publish robot odom or subscribe to these velocity commands, this is a simpler solution.
-    wait_for_motion_to_complete = True
+    wait_for_motion_to_complete:bool = True
+    # Flag to command all pivots relative to global frame, instead of relative to current yaw.
+    command_pivots_globally:bool = True
+    # When commanding a discrete motion, wait until these conditions are satisfied.
+    lin_goal_reach_deviation:float = None
+    ang_goal_reach_deviation:float = None
 
     def __init__(self):
         self.read_params()
@@ -275,6 +281,8 @@ class DiscreteMotionPlanner(MotionPlanner):
             config = yaml.safe_load(file)
             # Params for discrete actions.
             self.discrete_forward_dist = abs(config["actions"]["discrete_forward_dist"])
+            self.lin_goal_reach_deviation = abs(config["goal_reach_deviation"]["linear"])
+            self.ang_goal_reach_deviation = radians(abs(config["goal_reach_deviation"]["angular"]))
 
     def cmd_discrete_action(self, action:str):
         """
@@ -288,9 +296,10 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Only command the motion and wait for it to finish if we're using a physical robot.
         if self.wait_for_motion_to_complete:
             if action in ["turn_left", "turn_right"]:
-                # NOTE under-command the angle slightly since we tend to over-turn.
-                # self.cmd_discrete_ang_motion_global(ang)
-                self.cmd_discrete_ang_motion_relative(ang)
+                if self.command_pivots_globally:
+                    self.cmd_discrete_ang_motion_global(ang)
+                else:
+                    self.cmd_discrete_ang_motion_relative(ang)
             elif action == "move_forward":
                 self.cmd_discrete_fwd_motion(fwd)
             else:
@@ -305,7 +314,6 @@ class DiscreteMotionPlanner(MotionPlanner):
         """
         return self.cmd_discrete_action(self.discrete_actions[randint(0,len(self.discrete_actions)-1)])
 
-    # TODO debug this!!
     def cmd_discrete_ang_motion_global(self, angle:float):
         """
         Turn the robot in-place by a discrete amount, and then stop.
@@ -325,20 +333,22 @@ class DiscreteMotionPlanner(MotionPlanner):
 
         if self.verbose:
             rospy.loginfo("DMP: Commanding a discrete pivot from {:} to {:}".format(current_dir, final_dir))
+            # rospy.loginfo("starting yaw: {:.3f}, goal yaw: {:.3f}".format(self.odom.yaw, final_yaw))
 
         # Get desired turn direction.
         turn_dir_sign = angle / abs(angle)
         # Keep waiting until motion has completed.
         remaining_turn_rads = actual_abs_amount_to_turn
-        while remaining_turn_rads > 0:
+        while remaining_turn_rads > self.ang_goal_reach_deviation:
             # Command the max possible turn speed, in the desired direction.
-            # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
-            abs_ang_vel_to_cmd = remaining_turn_rads / actual_abs_amount_to_turn * self.max_ang_cmd
-            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, 0.2) # Enforce a minimum speed. TODO parameterize this.
+            # NOTE if we don't "ramp down" the speed, we may over-turn slightly. Since we are realigning to global coord frame each turn. this matters less.
+            abs_ang_vel_to_cmd = remaining_turn_rads / actual_abs_amount_to_turn * self.max_ang_vel
+            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, self.min_ang_vel) # Enforce a minimum speed.
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
             # Compute new remaining radians to turn.
             remaining_turn_rads = abs(remainder(final_yaw - self.odom.yaw, tau))
+            # rospy.loginfo("remaining_turn_rads is {:.3f}, with current yaw {:.3f}".format(remaining_turn_rads, self.odom.yaw))
 
         # When the motion has finished, send a command to stop.
         self.pub_velocity_cmd(0, 0)
@@ -358,11 +368,11 @@ class DiscreteMotionPlanner(MotionPlanner):
         self.motion_tracker.reset()
         # NOTE may still need to reduce 'angle' by a factor of say, 0.8, to prevent over-turning.
         remaining_turn_rads = abs(angle)
-        while remaining_turn_rads > 0:
+        while remaining_turn_rads > self.ang_goal_reach_deviation:
             # Command the max possible turn speed, in the desired direction.
             # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
-            abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_cmd
-            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, 0.2) # Enforce a minimum speed. TODO parameterize this.
+            abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_vel
+            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, self.min_ang_vel) # Enforce a minimum speed.
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
             # Compute new remaining radians to turn.
@@ -384,10 +394,10 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Save the starting odom.
         init_odom = self.odom
         # Keep waiting until motion has completed.
-        while sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2) < dist:
+        while dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2) > self.lin_goal_reach_deviation:
             # Command the max possible move speed, in the desired direction.
             # NOTE since there is no "ramping down" in the speed, we may move slightly further than intended.
-            self.pub_velocity_cmd(self.max_fwd_cmd * motion_sign, 0)
+            self.pub_velocity_cmd(self.max_lin_vel * motion_sign, 0)
             rospy.sleep(0.001)
         # When the motion has finished, send a command to stop.
         self.pub_velocity_cmd(0, 0)
