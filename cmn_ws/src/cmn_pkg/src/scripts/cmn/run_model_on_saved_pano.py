@@ -30,7 +30,7 @@ class CmnModelRunner:
         Run the model for every pano rgb image in data_dir.
         """
         # Get all pano RGB image files in this dir.
-        files = [f for f in os.listdir(data_dir) if "pano_rgb" in f]
+        files = [os.path.join(dp, f) for dp, dn, fn in os.walk(data_dir) for f in fn]
         files.sort()
         print("Found {:} pano_rgb files in data_dir.".format(len(files)))
         for f in files:
