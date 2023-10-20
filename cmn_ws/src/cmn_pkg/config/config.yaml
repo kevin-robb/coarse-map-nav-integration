@@ -55,7 +55,7 @@ path_planning:
   do_path_planning: false # if true, use A* to compute a full path to the goal point, then use pure pursuit to choose a motion command. if false, navigate directly towards goal point.
   tree_search: # Params for tree search in CMN.
     forward_step_k: 2
-    forward_meter: 0.1
+    forward_meter: 0.15
 
 
 # Configs for running simulator node for basic testing.
@@ -79,6 +79,6 @@ constraints:
 
 # Goal is reached when these minimum deviations are satisfied.
 goal_reach_deviation:
-  linear: 0.1 # meters.
+  linear: 0.01 # meters.
   angular: 0.5 # degrees.
 

@@ -321,6 +321,7 @@ class DiscreteMotionPlanner(MotionPlanner):
         ang = radians(-90.0 if action == "turn_right" else (90.0 if action == "turn_left" else 0.0))
         # Only command the motion and wait for it to finish if we're using a physical robot.
         if self.wait_for_motion_to_complete:
+            rospy.loginfo("DMP: Commanding discrete action {:}.".format(action))
             if action in ["turn_left", "turn_right"]:
                 if self.command_pivots_globally:
                     self.cmd_discrete_ang_motion_global(ang)
@@ -424,7 +425,7 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Save the starting odom.
         init_odom = self.odom
         # Init the p-controller, starting at 0 velocity.
-        pid = PController(0.0, 0.01)
+        pid = PController(0.0, 0.05)
         ramp_threshold = 0.5 * dist # Distance threshold at which we will change the set point from max to min speed.
         # Keep waiting until motion has completed.
         remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)

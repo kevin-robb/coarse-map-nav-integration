@@ -75,7 +75,7 @@ class CoarseMapNavDiscrete:
     goal_map_idx = None
     noise_trans_prob = None # Randomly sampled each iteration in range [0,1]. Chance that we don't modify our estimates after commanding a forward motion. Accounts for cell-based representation that relies on scale.
 
-    agent_pose_estimate_px = None # Current localization estimate of the robot pose on the coarse map in pixels.
+    agent_pose_estimate_px:PosePixels = None # Current localization estimate of the robot pose on the coarse map in pixels. Its yaw is whatever was passed into run_one_iter.
 
     visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
     use_astar:bool = True # Flag to use A* instead of original CMN planner.
