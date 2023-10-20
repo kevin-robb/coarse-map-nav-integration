@@ -423,9 +423,12 @@ class CoarseMapNavDiscrete:
         if self.use_astar:
             # Use the vehicle pose estimate to plan a path with A*.
             if true_agent_pose is not None:
-                return self.astar.get_next_discrete_action(true_agent_pose)
+                action = self.astar.get_next_discrete_action(true_agent_pose)
             else:
-                return self.astar.get_next_discrete_action(self.agent_pose_estimate_px)
+                action = self.astar.get_next_discrete_action(self.agent_pose_estimate_px)
+            # Save the path for viz.
+            self.visualizer.planned_path_to_goal = self.astar.last_path_px_reversed
+            return action
         else:
             # Plan a path using Dijkstra's algorithm
             path = self.coarse_map_graph.dijkstra_path(agent_map_idx, self.goal_map_idx)

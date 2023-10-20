@@ -24,6 +24,7 @@ class CoarseMapNavVisualizer:
     coarse_map = None
     current_localization_estimate:PosePixels = None
     goal_cell:PosePixels = None
+    planned_path_to_goal = None
 
 
     def __init__(self):
@@ -107,6 +108,9 @@ class CoarseMapNavVisualizer:
             # Convert coarse map to BGR.
             img = cv2.cvtColor(self.coarse_map.copy(), cv2.COLOR_GRAY2BGR)
             # Show other data on top of the coarse map.
+            if self.planned_path_to_goal is not None:
+                for cell in self.planned_path_to_goal:
+                    img = cv2.circle(img, [cell.c, cell.r], 0, (255,0,255), -1)
             if self.current_localization_estimate is not None:
                 # Show cell for current localization estimate.
                 img = cv2.circle(img, [self.current_localization_estimate.c, self.current_localization_estimate.r], 0, (0,255,0), -1)

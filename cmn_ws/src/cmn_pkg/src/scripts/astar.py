@@ -12,6 +12,9 @@ class Astar:
     # Neighbors for comparison and avoiding re-computations.
     nbrs = [(0, -1), (0, 1), (-1, 0), (1, 0)] + ([(-1, -1), (-1, 1), (1, -1), (1, 1)] if include_diagonals else [])
 
+    # Last computed path. Saving it here makes it easier to get it for viz.
+    last_path_px_reversed = None
+
     def run_astar(self, start_pose_px:PosePixels, goal_pose_px:PosePixels=None):
         """
         Use A* to generate a path from the current pose to the goal position. Must have set self.map already.
@@ -108,14 +111,14 @@ class Astar:
         self.include_diagonals = False
 
         # Generate (reverse) path with A*.
-        path_px_reversed = self.run_astar(start_pose_px)
+        self.last_path_px_reversed = self.run_astar(start_pose_px)
         # Check if we were unable to plan a path.
-        if path_px_reversed is None or len(path_px_reversed) < 2:
+        if self.last_path_px_reversed is None or len(self.last_path_px_reversed) < 2:
             rospy.logwarn("A*: Unable to plan a path, so commanding a random discrete action.")
             return np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
 
         # Check which direction from the current cell we should go to next.
-        next_cell = path_px_reversed[-2]
+        next_cell = self.last_path_px_reversed[-2]
         angle_start_to_next_cell = start_pose_px.relative_angle_to(next_cell)
         # Compare this to current yaw to see if we need to turn.
         # Use the yaw discretizer to check this.
