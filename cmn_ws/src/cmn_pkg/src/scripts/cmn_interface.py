@@ -155,7 +155,7 @@ class CoarseMapNavInterface():
             # Predict the local occupancy from panoramic RGB images, or use the ground truth.
             self.cmn_node.predict_local_occupancy(pano_rgb, agent_yaw, current_local_map)
             # Perform localization and choose the next action to take.
-            plan_from_true_pose:bool = True
+            plan_from_true_pose:bool = False
             if self.enable_sim and plan_from_true_pose:
                 action = self.cmn_node.choose_next_action(agent_yaw, self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true))
             else:
@@ -196,7 +196,8 @@ class CoarseMapNavInterface():
             # fwd, ang = self.motion_planner.cmd_random_discrete_action()
             # In the simulator, propagate the true vehicle pose by this discrete action.
             if self.enable_sim:
-                self.map_frame_manager.propagate_with_dist(fwd, ang)
+                # self.map_frame_manager.propagate_with_dist(fwd, ang)
+                self.map_frame_manager.propagate_with_discrete_motion(action)
 
         # Save all desired data for later training/evaluation.
         if self.save_training_data:

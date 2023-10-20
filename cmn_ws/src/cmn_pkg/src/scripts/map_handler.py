@@ -468,6 +468,19 @@ class Simulator(MapFrameManager):
             if self.verbose:
                 rospy.loginfo("SIM: Allowing command. Veh pose is now " + str(self.veh_pose_true))
 
+    def propagate_with_discrete_motion(self, action:str):
+        """
+        Apply a discrete action to the true robot pose.
+        @param action - one of "move_forward", "turn_left", "turn_right"
+        """
+        if action == "turn_left":
+            self.veh_pose_true.yaw = remainder(self.veh_pose_true.yaw + pi/2, tau)
+        elif action == "turn_right":
+            self.veh_pose_true.yaw = remainder(self.veh_pose_true.yaw - pi/2, tau)
+        elif action == "move_forward":
+            # Move forward one pixel.
+            self.propagate_with_dist(self.map_resolution_desired, 0)
+
     def get_true_observation(self):
         """
         @return the ground-truth observation, using our ground-truth map and vehicle pose.
