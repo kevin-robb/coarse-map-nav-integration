@@ -181,72 +181,13 @@ class CoarseMapNavDiscrete:
         ])
 
 
-    def run_one_iter(self, agent_yaw:float, pano_rgb=None, gt_observation=None, facing_a_wall:bool=False) -> str:
+    def update_beliefs(self, action:str, agent_yaw:float, facing_a_wall:bool=False):
         """
         Run one iteration of CMN.
+        @param action - Chosen action for this iteration.
         @param agent_yaw - Current robot yaw in radians, with 0=east, increasing CCW. In range [-pi, pi].
-        NOTE: Must provide either pano_rgb (sensor data to run model to generate observation) or observation (ground-truth from sim).
-        @param pano_rgb - Dictionary of four RGB images concatenated into a panorama.
-        @param gt_observation - (optional) 2D numpy array containing (ground-truth) observation.
         @param facing_a_wall - (optional) If we are facing a wall, we cannot move forwards. So, don't update the belief if we decide to move_forward. This shouldn't be commanded, except in random actions mode.
-        @return str: chosen action, so that our motion planner can command this to the robot.
         """
-        if not ((pano_rgb is None) ^ (gt_observation is None)):
-            print("Error: Must provide exactly one of pano_rgb and gt_observation.")
-            exit(0)
-
-        # Get cardinal direction corresponding to agent orientation.
-        agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
-
-        if self.send_random_commands:
-            action = np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
-        else:
-            # Select one action using CMN
-            if self.use_astar:
-                # Render the current map pose estimate using the latest belief
-                agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer()
-                # Save this localization result for the viz to use.
-                self.agent_pose_estimate_px = agent_map_loc
-
-                # Check if the agent reaches the goal location
-                if agent_map_loc == self.goal_map_loc:
-                    if self.agent_belief_map.max() > 0.9:
-                        # TODO handle exit condition
-                        return "stop"
-                    else:
-                        self.agent_belief_map = self.empty_cell_map / self.empty_cell_map.sum()
-                
-                # Use the vehicle pose estimate to plan a path with A*.
-                action = self.astar.get_next_discrete_action(PosePixels(agent_map_loc[0], agent_map_loc[1], agent_yaw))
-            else:
-                action = self.cmn_planner(agent_yaw)
-
-        # Obtain the next sensor measurement --> local observation map (self.current_local_map).
-        if pano_rgb is not None:
-            # Predict the local occupancy from panoramic RGB images.
-            map_obs = self.predict_local_occupancy(pano_rgb)
-
-        else:
-            # Scale observation up to 128x128 to match the output from the model.
-            map_obs = up_scale_grid(gt_observation)
-
-        # Rotate the egocentric local occupancy to face NORTH
-        if agent_dir_str == "east":
-            map_obs = np.rot90(map_obs, k=-1)
-        elif agent_dir_str == "north":
-            pass
-        elif agent_dir_str == "west":
-            map_obs = np.rot90(map_obs, k=1)
-        elif agent_dir_str == "south":
-            map_obs = np.rot90(map_obs, k=2)
-        else:
-            raise Exception("Invalid agent direction")
-        self.current_local_map = map_obs
-
-        # If this is ground-truth, assign it to that as well.
-        if self.visualizer is not None and gt_observation is not None:
-            self.visualizer.current_ground_truth_local_map = self.current_local_map
-
         # When we command a forward motion, the actual robot will always be commanded to move.
         # However, we don't know if this motion is enough to correspond to motion between cells on the coarse map.
         # i.e., the coarse map scale may be so large that it takes several forward motions to achieve a different cell.
@@ -258,7 +199,7 @@ class CoarseMapNavDiscrete:
         # Check if the action is able to happen. i.e., if this commanded action will be ignored because of a wall, don't move the predictive belief.
         if action != "move_forward" or not facing_a_wall:
             # Run the predictive update stage.
-            self.predictive_update_func(action, agent_dir_str)
+            self.predictive_update_func(action, yaw_to_cardinal_dir(agent_yaw))
 
         # Run the measurement update stage.
         self.measurement_update_func()
@@ -271,10 +212,12 @@ class CoarseMapNavDiscrete:
         self.updated_belief_map = normalized_belief.copy()
         self.agent_belief_map = normalized_belief.copy()
 
-        # Return the chosen action so that our motion planner can command this to the robot.
-        return action
+        # Update the visualization.
+        self.visualizer.current_predicted_local_map = self.current_local_map
+        self.visualizer.predictive_belief_map = self.predictive_belief_map
+        self.visualizer.observation_prob_map = self.observation_prob_map
+        self.visualizer.agent_belief_map = self.updated_belief_map
 
-        
 
     def predictive_update_func(self, agent_act:str, agent_dir:str):
         """
@@ -371,11 +314,23 @@ class CoarseMapNavDiscrete:
         # print(self.observation_prob_map.shape)
         # cv2.imshow("obs map", measurement_prob_map.astype(float)); cv2.waitKey(0)
 
-    def predict_local_occupancy(self, pano_rgb_obs):
-        if self.model is not None:
+
+    def predict_local_occupancy(self, pano_rgb, agent_yaw:float, gt_observation=None):
+        """
+        Use the model to predict local occupancy map.
+        NOTE: Must provide either pano_rgb (sensor data to run model to generate observation) or gt_observation (ground-truth from sim).
+        @param pano_rgb - Panorama of four RGB images concatenated together.
+        @param agent_yaw - Agent orientation in radians.
+        @param gt_observation - Ground-truth observation from simulator. If provided, use it instead of running the model.
+        """
+        if gt_observation is None:
+            if self.model is None:
+                rospy.logerr("Cannot predict_local_occupancy() because the model was not loaded!")
+                return
+
             # Process the observation to tensor
             # Convert observation from ndarray to PIL.Image
-            obs = Image.fromarray(pano_rgb_obs)
+            obs = Image.fromarray(pano_rgb)
             # Convert observation from PIL.Image to tensor
             pano_rgb_obs_tensor = self.transformation(obs)
 
@@ -384,18 +339,37 @@ class CoarseMapNavDiscrete:
                 pred_local_occ = self.model(pano_rgb_obs_tensor)
                 # Reshape the predicted local occupancy
                 pred_local_occ = pred_local_occ.cpu().squeeze(dim=0).squeeze(dim=0).numpy()
-
-            return pred_local_occ
         else:
-            # The model was not loaded in. So, print a warning and return a blank observation.
-            print("Cannot predict_local_occupancy() because the model was not loaded!")
-            return np.zeros((self.mfm.obs_height_px, self.mfm.obs_width_px))
+            # Scale observation up to 128x128 to match the output from the model.
+            pred_local_occ = up_scale_grid(gt_observation)
+
+        # Get cardinal direction corresponding to agent orientation.
+        agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
+        # Rotate the egocentric local occupancy to face NORTH
+        if agent_dir_str == "east":
+            pred_local_occ = np.rot90(pred_local_occ, k=-1)
+        elif agent_dir_str == "north":
+            pass
+        elif agent_dir_str == "west":
+            pred_local_occ = np.rot90(pred_local_occ, k=1)
+        elif agent_dir_str == "south":
+            pred_local_occ = np.rot90(pred_local_occ, k=2)
+        else:
+            raise Exception("Invalid agent direction")
+        self.current_local_map = pred_local_occ
+
+        # Update the viz.
+        self.visualizer.pano_rgb = pano_rgb
+        # If this is ground-truth, assign it to that for viz as well.
+        if gt_observation is not None:
+            self.visualizer.current_ground_truth_local_map = self.current_local_map
 
 
-    def cmn_localizer(self):
+    def cmn_localizer(self, agent_yaw:float):
         """
         Perform localization (discrete bayesian filter) using belief map.
         For localization result, return 3-tuple of:
+        @param agent_yaw - Orientation of agent in radians; will be saved as part of localization estimate.
         @return int: index of agent cell in local map.
         @return Tuple[int]: cell location in local map, (r, c).
         @return local occupancy grid map.
@@ -408,6 +382,9 @@ class CoarseMapNavDiscrete:
         rnd_idx = np.random.randint(low=0, high=len(candidates))
         local_map_loc = tuple(candidates[rnd_idx])
 
+        # Save this localization result for the viz and planner to use.
+        self.agent_pose_estimate_px = PosePixels(local_map_loc[0], local_map_loc[1], agent_yaw)
+
         # Find its index and the 3 x 3 local occupancy grid
         local_map_idx = self.coarse_map_graph.sampled_locations.index((local_map_loc[0], local_map_loc[1]))
 
@@ -417,48 +394,57 @@ class CoarseMapNavDiscrete:
         return local_map_idx, local_map_loc, local_map_occ
 
 
-    def cmn_planner(self, agent_yaw:float):
+    def choose_next_action(self, agent_yaw:float) -> str:
         """
-        Perform localization and path planning to decide on the next action to take.
+        Use the current localization estimate to choose the next discrete action to take.
         @param agent_yaw - Current orientation of the robot in radians.
         @return next action to take.
         """
-        # Render the current map pose estimate using the latest belief
-        agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer()
-        # Save this localization result for the viz to use.
-        self.agent_pose_estimate_px = agent_map_loc
+        # Run localization.
+        agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer(agent_yaw)
 
-        # Check if the agent reaches the goal location
-        if agent_map_loc == self.goal_map_loc:
+        # Check if the agent has reached the goal location.
+        if self.agent_pose_estimate_px.r == self.goal_map_loc[0] and self.agent_pose_estimate_px.c == self.goal_map_loc[1]:
             if self.agent_belief_map.max() > 0.9:
+                # We're at the goal cell and the belief map has converged.
                 return "stop"
             else:
+                # We aren't confident enough in this estimate, so reset the belief map and keep going.
                 self.agent_belief_map = self.empty_cell_map / self.empty_cell_map.sum()
 
-        # Plan a path using Dijkstra's algorithm
-        path = self.coarse_map_graph.dijkstra_path(agent_map_idx, self.goal_map_idx)
-        if len(path) <= 1:
+        # Check if planning is enabled.
+        if self.send_random_commands:
             return np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
 
-        # Compute the heuristic vector
-        loc_1 = agent_map_loc
-        loc_2 = self.coarse_map_graph.sampled_locations[path[1]]
-        heu_vec = compute_norm_heuristic_vec([loc_1[1], loc_1[0]],
-                                                  [loc_2[1], loc_2[0]])
+        # Check which planning method to use.
+        if self.use_astar:
+            # Use the vehicle pose estimate to plan a path with A*.
+            return self.astar.get_next_discrete_action(self.agent_pose_estimate_px)
+        else:
+            # Plan a path using Dijkstra's algorithm
+            path = self.coarse_map_graph.dijkstra_path(agent_map_idx, self.goal_map_idx)
+            if len(path) <= 1:
+                return np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
 
-        # Do a k-step breadth first search based on the heuristic vector
-        root_node = TreeNode([0, 0, 0], agent_yaw)
-        breadth_first_tree = BFTree(root_node,
-                                    depth=self.forward_step_k,
-                                    agent_forward_step=self.forward_step_meters)
-        best_child_node = breadth_first_tree.find_the_best_child(heu_vec)
+            # Compute the heuristic vector
+            loc_1 = agent_map_loc
+            loc_2 = self.coarse_map_graph.sampled_locations[path[1]]
+            heu_vec = compute_norm_heuristic_vec([loc_1[1], loc_1[0]],
+                                                    [loc_2[1], loc_2[0]])
 
-        # retrieve the tree to get the action
-        parent = best_child_node.parent
-        while parent.parent is not None:
-            best_child_node = best_child_node.parent
+            # Do a k-step breadth first search based on the heuristic vector
+            root_node = TreeNode([0, 0, 0], agent_yaw)
+            breadth_first_tree = BFTree(root_node,
+                                        depth=self.forward_step_k,
+                                        agent_forward_step=self.forward_step_meters)
+            best_child_node = breadth_first_tree.find_the_best_child(heu_vec)
+
+            # retrieve the tree to get the action
             parent = best_child_node.parent
+            while parent.parent is not None:
+                best_child_node = best_child_node.parent
+                parent = best_child_node.parent
 
-        # based on the results select the best action
-        return best_child_node.name
-    
+            # based on the results select the best action
+            return best_child_node.name
+

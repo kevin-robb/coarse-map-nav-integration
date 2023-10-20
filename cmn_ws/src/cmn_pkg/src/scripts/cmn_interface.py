@@ -147,23 +147,31 @@ class CoarseMapNavInterface():
                 facing_a_wall = self.map_frame_manager.agent_is_facing_wall()
 
             # Run discrete CMN.
-            action_str = self.cmn_node.run_one_iter(agent_yaw, pano_rgb, current_local_map, facing_a_wall)
+            if not ((pano_rgb is None) ^ (current_local_map is None)):
+                rospy.logerr("Need pano_rgb or ground truth observation to run CMN.")
+                return
+
+            # Obtain the next sensor measurement --> local observation map (self.current_local_map).
+            # Predict the local occupancy from panoramic RGB images, or use the ground truth.
+            self.cmn_node.predict_local_occupancy(pano_rgb, agent_yaw, current_local_map)
+            # Perform localization and choose the next action to take.
+            action = self.cmn_node.choose_next_action(agent_yaw)
+            # Update beliefs for this action.
+            self.cmn_node.update_beliefs(action, agent_yaw, facing_a_wall)
             
             if pano_rgb is not None:
                 # If the action we've chosen to take is a rotation in-place, we don't need to retake the pano RGB measurement next iteration, but can just shift it instead.
                 # NOTE pano_rgb = [front, right, back, left].
                 width_each_img = pano_rgb.shape[1] // 4
-                if action_str == "move_forward":
+                if action == "move_forward":
                     # Will need to retake measurement.
                     self.pano_rgb = None
-                elif action_str == "turn_right":
+                elif action == "turn_right":
                     # Shift images to the left by one, so "right" becomes "front".
                     self.pano_rgb = np.roll(pano_rgb, shift=-width_each_img, axis=1)
-                    # self.pano_rgb = np.concatenate([pano_rgb[:, width_each_img:, :], pano_rgb[:, :width_each_img, :]], axis=1)
-                elif action_str == "turn_left":
+                elif action == "turn_left":
                     # Shift images to the right by one, so "left" becomes "front".
                     self.pano_rgb = np.roll(pano_rgb, shift=width_each_img, axis=1)
-                    # self.pano_rgb = np.concatenate([pano_rgb[:, 3*width_each_img:, :], pano_rgb[:, :3*width_each_img, :]], axis=1)
                     
             # Save the data it computed for the visualizer.
             if self.enable_viz:
@@ -171,24 +179,16 @@ class CoarseMapNavInterface():
                     # The observation was not set yet, since we don't have ground truth. So, use predicted for viz instead.
                     self.visualizer.set_observation(self.cmn_node.current_local_map)
 
-                if self.cmn_node is not None:
-                    # Set data for the CMN visualization.
-                    self.cmn_node.visualizer.pano_rgb = pano_rgb
-                    self.cmn_node.visualizer.current_predicted_local_map = self.cmn_node.current_local_map
-                    self.cmn_node.visualizer.predictive_belief_map = self.cmn_node.predictive_belief_map
-                    self.cmn_node.visualizer.observation_prob_map = self.cmn_node.observation_prob_map
-                    self.cmn_node.visualizer.agent_belief_map = self.cmn_node.updated_belief_map
-
             # If localization is running, get the veh pose estimate to use.
             if self.cmn_node.agent_pose_estimate_px is not None:
                 # Save the localization estimate (and save in the visualizer).
-                localization_result_px = PosePixels(self.cmn_node.agent_pose_estimate_px[0], self.cmn_node.agent_pose_estimate_px[1], agent_yaw)
+                localization_result_px = self.cmn_node.agent_pose_estimate_px
                 self.current_agent_pose = self.map_frame_manager.transform_pose_px_to_m(localization_result_px)
                 if self.enable_viz:
                     self.visualizer.veh_pose_estimate = localization_result_px
 
             # Command the decided action to the robot/sim.
-            fwd, ang = self.motion_planner.cmd_discrete_action(action_str)
+            fwd, ang = self.motion_planner.cmd_discrete_action(action)
             # fwd, ang = self.motion_planner.cmd_random_discrete_action()
             # In the simulator, propagate the true vehicle pose by this discrete action.
             if self.enable_sim:

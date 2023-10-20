@@ -332,6 +332,10 @@ class DiscreteMotionPlanner(MotionPlanner):
             else:
                 rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))
                 fwd, ang = 0.0, 0.0
+            # When the motion has finished, send a command to stop.
+            self.pub_velocity_cmd(0, 0)
+            # Insert a small pause to help differentiate adjacent discrete motions.
+            rospy.sleep(0.5)
         return fwd, ang
     
     def cmd_random_discrete_action(self):
@@ -381,11 +385,6 @@ class DiscreteMotionPlanner(MotionPlanner):
                 break
             # rospy.loginfo("DMP: remaining_turn_rads is {:.3f}, with current yaw {:.3f}".format(remaining_turn_rads, self.odom.yaw))
 
-        # When the motion has finished, send a command to stop.
-        self.pub_velocity_cmd(0, 0)
-        # Insert a small pause to help differentiate adjacent discrete motions.
-        rospy.sleep(0.5)
-
     def cmd_discrete_ang_motion_relative(self, angle:float):
         """
         Turn the robot in-place by a discrete amount, and then stop.
@@ -408,10 +407,6 @@ class DiscreteMotionPlanner(MotionPlanner):
             rospy.sleep(0.001)
             # Compute new remaining radians to turn.
             remaining_turn_rads = abs(angle) - abs(self.motion_tracker.update_for_pivot(self.odom.yaw))
-        # When the motion has finished, send a command to stop.
-        self.pub_velocity_cmd(0, 0)
-        # Insert a small pause to help differentiate adjacent discrete motions.
-        rospy.sleep(0.5)
 
     def cmd_discrete_fwd_motion(self, dist:float):
         """
@@ -441,8 +436,4 @@ class DiscreteMotionPlanner(MotionPlanner):
             rospy.sleep(0.001)
             # Compute new remaining distance to travel. NOTE we do not take absolute value, so if we pass the point we will still stop.
             remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
-        # When the motion has finished, send a command to stop.
-        self.pub_velocity_cmd(0, 0)
-        # Insert a small pause to help differentiate adjacent discrete motions.
-        rospy.sleep(0.5)
 
