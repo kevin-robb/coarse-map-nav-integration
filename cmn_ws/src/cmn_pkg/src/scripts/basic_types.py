@@ -135,3 +135,13 @@ class PosePixels(Pose):
         @return tuple (r,c) representation of this object.
         """
         return (self.r, self.c)
+    
+    def relative_angle_to(self, pose2) -> float:
+        """
+        Compute the relative angle from this pixel to another pixel.
+        @param pose2 - A second PosePixels object.
+        """
+        dx = pose2.c - self.c
+        dy = -(pose2.r - self.r)
+        angle_point_to_point = np.arctan2(dy, dx)
+        return remainder(angle_point_to_point - self.yaw, tau)

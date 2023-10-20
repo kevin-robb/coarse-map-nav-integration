@@ -29,7 +29,8 @@ import torch
 from torchvision.transforms import Compose, Normalize, PILToTensor
 
 from scripts.map_handler import MapFrameManager
-from scripts.basic_types import yaw_to_cardinal_dir
+from scripts.basic_types import yaw_to_cardinal_dir, PosePixels
+from scripts.astar import Astar
 
 
 def compute_norm_heuristic_vec(loc_1, loc_2):
@@ -77,6 +78,8 @@ class CoarseMapNavDiscrete:
     agent_pose_estimate_px = None # Current localization estimate of the robot pose on the coarse map in pixels.
 
     visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
+    use_astar:bool = True # Flag to use A* instead of original CMN planner.
+    astar = Astar() # For path planning.
 
 
     def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False, send_random_commands:bool=False):
@@ -94,7 +97,9 @@ class CoarseMapNavDiscrete:
         # Save reference to map frame manager.
         self.mfm = mfm
         # Load the coarse occupancy map: 1.0 for occupied cell and 0.0 for empty cell
-        self.coarse_map_arr = self.mfm.inv_map_with_border
+        self.coarse_map_arr = self.mfm.inv_map_with_border.copy()
+        # Set the map for A* as well.
+        self.astar.map = self.mfm.map_with_border.copy()
         # Setup filepaths using mfm's pkg path.
         cmn_path = os.path.join(mfm.pkg_path, "src/scripts/cmn")
 
@@ -120,6 +125,7 @@ class CoarseMapNavDiscrete:
 
         # Setup the goal cell.
         self.goal_map_loc = goal_cell
+        self.astar.goal_cell = PosePixels(goal_cell[0], goal_cell[1])
         if self.coarse_map_arr[self.goal_map_loc[0], self.goal_map_loc[1]] != 0.0:
             # Cell is not free.
             print("Warning: Goal cell given in CMN init() is not free!")
@@ -196,7 +202,24 @@ class CoarseMapNavDiscrete:
             action = np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
         else:
             # Select one action using CMN
-            action = self.cmn_planner(agent_yaw)
+            if self.use_astar:
+                # Render the current map pose estimate using the latest belief
+                agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer()
+                # Save this localization result for the viz to use.
+                self.agent_pose_estimate_px = agent_map_loc
+
+                # Check if the agent reaches the goal location
+                if agent_map_loc == self.goal_map_loc:
+                    if self.agent_belief_map.max() > 0.9:
+                        # TODO handle exit condition
+                        return "stop"
+                    else:
+                        self.agent_belief_map = self.empty_cell_map / self.empty_cell_map.sum()
+                
+                # Use the vehicle pose estimate to plan a path with A*.
+                action = self.astar.get_next_discrete_action(PosePixels(agent_map_loc[0], agent_map_loc[1], agent_yaw))
+            else:
+                action = self.cmn_planner(agent_yaw)
 
         # Obtain the next sensor measurement --> local observation map (self.current_local_map).
         if pano_rgb is not None:
