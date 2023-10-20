@@ -196,6 +196,7 @@ class CoarseMapNavDiscrete:
         if action == "move_forward":
             # randomly sample a p from a uniform distribution between [0, 1]
             self.noise_trans_prob = np.random.rand()
+            self.noise_trans_prob = 1
 
         # Check if the action is able to happen. i.e., if this commanded action will be ignored because of a wall, don't move the predictive belief.
         if action != "move_forward" or not facing_a_wall:
@@ -316,7 +317,7 @@ class CoarseMapNavDiscrete:
         # cv2.imshow("obs map", measurement_prob_map.astype(float)); cv2.waitKey(0)
 
 
-    def predict_local_occupancy(self, pano_rgb, agent_yaw:float, gt_observation=None):
+    def predict_local_occupancy(self, pano_rgb, agent_yaw:float=None, gt_observation=None):
         """
         Use the model to predict local occupancy map.
         NOTE: Must provide either pano_rgb (sensor data to run model to generate observation) or gt_observation (ground-truth from sim).
@@ -340,6 +341,10 @@ class CoarseMapNavDiscrete:
                 pred_local_occ = self.model(pano_rgb_obs_tensor)
                 # Reshape the predicted local occupancy
                 pred_local_occ = pred_local_occ.cpu().squeeze(dim=0).squeeze(dim=0).numpy()
+
+            # If the agent yaw was not provided, this is just being used by the runner to test the model.
+            if agent_yaw is None:
+                return pred_local_occ
         else:
             # Scale observation up to 128x128 to match the output from the model.
             pred_local_occ = up_scale_grid(gt_observation)
