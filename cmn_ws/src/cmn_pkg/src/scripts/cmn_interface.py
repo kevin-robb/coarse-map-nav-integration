@@ -155,7 +155,10 @@ class CoarseMapNavInterface():
             # Predict the local occupancy from panoramic RGB images, or use the ground truth.
             self.cmn_node.predict_local_occupancy(pano_rgb, agent_yaw, current_local_map)
             # Perform localization and choose the next action to take.
-            action = self.cmn_node.choose_next_action(agent_yaw)
+            if self.enable_sim:
+                action = self.cmn_node.choose_next_action(agent_yaw, self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true))
+            else:
+                action = self.cmn_node.choose_next_action(agent_yaw)
             # Update beliefs for this action.
             self.cmn_node.update_beliefs(action, agent_yaw, facing_a_wall)
             

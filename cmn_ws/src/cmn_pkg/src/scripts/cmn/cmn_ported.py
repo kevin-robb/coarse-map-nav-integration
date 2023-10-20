@@ -394,10 +394,11 @@ class CoarseMapNavDiscrete:
         return local_map_idx, local_map_loc, local_map_occ
 
 
-    def choose_next_action(self, agent_yaw:float) -> str:
+    def choose_next_action(self, agent_yaw:float, true_agent_pose:PosePixels=None) -> str:
         """
         Use the current localization estimate to choose the next discrete action to take.
         @param agent_yaw - Current orientation of the robot in radians.
+        @param true_agent_pose (optional) - Ground truth agent pose from sim. If provided, used for A* path planning instead of the estimate.
         @return next action to take.
         """
         # Run localization.
@@ -419,7 +420,10 @@ class CoarseMapNavDiscrete:
         # Check which planning method to use.
         if self.use_astar:
             # Use the vehicle pose estimate to plan a path with A*.
-            return self.astar.get_next_discrete_action(self.agent_pose_estimate_px)
+            if true_agent_pose is not None:
+                return self.astar.get_next_discrete_action(true_agent_pose)
+            else:
+                return self.astar.get_next_discrete_action(self.agent_pose_estimate_px)
         else:
             # Plan a path using Dijkstra's algorithm
             path = self.coarse_map_graph.dijkstra_path(agent_map_idx, self.goal_map_idx)
