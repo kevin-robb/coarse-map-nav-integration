@@ -136,12 +136,31 @@ class PosePixels(Pose):
         """
         return (self.r, self.c)
     
-    def relative_angle_to(self, pose2) -> float:
+    # def relative_angle_to(self, pose2) -> float:
+    #     """
+    #     Compute the relative angle from this pixel to another pixel.
+    #     @param pose2 - A second PosePixels object.
+    #     """
+    #     dx = pose2.c - self.c
+    #     dy = -(pose2.r - self.r)
+    #     angle_point_to_point = np.arctan2(dy, dx)
+    #     return remainder(self.yaw - angle_point_to_point, tau)
+    
+    def direction_to_cell(self, pose2) -> str:
         """
-        Compute the relative angle from this pixel to another pixel.
-        @param pose2 - A second PosePixels object.
+        Compute the global cardinal direction from this cell to another cell.
+        @param pose2 - A second PosePixels object. Must be adjacent to this one.
+        @return str - cardinal direction to pose2.
         """
         dx = pose2.c - self.c
         dy = -(pose2.r - self.r)
-        angle_point_to_point = np.arctan2(dy, dx)
-        return remainder(angle_point_to_point - self.yaw, tau)
+        if dx == 1:
+            return "east"
+        elif dx == -1:
+            return "west"
+        elif dy == 1:
+            return "north"
+        elif dy == -1:
+            return "south"
+        else:
+            return "invalid: cell {:} is not a neighbor of {:}".format(pose2, self)

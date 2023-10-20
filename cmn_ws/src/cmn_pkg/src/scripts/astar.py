@@ -113,26 +113,36 @@ class Astar:
         # Generate (reverse) path with A*.
         self.last_path_px_reversed = self.run_astar(start_pose_px)
         # Check if we were unable to plan a path.
-        if self.last_path_px_reversed is None or len(self.last_path_px_reversed) < 2:
+        if self.last_path_px_reversed is None or len(self.last_path_px_reversed) < 1:
             rospy.logwarn("A*: Unable to plan a path, so commanding a random discrete action.")
             return np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
 
         # Check which direction from the current cell we should go to next.
-        next_cell = self.last_path_px_reversed[-2]
-        angle_start_to_next_cell = start_pose_px.relative_angle_to(next_cell)
-        # Compare this to current yaw to see if we need to turn.
-        # Use the yaw discretizer to check this.
-        equiv_direction = yaw_to_cardinal_dir(angle_start_to_next_cell)
-        if equiv_direction == "east":
-            # Next cell is in front of us.
+        next_cell = self.last_path_px_reversed[-1]
+        dir_to_next_cell = start_pose_px.direction_to_cell(next_cell)
+        dir_current_yaw = start_pose_px.get_direction()
+        print("dir_to_next_cell is {:}, and dir_current_yaw is {:}".format(dir_to_next_cell, dir_current_yaw))
+        if dir_to_next_cell == dir_current_yaw:
             return "move_forward"
-        elif equiv_direction == "north":
-            return "turn_left"
-        elif equiv_direction == "south":
-            return "turn_right"
         else:
-            # Next cell is behind us, so it doesn't matter which way we turn.
+            # TODO actually compute best direction to turn.
             return "turn_left"
+
+        # angle_start_to_next_cell = start_pose_px.relative_angle_to(next_cell)
+        # # Compare this to current yaw to see if we need to turn.
+        # # Use the yaw discretizer to check this.
+        # equiv_direction = yaw_to_cardinal_dir(angle_start_to_next_cell)
+        # print("equiv_direction is {:}".format(equiv_direction))
+        # if equiv_direction == "east":
+        #     # Next cell is in front of us.
+        #     return "move_forward"
+        # elif equiv_direction == "north":
+        #     return "turn_left"
+        # elif equiv_direction == "south":
+        #     return "turn_right"
+        # else:
+        #     # Next cell is behind us, so it doesn't matter which way we turn.
+        #     return "turn_left"
 
 
 
