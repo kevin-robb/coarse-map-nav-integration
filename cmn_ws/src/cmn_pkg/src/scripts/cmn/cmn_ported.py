@@ -98,8 +98,8 @@ class CoarseMapNavDiscrete:
         self.mfm = mfm
         # Load the coarse occupancy map: 1.0 for occupied cell and 0.0 for empty cell
         self.coarse_map_arr = self.mfm.inv_map_with_border.copy()
-        # Set the map for A* as well.
-        self.astar.map = self.mfm.map_with_border.copy()
+        self.astar.map = self.mfm.map_with_border.copy() # Set the map for A* as well.
+        self.visualizer.coarse_map = self.mfm.map_with_border.copy() # Set the map for visualizer as well.
         # Setup filepaths using mfm's pkg path.
         cmn_path = os.path.join(mfm.pkg_path, "src/scripts/cmn")
 
@@ -126,6 +126,7 @@ class CoarseMapNavDiscrete:
         # Setup the goal cell.
         self.goal_map_loc = goal_cell
         self.astar.goal_cell = PosePixels(goal_cell[0], goal_cell[1])
+        self.visualizer.goal_cell = PosePixels(goal_cell[0], goal_cell[1])
         if self.coarse_map_arr[self.goal_map_loc[0], self.goal_map_loc[1]] != 0.0:
             # Cell is not free.
             print("Warning: Goal cell given in CMN init() is not free!")
@@ -384,6 +385,7 @@ class CoarseMapNavDiscrete:
 
         # Save this localization result for the viz and planner to use.
         self.agent_pose_estimate_px = PosePixels(local_map_loc[0], local_map_loc[1], agent_yaw)
+        self.visualizer.current_localization_estimate = self.agent_pose_estimate_px
 
         # Find its index and the 3 x 3 local occupancy grid
         local_map_idx = self.coarse_map_graph.sampled_locations.index((local_map_loc[0], local_map_loc[1]))

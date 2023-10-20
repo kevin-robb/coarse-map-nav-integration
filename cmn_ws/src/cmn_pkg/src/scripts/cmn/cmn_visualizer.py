@@ -6,6 +6,8 @@ from matplotlib.gridspec import GridSpec
 import cv2
 import numpy as np
 
+from scripts.basic_types import PosePixels
+
 class CoarseMapNavVisualizer:
     """
     Functions to visualize discrete CMN data during the run.
@@ -18,6 +20,10 @@ class CoarseMapNavVisualizer:
     predictive_belief_map = None # Prediction update step.
     observation_prob_map = None # Measurement update step.
     agent_belief_map = None # Combined updated belief.
+    # Data for showing current localization and path planning.
+    coarse_map = None
+    current_localization_estimate:PosePixels = None
+    goal_cell:PosePixels = None
 
 
     def __init__(self):
@@ -52,8 +58,7 @@ class CoarseMapNavVisualizer:
         ax_pano_rgb = fig.add_subplot(grid[0, :])
         ax_local_occ_gt = fig.add_subplot(grid[1, 0])
         ax_local_occ_pred = fig.add_subplot(grid[1, 1])
-        # ax_local_occ_pred = fig.add_subplot(grid[1, 2])
-        # ax_top_down_view = fig.add_subplot(grid[1, 2])
+        ax_coarse_map = fig.add_subplot(grid[1, 2])
         # Add subplots for beliefs
         ax_pred_update_bel = fig.add_subplot(grid[2, 0])
         ax_obs_update_bel = fig.add_subplot(grid[2, 1])
@@ -66,8 +71,8 @@ class CoarseMapNavVisualizer:
         ax_local_occ_gt.axis("off")
         ax_local_occ_pred.set_title("Pred local occ")
         ax_local_occ_pred.axis("off")
-        # ax_top_down_view.set_title("Top down view")
-        # ax_top_down_view.axis("off")
+        ax_coarse_map.set_title("Coarse Map")
+        ax_coarse_map.axis("off")
         ax_pred_update_bel.set_title("Predictive belief")
         ax_pred_update_bel.axis("off")
         ax_obs_update_bel.set_title("Obs belief")
@@ -97,6 +102,20 @@ class CoarseMapNavVisualizer:
         if self.agent_belief_map is not None:
             belief = self.normalize_belief_for_visualization(self.agent_belief_map)
             ax_belief.imshow(belief, cmap="gray", vmin=0, vmax=1)
+
+        if self.coarse_map is not None:
+            # Convert coarse map to BGR.
+            img = cv2.cvtColor(self.coarse_map.copy(), cv2.COLOR_GRAY2BGR)
+            # Show other data on top of the coarse map.
+            if self.current_localization_estimate is not None:
+                # Show cell for current localization estimate.
+                img = cv2.circle(img, [self.current_localization_estimate.c, self.current_localization_estimate.r], 0, (0,255,0), -1)
+            if self.goal_cell is not None:
+                # Show cell for current goal.
+                img = cv2.circle(img, [self.goal_cell.c, self.goal_cell.r], 0, (255,255,0), -1)
+            # Add this to the viz.
+            ax_coarse_map.imshow(img)
+
 
         # Retrieve a view on the renderer buffer
         canvas.draw()
