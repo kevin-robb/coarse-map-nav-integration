@@ -141,11 +141,6 @@ class CoarseMapNavInterface():
                 # Ground-truth observation is relative to robot, with robot facing east, so rotate to global north for CMN convention.
                 current_local_map = np.rot90(current_local_map, k=1)
 
-            # Check if we are facing a wall. If we try to move forward while facing a wall, the robot will not move, but the predictive belief will update, becoming incorrect.
-            facing_a_wall:bool = False
-            if self.enable_sim:
-                facing_a_wall = self.map_frame_manager.agent_is_facing_wall()
-
             # Run discrete CMN.
             if not ((pano_rgb is None) ^ (current_local_map is None)):
                 rospy.logerr("Need pano_rgb or ground truth observation to run CMN.")
@@ -160,6 +155,26 @@ class CoarseMapNavInterface():
                 action = self.cmn_node.choose_next_action(agent_yaw, self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true))
             else:
                 action = self.cmn_node.choose_next_action(agent_yaw)
+
+            # This returns "goal_reached" when it believes the goal has been reached, according to the current vehicle pose estimate.
+            if action == "goal_reached":
+                if self.motion_planner.move_goal_after_reaching:
+                    # Select a random new goal point.
+                    rospy.loginfo("CMN: Goal reached, so choosing a new goal cell to continue the run.")
+                    self.motion_planner.set_goal_point_random()
+                    self.cmn_node.goal_map_loc = self.motion_planner.goal_pos_px.as_tuple()
+                else:
+                    # Terminate the run, since the goal has been achieved.
+                    rospy.loginfo("CMN: Goal reached, so terminating run.")
+                    exit()
+
+            # Check if we are facing a wall. If we try to move forward while facing a wall, the robot will not move, but the predictive belief will update, becoming incorrect.
+            facing_a_wall:bool = False
+            # if self.enable_sim:
+            #     facing_a_wall = self.map_frame_manager.agent_is_facing_wall()
+            # We can use the current local map (prediction) to tell if we are facing a wall when not using the simulator.
+            facing_a_wall = self.cmn_node.is_facing_a_wall_in_pred_local_occ
+
             # Update beliefs for this action.
             self.cmn_node.update_beliefs(action, agent_yaw, facing_a_wall)
             

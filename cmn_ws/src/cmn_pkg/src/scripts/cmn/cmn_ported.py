@@ -63,17 +63,19 @@ class CoarseMapNavDiscrete:
     # Define the graph based on the coarse map for shortest path planning
     coarse_map_graph = None
 
-    # Define the variables to store the beliefs
-    predictive_belief_map = None  # predictive prob
+    # Define the variables to store the beliefs. All have same dimensions as coarse map.
+    predictive_belief_map = None  # predictive prob map. Values range from 0 to 1.
     observation_prob_map = None  # measurement prob
     updated_belief_map = None  # updated prob
     agent_belief_map = None  # current agent pose belief on the map
 
-    current_local_map = None
+    current_local_map = None # Current predicted local occupancy map, rotated to align with global coarse map.
     empty_cell_map = None
     goal_map_loc = None
     goal_map_idx = None
     noise_trans_prob = None # Randomly sampled each iteration in range [0,1]. Chance that we don't modify our estimates after commanding a forward motion. Accounts for cell-based representation that relies on scale.
+
+    is_facing_a_wall_in_pred_local_occ:bool = False # Flag to store whether the predicted local occupancy has the robot facing a wall. If so, do not allow forward motion.
 
     agent_pose_estimate_px:PosePixels = None # Current localization estimate of the robot pose on the coarse map in pixels. Its yaw is whatever was passed into run_one_iter.
 
@@ -182,6 +184,16 @@ class CoarseMapNavDiscrete:
         ])
 
 
+    # def robot_is_facing_wall_in_local_map(self, agent_yaw:float) -> bool:
+    #     """
+    #     Use the known robot orientation and the predicted (or ground truth, if using sim) local occupancy map
+    #     to estimate if the robot is currently facing a wall.
+    #     @param agent_yaw - Current robot yaw in radians, with 0=east, increasing CCW. In range [-pi, pi].
+    #     @return bool - True if cell on local occ map in front of robot is occupied; False if it's free.
+    #     """
+    #     agent_dir = yaw_to_cardinal_dir(agent_yaw)
+
+
     def update_beliefs(self, action:str, agent_yaw:float, facing_a_wall:bool=False):
         """
         Run one iteration of CMN.
@@ -196,6 +208,7 @@ class CoarseMapNavDiscrete:
         if action == "move_forward":
             # randomly sample a p from a uniform distribution between [0, 1]
             self.noise_trans_prob = np.random.rand()
+            # TODO for the simulator, robot will always move when commanded, so this just makes the estimate diverge from truth after finding it.
             self.noise_trans_prob = 1
 
         # Check if the action is able to happen. i.e., if this commanded action will be ignored because of a wall, don't move the predictive belief.
@@ -206,8 +219,18 @@ class CoarseMapNavDiscrete:
         # Run the measurement update stage.
         self.measurement_update_func()
 
+        # Determine the weights for predicted vs observation belief maps.
+        # Belief will be computed as this * pred + (1 - this) * obs.
+        rel_weight_pred_vs_obs:float = 0.5
+        if action == "move_forward" and facing_a_wall:
+            # If this happens, it means our localization estimate is probably wrong, since we would never plan to move into a wall.
+            # So, blank it out on the predictive belief map.
+            self.predictive_belief_map[self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] = 0
+            # So, lower the weight of the existing/predicted belief, and increase the belief from current observation.
+            rel_weight_pred_vs_obs = 0.1
+
         # Full Bayesian update with weights for both update stages.
-        log_belief = np.log(self.observation_prob_map + 1e-8) + np.log(self.predictive_belief_map + 1e-8)
+        log_belief = np.log((1 - rel_weight_pred_vs_obs) * self.observation_prob_map + 1e-8) + np.log(rel_weight_pred_vs_obs * self.predictive_belief_map + 1e-8)
         belief = np.exp(log_belief)
         normalized_belief = belief / belief.sum()
         # Record this new belief map.
@@ -296,25 +319,8 @@ class CoarseMapNavDiscrete:
             # still: -1 is dealing with the mismatch
             measurement_prob_map[candidate_loc[0], candidate_loc[1]] = score
 
-            # print(self.current_local_map)
-            # print(candidate_map)
-            # map_diff = np.abs(self.current_local_map - candidate_map)
-            # print("map diff for loc {:}, score: {:.3f}".format(candidate_loc, score))
-            # cv2.imshow("map_diff", map_diff)
-            # key = cv2.waitKey(0)
-            # if key == 113:
-            #     cv2.destroyAllWindows()
-            #     exit()
-
-
         # Normalize it to [0, 1], and save to member var.
         self.observation_prob_map = measurement_prob_map / (np.max(measurement_prob_map) + 1e-8)
-
-        # print(measurement_prob_map)
-        # print(np.min(self.observation_prob_map), np.max(self.observation_prob_map))
-        # self.observation_prob_map *= 255
-        # print(self.observation_prob_map.shape)
-        # cv2.imshow("obs map", measurement_prob_map.astype(float)); cv2.waitKey(0)
 
 
     def predict_local_occupancy(self, pano_rgb, agent_yaw:float=None, gt_observation=None):
@@ -348,6 +354,11 @@ class CoarseMapNavDiscrete:
         else:
             # Scale observation up to 128x128 to match the output from the model.
             pred_local_occ = up_scale_grid(gt_observation)
+
+        # Before rotating the local map, check if the cell in front of the robot (i.e., top center cell) is occupied.
+        top_center_cell_block = pred_local_occ[:pred_local_occ.shape[0]//3, pred_local_occ.shape[0]//3:2*pred_local_occ.shape[0]//3]
+        top_center_cell_mean = np.mean(top_center_cell_block)
+        self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean >= 0.75
 
         # Get cardinal direction corresponding to agent orientation.
         agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
@@ -406,7 +417,7 @@ class CoarseMapNavDiscrete:
         Use the current localization estimate to choose the next discrete action to take.
         @param agent_yaw - Current orientation of the robot in radians.
         @param true_agent_pose (optional) - Ground truth agent pose from sim. If provided, used for A* path planning instead of the estimate.
-        @return next action to take.
+        @return next action to take. Returns "goal_reached" if the estimated robot pose matches the goal cell.
         """
         # Run localization.
         agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer(agent_yaw)
@@ -415,7 +426,7 @@ class CoarseMapNavDiscrete:
         if self.agent_pose_estimate_px.r == self.goal_map_loc[0] and self.agent_pose_estimate_px.c == self.goal_map_loc[1]:
             if self.agent_belief_map.max() > 0.9:
                 # We're at the goal cell and the belief map has converged.
-                return "stop"
+                return "goal_reached"
             else:
                 # We aren't confident enough in this estimate, so reset the belief map and keep going.
                 self.agent_belief_map = self.empty_cell_map / self.empty_cell_map.sum()

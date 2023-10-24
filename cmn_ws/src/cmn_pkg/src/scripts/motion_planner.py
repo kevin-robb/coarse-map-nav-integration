@@ -28,6 +28,7 @@ class MotionPlanner:
     Class to send commands to the robot.
     """
     verbose = False
+    move_goal_after_reaching:bool = False # If true, choose a new goal cell when the goal is reached.
     # Publisher that will be defined by a ROS node and set.
     cmd_vel_pub = None
 
@@ -74,6 +75,8 @@ class MotionPlanner:
             # Path planning.
             self.do_path_planning = config["path_planning"]["do_path_planning"]
             self.pure_pursuit.use_finite_lookahead_dist = self.do_path_planning
+            # Other configs.
+            self.move_goal_after_reaching = config["move_goal_after_reaching"]
 
     def set_vel_pub(self, pub):
         """

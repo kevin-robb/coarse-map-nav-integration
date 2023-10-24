@@ -153,7 +153,7 @@ class Visualizer:
                 ax1.arrow(self.veh_pose_in_obs_region["x"], self.veh_pose_in_obs_region["y"], self.veh_pose_in_obs_region["dx"], self.veh_pose_in_obs_region["dy"], color="blue", width=self.veh_pose_in_obs_region["width"], zorder = 2, head_width=0.01, head_length=0.25)
 
         # Add the legend, including info from both plots.
-        ax0.legend(loc="upper left")
+        ax0.legend(loc="upper left", fontsize="x-small")
 
         # Retrieve a view on the renderer buffer
         canvas.draw()
