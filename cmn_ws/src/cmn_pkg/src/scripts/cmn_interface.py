@@ -214,6 +214,8 @@ class CoarseMapNavInterface():
                 # self.map_frame_manager.propagate_with_dist(fwd, ang)
                 self.map_frame_manager.propagate_with_discrete_motion(action)
 
+            rospy.logwarn("CMN: Just took action {:}".format(action))
+
         # Save all desired data for later training/evaluation.
         if self.save_training_data:
             self.iteration += 1

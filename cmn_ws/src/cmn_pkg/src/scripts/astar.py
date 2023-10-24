@@ -121,7 +121,8 @@ class Astar:
         next_cell = self.last_path_px_reversed[-1]
         dir_to_next_cell = start_pose_px.direction_to_cell(next_cell)
         dir_current_yaw = start_pose_px.get_direction()
-        print("dir_to_next_cell is {:}, and dir_current_yaw is {:}".format(dir_to_next_cell, dir_current_yaw))
+        if self.verbose:
+            print("dir_to_next_cell is {:}, and dir_current_yaw is {:}".format(dir_to_next_cell, dir_current_yaw))
         if dir_to_next_cell == dir_current_yaw:
             return "move_forward"
         else:

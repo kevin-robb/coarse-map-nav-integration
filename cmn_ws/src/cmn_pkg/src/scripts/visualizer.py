@@ -108,12 +108,12 @@ class Visualizer:
         # Add the new (ground truth) vehicle pose to the viz.
         if self.veh_pose_true is not None:
             ax0.scatter(self.veh_pose_true.c, self.veh_pose_true.r, color="blue", label="True Vehicle Pose")
-            ax0.arrow(self.veh_pose_true.c, self.veh_pose_true.r, self.veh_pose_displ_len*cos(self.veh_pose_true.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_true.yaw), color="blue", width=self.veh_pose_displ_wid, head_width=0.01, head_length=0.1)
+            ax0.arrow(self.veh_pose_true.c, self.veh_pose_true.r, self.veh_pose_displ_len*cos(self.veh_pose_true.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_true.yaw), color="blue", width=self.veh_pose_displ_wid, head_width=0.01, head_length=0.5)
 
         # Add the most recent localization estimate to the viz.
         if self.veh_pose_estimate is not None:
             ax0.scatter(self.veh_pose_estimate.c, self.veh_pose_estimate.r, color="green", label="Vehicle Pose Estimate")
-            ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, self.veh_pose_displ_len*cos(self.veh_pose_estimate.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_estimate.yaw), color="green", width=self.veh_pose_displ_wid, zorder = 3, head_width=0.01, head_length=0.1)
+            ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, self.veh_pose_displ_len*cos(self.veh_pose_estimate.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_estimate.yaw), color="green", width=self.veh_pose_displ_wid, zorder = 3, head_width=0.01, head_length=0.5)
 
         # Plot the set of particles in the PF.
         if self.particle_set is not None:

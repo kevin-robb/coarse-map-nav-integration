@@ -66,7 +66,6 @@ class CoarseMapNavDiscrete:
     # Define the variables to store the beliefs. All have same dimensions as coarse map.
     predictive_belief_map = None  # predictive prob map. Values range from 0 to 1.
     observation_prob_map = None  # measurement prob
-    updated_belief_map = None  # updated prob
     agent_belief_map = None  # current agent pose belief on the map
 
     current_local_map = None # Current predicted local occupancy map, rotated to align with global coarse map.
@@ -144,10 +143,6 @@ class CoarseMapNavDiscrete:
         self.agent_belief_map = init_belief / init_belief.sum()
         # record the space map:
         self.empty_cell_map = 1 - self.coarse_map_arr
-        # init other beliefs
-        self.predictive_belief_map = np.zeros_like(self.coarse_map_arr)  # predictive probability
-        self.observation_prob_map = np.zeros_like(self.coarse_map_arr)  # observation probability
-        self.updated_belief_map = np.zeros_like(self.coarse_map_arr)  # updated probability
 
 
     def load_ml_model(self, path_to_model:str, device_str:str="cpu"):
@@ -201,47 +196,52 @@ class CoarseMapNavDiscrete:
         @param agent_yaw - Current robot yaw in radians, with 0=east, increasing CCW. In range [-pi, pi].
         @param facing_a_wall - (optional) If we are facing a wall, we cannot move forwards. So, don't update the belief if we decide to move_forward. This shouldn't be commanded, except in random actions mode.
         """
-        # When we command a forward motion, the actual robot will always be commanded to move.
-        # However, we don't know if this motion is enough to correspond to motion between cells on the coarse map.
-        # i.e., the coarse map scale may be so large that it takes several forward motions to achieve a different cell.
-        # So, there is a probability here that the forward motion is not carried out in the cell representation.
-        if action == "move_forward":
-            # randomly sample a p from a uniform distribution between [0, 1]
-            self.noise_trans_prob = np.random.rand()
-            # TODO for the simulator, robot will always move when commanded, so this just makes the estimate diverge from truth after finding it.
-            self.noise_trans_prob = 1
+        # If this is the first iteration, just set up the belief maps and return.
+        if self.predictive_belief_map is None:
+            self.predictive_belief_map = self.agent_belief_map.copy() #np.zeros_like(self.coarse_map_arr)  # predictive probability
+            self.observation_prob_map = np.zeros_like(self.coarse_map_arr)  # observation probability
 
-        # Check if the action is able to happen. i.e., if this commanded action will be ignored because of a wall, don't move the predictive belief.
-        if action != "move_forward" or not facing_a_wall:
-            # Run the predictive update stage.
-            self.predictive_update_func(action, yaw_to_cardinal_dir(agent_yaw))
+        else:
+            # When we command a forward motion, the actual robot will always be commanded to move.
+            # However, we don't know if this motion is enough to correspond to motion between cells on the coarse map.
+            # i.e., the coarse map scale may be so large that it takes several forward motions to achieve a different cell.
+            # So, there is a probability here that the forward motion is not carried out in the cell representation.
+            if action == "move_forward":
+                # randomly sample a p from a uniform distribution between [0, 1]
+                self.noise_trans_prob = np.random.rand()
+                # TODO for the simulator, robot will always move when commanded, so this just makes the estimate diverge from truth after finding it.
+                self.noise_trans_prob = 1
 
-        # Run the measurement update stage.
-        self.measurement_update_func()
+            # Check if the action is able to happen. i.e., if this commanded action will be ignored because of a wall, don't move the predictive belief.
+            if action != "move_forward" or not facing_a_wall:
+                # Run the predictive update stage.
+                self.predictive_update_func(action, yaw_to_cardinal_dir(agent_yaw))
 
-        # Determine the weights for predicted vs observation belief maps.
-        # Belief will be computed as this * pred + (1 - this) * obs.
-        rel_weight_pred_vs_obs:float = 0.5
-        if action == "move_forward" and facing_a_wall:
-            # If this happens, it means our localization estimate is probably wrong, since we would never plan to move into a wall.
-            # So, blank it out on the predictive belief map.
-            self.predictive_belief_map[self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] = 0
-            # So, lower the weight of the existing/predicted belief, and increase the belief from current observation.
-            rel_weight_pred_vs_obs = 0.1
+            # Run the measurement update stage.
+            self.measurement_update_func()
 
-        # Full Bayesian update with weights for both update stages.
-        log_belief = np.log((1 - rel_weight_pred_vs_obs) * self.observation_prob_map + 1e-8) + np.log(rel_weight_pred_vs_obs * self.predictive_belief_map + 1e-8)
-        belief = np.exp(log_belief)
-        normalized_belief = belief / belief.sum()
-        # Record this new belief map.
-        self.updated_belief_map = normalized_belief.copy()
-        self.agent_belief_map = normalized_belief.copy()
+            # Determine the weights for predicted vs observation belief maps.
+            # Belief will be computed as this * pred + (1 - this) * obs.
+            rel_weight_pred_vs_obs:float = 0.001
+            if action == "move_forward" and facing_a_wall:
+                # If this happens, it means our localization estimate is probably wrong, since we would never plan to move into a wall.
+                # So, blank it out on the predictive belief map.
+                self.predictive_belief_map[self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] = 0
+                # So, lower the weight of the existing/predicted belief, and increase the belief from current observation.
+                rel_weight_pred_vs_obs = 0.1
+
+            # Full Bayesian update with weights for both update stages.
+            log_belief = np.log((1 - rel_weight_pred_vs_obs) * self.observation_prob_map + 1e-8) + np.log(rel_weight_pred_vs_obs * self.predictive_belief_map + 1e-8)
+            belief = np.exp(log_belief)
+            normalized_belief = belief / belief.sum()
+            # Record this new belief map.
+            self.agent_belief_map = normalized_belief.copy()
 
         # Update the visualization.
         self.visualizer.current_predicted_local_map = self.current_local_map
         self.visualizer.predictive_belief_map = self.predictive_belief_map
         self.visualizer.observation_prob_map = self.observation_prob_map
-        self.visualizer.agent_belief_map = self.updated_belief_map
+        self.visualizer.agent_belief_map = self.agent_belief_map
 
 
     def predictive_update_func(self, agent_act:str, agent_dir:str):
@@ -355,10 +355,11 @@ class CoarseMapNavDiscrete:
             # Scale observation up to 128x128 to match the output from the model.
             pred_local_occ = up_scale_grid(gt_observation)
 
-        # Before rotating the local map, check if the cell in front of the robot (i.e., top center cell) is occupied.
+        # Before rotating the local map, check if the cell in front of the robot (i.e., top center cell) is occupied (i.e., == 0).
         top_center_cell_block = pred_local_occ[:pred_local_occ.shape[0]//3, pred_local_occ.shape[0]//3:2*pred_local_occ.shape[0]//3]
         top_center_cell_mean = np.mean(top_center_cell_block)
-        self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean >= 0.75
+        # print("top_center_cell_mean is {:}".format(top_center_cell_mean))
+        self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.25
 
         # Get cardinal direction corresponding to agent orientation.
         agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
@@ -423,8 +424,9 @@ class CoarseMapNavDiscrete:
         agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer(agent_yaw)
 
         # Check if the agent has reached the goal location.
+        print("agent pose estimate is {:}, while goal cell is {:}".format(self.agent_pose_estimate_px, self.goal_map_loc))
         if self.agent_pose_estimate_px.r == self.goal_map_loc[0] and self.agent_pose_estimate_px.c == self.goal_map_loc[1]:
-            if self.agent_belief_map.max() > 0.9:
+            if self.agent_belief_map.max() > 0.2:
                 # We're at the goal cell and the belief map has converged.
                 return "goal_reached"
             else:
@@ -434,6 +436,20 @@ class CoarseMapNavDiscrete:
         # Check if planning is enabled.
         if self.send_random_commands:
             return np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
+        
+        # If we aren't confident enough in any particular region, just explore a bit first.
+        # This is necessary because allowing path planning while the localization estimate is jumping around leads to a lot of turning in place and no convergence.
+        print("self.agent_belief_map.max() is {:}".format(self.agent_belief_map.max()))
+        num_high_predictions = (self.agent_belief_map > 0.9 * self.agent_belief_map.max()).sum()
+        print("num_high_predictions is {:}".format(num_high_predictions))
+        # if num_high_predictions > 10:
+        if self.agent_belief_map.max() < 0.05:
+            # Explore some more before planning.
+            rospy.logwarn("CMN: Localization has not converged enough, so exploring rather than planning a path to the goal.")
+            if self.is_facing_a_wall_in_pred_local_occ:
+                return "turn_left"
+            else:
+                return "move_forward"
 
         # Check which planning method to use.
         if self.use_astar:

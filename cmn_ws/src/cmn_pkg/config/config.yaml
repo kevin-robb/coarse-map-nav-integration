@@ -3,6 +3,7 @@
 verbose: false # Show a lot more debug information.
 
 # Rate at which to publish velocity commands to the robot.
+# When using discrete sim, can set to 0 to run only one frame at a time.
 dt: 0.1 # timer period in seconds.
 
 model:

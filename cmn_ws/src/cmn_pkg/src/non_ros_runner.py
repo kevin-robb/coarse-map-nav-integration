@@ -19,6 +19,9 @@ def main():
     # The sim & viz are always enabled when using this runner.
     runner_node.set_global_params(args.run_mode, True, True, None)
 
+    # Set the dt to 0 so we can play the sim one frame at a time.
+    runner_node.g_dt = 0.0
+
     # Call the main run loop at the same frequency it would be called through ROS.
     while True:
         runner_node.timer_update_loop()
