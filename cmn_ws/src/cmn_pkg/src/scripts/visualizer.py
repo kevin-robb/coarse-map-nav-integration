@@ -20,11 +20,11 @@ class Visualizer:
     occ_map = None # Occupancy grid map that will be displayed in the background of the main viz window.
     observation = None # Most recent observation image.
     observation_region = None # Area in front of robot being used to generate observations.
-    veh_pose_true_meters = None # Most recent ground-truth vehicle pose.
-    veh_pose_estimate = None # Most recent localization estimate of the vehicle pose.
+    veh_pose_true_px:PosePixels = None # Most recent ground-truth vehicle pose.
+    veh_pose_estimate:PosePixels = None # Most recent localization estimate of the vehicle pose.
     particle_set = None # Set of all particles currently in the particle filter. Only set if the PF is being used. (Nx3 numpy array)
     planned_path = None # Full path being planned by the motion controller, as list of PosePixels.
-    goal_cell = None # Current goal cell in pixels. Instance of PosePixels.
+    goal_cell:PosePixels = None # Current goal cell in pixels.
     veh_pose_in_obs_region = None # Dict of veh pose details relative to observation frame. This is constant once set.
     veh_pose_displ_len, veh_pose_displ_wid = None, None # Size to show veh pose(s) on the plot. This is constant once set.
 
@@ -106,9 +106,9 @@ class Visualizer:
         ax0.imshow(self.occ_map, cmap="gray", vmin=0, vmax=1)
 
         # Add the new (ground truth) vehicle pose to the viz.
-        if self.veh_pose_true_meters is not None:
-            ax0.scatter(self.veh_pose_true_meters.c, self.veh_pose_true_meters.r, color="blue", label="True Vehicle Pose")
-            ax0.arrow(self.veh_pose_true_meters.c, self.veh_pose_true_meters.r, self.veh_pose_displ_len*cos(self.veh_pose_true_meters.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_true_meters.yaw), color="blue", width=self.veh_pose_displ_wid, head_width=0.01, head_length=0.5)
+        if self.veh_pose_true_px is not None:
+            ax0.scatter(self.veh_pose_true_px.c, self.veh_pose_true_px.r, color="blue", label="True Vehicle Pose")
+            ax0.arrow(self.veh_pose_true_px.c, self.veh_pose_true_px.r, self.veh_pose_displ_len*cos(self.veh_pose_true_px.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_true_px.yaw), color="blue", width=self.veh_pose_displ_wid, head_width=0.01, head_length=0.5)
 
         # Add the most recent localization estimate to the viz.
         if self.veh_pose_estimate is not None:

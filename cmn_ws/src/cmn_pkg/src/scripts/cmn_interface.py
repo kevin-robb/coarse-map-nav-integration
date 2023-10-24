@@ -49,7 +49,7 @@ class CoarseMapNavInterface():
     # Visualizer is only possible when running the sim on host PC.
     visualizer:Visualizer = None # Will be initialized only if enabled.
 
-    current_agent_pose:PoseMeters = PoseMeters(0,0,0) # Current estimated pose of the agent, (x, y, yaw) in meters & radians. For discrete case, assume yaw is ground truth (known).
+    veh_pose_estimate_meters:PoseMeters = PoseMeters(0,0,0) # Current estimated pose of the agent, (x, y, yaw) in meters & radians. For discrete case, assume yaw is ground truth (known).
     pano_rgb = None # If we perform an action of turning in-place, we don't need to retake the measurement. Instead, we shift it to be centered on the new orientation, and save it here.
 
     # Params for saving training/eval data during the run.
@@ -120,7 +120,7 @@ class CoarseMapNavInterface():
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
                 # Also save the ground truth pose for viz.
-                self.visualizer.veh_pose_true_meters = self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true_meters)
+                self.visualizer.veh_pose_true_px = self.map_frame_manager.veh_pose_true_px
 
         if not self.use_discrete_space:
             # Run the continuous version of the project.
@@ -134,9 +134,9 @@ class CoarseMapNavInterface():
         else:
             # NOTE CMN requires knowing the robot yaw. If we have the ground truth, use that.
             if self.enable_sim:
-                agent_yaw = self.map_frame_manager.veh_pose_true_meters.yaw
+                agent_yaw = self.map_frame_manager.veh_pose_true_px.yaw
             else:
-                agent_yaw = self.current_agent_pose.yaw # This is just whatever we initialized it to...
+                agent_yaw = self.veh_pose_estimate_meters.yaw # This is just whatever we initialized it to...
                 # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
 
             if current_local_map is not None:
@@ -154,7 +154,7 @@ class CoarseMapNavInterface():
             # Perform localization and choose the next action to take.
             plan_from_true_pose:bool = False
             if self.enable_sim and plan_from_true_pose:
-                action = self.cmn_node.choose_next_action(agent_yaw, self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true_meters))
+                action = self.cmn_node.choose_next_action(agent_yaw, self.map_frame_manager.veh_pose_true_px)
             else:
                 action = self.cmn_node.choose_next_action(agent_yaw)
 
@@ -206,7 +206,7 @@ class CoarseMapNavInterface():
             if self.cmn_node.agent_pose_estimate_px is not None:
                 # Save the localization estimate (and save in the visualizer).
                 localization_result_px = self.cmn_node.agent_pose_estimate_px
-                self.current_agent_pose = self.map_frame_manager.transform_pose_px_to_m(localization_result_px)
+                self.veh_pose_estimate_meters = self.map_frame_manager.transform_pose_px_to_m(localization_result_px)
                 if self.enable_viz:
                     self.visualizer.veh_pose_estimate = localization_result_px
 
@@ -255,7 +255,7 @@ class CoarseMapNavInterface():
         # Robot yaw is represented in radians with 0 being right (east), increasing CCW.
         # So, to rotate it to face north, need to rotate by opposite of yaw, plus an additional 90 degrees.
         # NOTE even though the function doc says to provide the amount to rotate CCW, it seems like chengguang's code gives the negative of this.
-        # map_obs = rotate(map_obs, -degrees(self.current_agent_pose.yaw) + 90.0)
+        # map_obs = rotate(map_obs, -degrees(self.veh_pose_estimate_meters.yaw) + 90.0)
         # TODO find a way to do this continuous rotation without using skimage.rotate; may be able to use the other existing submodule.
         self.cmn_node.current_local_map = map_obs
         return map_obs
@@ -268,15 +268,15 @@ class CoarseMapNavInterface():
         """
         if not self.enable_localization:
             # Use the ground-truth agent pose.
-            self.current_agent_pose = self.map_frame_manager.veh_pose_true_meters
+            self.veh_pose_estimate_meters = self.map_frame_manager.veh_pose_true_meters
             return
 
         # Use the particle filter to get a localization estimate from this observation.
-        self.current_agent_pose = self.particle_filter.update_with_observation(current_local_map)
+        self.veh_pose_estimate_meters = self.particle_filter.update_with_observation(current_local_map)
         if self.enable_viz:
             # Convert particle set to pixels for viz.
             self.visualizer.particle_set = self.particle_filter.get_particle_set_px()
-            self.visualizer.veh_pose_estimate = self.map_frame_manager.transform_pose_m_to_px(self.current_agent_pose)
+            self.visualizer.veh_pose_estimate = self.map_frame_manager.transform_pose_m_to_px(self.veh_pose_estimate_meters)
         # Run the PF resampling step.
         self.particle_filter.resample()
 
@@ -286,7 +286,7 @@ class CoarseMapNavInterface():
         Choose a motion to command. Use this commanded motion to propagate our beliefs forward.
         @param dt - Timer period in seconds representing how often commands are sent to the robot. Only used for particle filter propagation.
         """
-        fwd, ang = self.motion_planner.plan_path_to_goal(self.current_agent_pose)
+        fwd, ang = self.motion_planner.plan_path_to_goal(self.veh_pose_estimate_meters)
         # If the goal was reached, plan_path_to_goal returns None, None.
         if fwd is None and ang is None:
             rospy.loginfo("Goal is reached, so ending the run loop.")
