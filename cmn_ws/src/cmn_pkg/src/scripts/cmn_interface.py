@@ -96,7 +96,9 @@ class CoarseMapNavInterface():
         if self.use_discrete_space or not self.enable_sim:
             # Create Coarse Map Navigator (CMN) node.
             # NOTE For continuous, only need it to process sensor data into local occupancy map.
-            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, self.motion_planner.goal_pos_px.as_tuple(), not config.enable_ml_model, "random" in config.run_mode)
+            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, not config.enable_ml_model, "random" in config.run_mode)
+            # Set the goal cell.
+            self.cmn_node.set_goal_cell(self.motion_planner.goal_pos_px)
 
         # Init the visualizer only if it's enabled.
         if self.enable_viz:
@@ -160,12 +162,14 @@ class CoarseMapNavInterface():
             if action == "goal_reached":
                 if self.motion_planner.move_goal_after_reaching:
                     # Select a random new goal point.
-                    rospy.loginfo("CMN: Goal reached, so choosing a new goal cell to continue the run.")
+                    rospy.logwarn("CMN: Goal reached, so choosing a new goal cell to continue the run.")
                     self.motion_planner.set_goal_point_random()
-                    self.cmn_node.goal_map_loc = self.motion_planner.goal_pos_px.as_tuple()
+                    self.cmn_node.set_goal_cell(self.motion_planner.goal_pos_px)
+                    if self.enable_viz:
+                        self.visualizer.goal_cell = self.motion_planner.goal_pos_px
                 else:
                     # Terminate the run, since the goal has been achieved.
-                    rospy.loginfo("CMN: Goal reached, so terminating run.")
+                    rospy.logwarn("CMN: Goal reached, so terminating run.")
                     exit()
 
             # Check if we are facing a wall. If we try to move forward while facing a wall, the robot will not move, but the predictive belief will update, becoming incorrect.

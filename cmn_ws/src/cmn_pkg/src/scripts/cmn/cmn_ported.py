@@ -83,11 +83,10 @@ class CoarseMapNavDiscrete:
     astar = Astar() # For path planning.
 
 
-    def __init__(self, mfm:MapFrameManager, goal_cell, skip_load_model:bool=False, send_random_commands:bool=False):
+    def __init__(self, mfm:MapFrameManager, skip_load_model:bool=False, send_random_commands:bool=False):
         """
         Initialize the CMN instance.
         @param mfm - Reference to MapFrameManager which has already loaded in the coarse map and processed it by adding a border.
-        @param goal_cell - Tuple of goal cell (r,c) on coarse map. If provided, do some more setup with it.
         @param skip_load_model (optional, default False) Flag to skip loading the observation model. Useful to run on a computer w/o nvidia gpu.
         @param send_random_commands (optional, default False) Flag to send random discrete actions instead of planning. Useful for basic demo.
         """
@@ -120,22 +119,9 @@ class CoarseMapNavDiscrete:
             path_to_model = os.path.join(cmn_path, "model/trained_local_occupancy_predictor_model.pt")
             self.load_ml_model(path_to_model, device_str)
 
-        # Create environment (now done in sim).
-        # Randomly choose starting position and goal cell (done in sim).
-        # TODO set starting position in this class?
-
-        # Setup the goal cell.
-        self.goal_map_loc = goal_cell
-        self.astar.goal_cell = PosePixels(goal_cell[0], goal_cell[1])
-        self.visualizer.goal_cell = PosePixels(goal_cell[0], goal_cell[1])
-        if self.coarse_map_arr[self.goal_map_loc[0], self.goal_map_loc[1]] != 0.0:
-            # Cell is not free.
-            print("Warning: Goal cell given in CMN init() is not free!")
-
         # Initialize the coarse map graph for path planning
         # Build a graph based on the coarse map for shortest path planning
         self.coarse_map_graph = TopoMap(self.coarse_map_arr, self.mfm.obs_height_px, self.mfm.obs_width_px)
-        self.goal_map_idx = self.coarse_map_graph.sampled_locations.index(tuple(self.goal_map_loc))
 
         # Initialize the coarse map grid beliefs for global localization with Bayesian filtering.
         # Initialize the belief as a uniform distribution over all empty spaces
@@ -143,6 +129,21 @@ class CoarseMapNavDiscrete:
         self.agent_belief_map = init_belief / init_belief.sum()
         # record the space map:
         self.empty_cell_map = 1 - self.coarse_map_arr
+
+
+    def set_goal_cell(self, goal_cell:PosePixels):
+        """
+        Set a new goal cell for CMN, A*, and the visualizer.
+        @param goal_cell
+        """
+        self.goal_map_loc = goal_cell.as_tuple()
+        self.goal_map_idx = self.coarse_map_graph.sampled_locations.index(tuple(self.goal_map_loc))
+        if self.coarse_map_arr[self.goal_map_loc[0], self.goal_map_loc[1]] != 0.0:
+            # Cell is not free.
+            rospy.logwarn("CMN: Goal cell given in CMN init() is not free!")
+        # Set this goal location in utility subclasses as well.
+        self.astar.goal_cell = goal_cell
+        self.visualizer.goal_cell = goal_cell
 
 
     def load_ml_model(self, path_to_model:str, device_str:str="cpu"):
