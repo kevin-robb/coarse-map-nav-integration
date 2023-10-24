@@ -87,26 +87,31 @@ class CoarseMapNavVisualizer:
             ax_pano_rgb.imshow(self.pano_rgb)
 
         if self.current_ground_truth_local_map is not None:
-            ax_local_occ_gt.imshow(self.current_ground_truth_local_map, cmap="gray", vmin=0, vmax=1)
+            ax_local_occ_gt.imshow(self.current_ground_truth_local_map.astype('float'), cmap="gray", vmin=0, vmax=1)
             
         if self.current_predicted_local_map is not None:
-            ax_local_occ_pred.imshow(self.current_predicted_local_map, cmap="gray", vmin=0, vmax=1)
+            ax_local_occ_pred.imshow(self.current_predicted_local_map.astype('float'), cmap="gray", vmin=0, vmax=1)
 
         if self.predictive_belief_map is not None:
             predictive_belief = self.normalize_belief_for_visualization(self.predictive_belief_map)
-            ax_pred_update_bel.imshow(predictive_belief, cmap="gray", vmin=0, vmax=1)
+            ax_pred_update_bel.imshow(predictive_belief.astype('float'), cmap="gray", vmin=0, vmax=1)
 
         if self.observation_prob_map is not None:
             observation_belief = self.normalize_belief_for_visualization(self.observation_prob_map)
-            ax_obs_update_bel.imshow(observation_belief, cmap="gray", vmin=0, vmax=1)
+            ax_obs_update_bel.imshow(observation_belief.astype('float'), cmap="gray", vmin=0, vmax=1)
 
         if self.agent_belief_map is not None:
             belief = self.normalize_belief_for_visualization(self.agent_belief_map)
-            ax_belief.imshow(belief, cmap="gray", vmin=0, vmax=1)
+            ax_belief.imshow(belief.astype('float'), cmap="gray", vmin=0, vmax=1)
 
         if self.coarse_map is not None:
             # Convert coarse map to BGR.
-            img = cv2.cvtColor(self.coarse_map.copy(), cv2.COLOR_GRAY2BGR)
+            # img = cv2.cvtColor(self.coarse_map.copy(), cv2.COLOR_GRAY2BGR)
+            map_img = (self.coarse_map.copy() * 255).astype('uint8')
+            img = np.zeros((map_img.shape[0], map_img.shape[1], 3), dtype="uint8")
+            img[:,:,0] = map_img
+            img[:,:,1] = map_img
+            img[:,:,2] = map_img
             # Show other data on top of the coarse map.
             if self.planned_path_to_goal is not None:
                 for cell in self.planned_path_to_goal:
