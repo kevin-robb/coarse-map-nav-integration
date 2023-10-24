@@ -179,16 +179,6 @@ class CoarseMapNavDiscrete:
         ])
 
 
-    # def robot_is_facing_wall_in_local_map(self, agent_yaw:float) -> bool:
-    #     """
-    #     Use the known robot orientation and the predicted (or ground truth, if using sim) local occupancy map
-    #     to estimate if the robot is currently facing a wall.
-    #     @param agent_yaw - Current robot yaw in radians, with 0=east, increasing CCW. In range [-pi, pi].
-    #     @return bool - True if cell on local occ map in front of robot is occupied; False if it's free.
-    #     """
-    #     agent_dir = yaw_to_cardinal_dir(agent_yaw)
-
-
     def update_beliefs(self, action:str, agent_yaw:float, facing_a_wall:bool=False):
         """
         Run one iteration of CMN.

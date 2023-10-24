@@ -11,7 +11,7 @@ from random import random, randrange
 from cv_bridge import CvBridge, CvBridgeError
 
 from scripts.rotated_rectangle_crop_opencv.rotated_rect_crop import crop_rotated_rectangle
-from scripts.basic_types import PoseMeters, PosePixels
+from scripts.basic_types import PoseMeters, PosePixels, Pose
 
 #### GLOBAL VARIABLES ####
 bridge = CvBridge()
@@ -288,14 +288,18 @@ class MapFrameManager(CoarseMapProcessor):
         col = int(clamp(col, 0, self.map_with_border.shape[1]-1))
         return row, col
 
-    def extract_observation_region(self, veh_pose_m:PoseMeters):
+    def extract_observation_region(self, veh_pose:Pose, pose_in_meters:bool=True):
         """
         Crop out the map region for the observation corresponding to the given vehicle pose.
-        @param veh_pose_m PoseMeters instance containing x, y, and yaw representing a vehicle pose.
+        @param veh_pose PoseMeters or PosePixels instance containing a vehicle pose.
+        @param pose_in_meters - Flag to tell us whether veh_pose arg is PosePixels or PoseMeters.
         @return tuple containing (observation image, bounding box region in map frame)
         """
         # Compute vehicle pose in pixels.
-        veh_pose_px = self.transform_pose_m_to_px(veh_pose_m)
+        if pose_in_meters:
+            veh_pose_px = self.transform_pose_m_to_px(veh_pose)
+        else:
+            veh_pose_px = veh_pose
         # Project ahead of vehicle pose to determine center of observation region.
         center_col = veh_pose_px.c + (self.obs_height_px_on_map / 2 - self.veh_px_vert_from_bottom_on_map) * cos(veh_pose_px.yaw)
         center_row = veh_pose_px.r - (self.obs_height_px_on_map / 2 - self.veh_px_vert_from_bottom_on_map) * sin(veh_pose_px.yaw)
@@ -359,10 +363,11 @@ class MapFrameManager(CoarseMapProcessor):
             if self.map_with_border[r, c] == 1: # this cell is free.
                 return PosePixels(r, c)
 
-    def generate_random_valid_veh_pose(self) -> PoseMeters:
+    def generate_random_valid_veh_pose(self, in_meters:bool = True) -> Pose:
         """
         Generate a vehicle pose at random.
         Ensure this position is within map bounds, and is located in free space.
+        @param in_meters - True to generate PoseMeters, False to generate PosePixels.
         @return PoseMeters of the created pose.
         """
         if self.use_discrete_state_space:
@@ -373,11 +378,16 @@ class MapFrameManager(CoarseMapProcessor):
             # Choose any yaw at random, with no validity condition.
             yaw = remainder(random() * tau, tau)
         # Choose a random vehicle cell in px so we can first check if it's occluded.
-        free_cell = self.choose_random_free_cell()
+        free_cell:PosePixels = self.choose_random_free_cell()
         # Set yaw, since it will be kept through coords transform.
         free_cell.yaw = yaw
-        # Convert this cell into meters.
-        return self.transform_pose_px_to_m(free_cell)
+
+        if in_meters:
+            # Convert this cell into meters.
+            return self.transform_pose_px_to_m(free_cell)
+        else:
+            # Return the pose in pixels.
+            return free_cell
             
     def veh_pose_m_in_collision(self, veh_pose_m:PoseMeters) -> bool:
         """
@@ -387,14 +397,23 @@ class MapFrameManager(CoarseMapProcessor):
         """
         r, c = self.transform_map_m_to_px(veh_pose_m.x, veh_pose_m.y)
         return self.map_with_border[r, c] != 1 # return false if this cell is free, and true otherwise.
+    
+    def veh_pose_px_in_collision(self, veh_pose_px:PosePixels) -> bool:
+        """
+        Given a vehicle pose, determine if this is in collision on the map.
+        @param veh_pose_px - PosePixels instance containing r,c,yaw.
+        @return true if the vehicle pose is in collision on the occupancy grid map.
+        """
+        return self.map_with_border[veh_pose_px.r, veh_pose_px.c] != 1 # return false if this cell is free, and true otherwise.
 
 class Simulator(MapFrameManager):
     """
     Class to support running the project in simulation, without the robot providing real data.
     """
     # Ground-truth vehicle pose in the global map frame (origin at center).
-    veh_pose_true = None # (x,y,yaw) in meters and radians.
-    veh_pose_true_se2 = None # 3x3 matrix of SE(2) representation.
+    veh_pose_true_px:PosePixels = None # (r,c,yaw) in pixels and radians.
+    veh_pose_true_meters:PoseMeters = None # (x,y,yaw) in meters and radians.
+    veh_pose_true_se2 = None # 3x3 matrix of SE(2) representation of veh_pose_true_meters.
 
     discrete_forward_dist:float = None # Forward distance corresponding to a discrete "move_forward" action. Used to check if a motion would result in collision.
 
@@ -419,7 +438,8 @@ class Simulator(MapFrameManager):
             # Debug flag (can only be true when using simulator).
             self.show_obs_gen_debug = config["simulator"]["show_obs_gen_debug"]
         # Initialize the ground truth vehicle pose randomly on the map.
-        self.veh_pose_true = self.generate_random_valid_veh_pose()
+        self.veh_pose_true_px = self.generate_random_valid_veh_pose(False)
+        self.veh_pose_true_meters = self.transform_pose_px_to_m(self.veh_pose_true_px)
 
     def propagate_with_vel(self, lin:float, ang:float):
         """
@@ -443,13 +463,13 @@ class Simulator(MapFrameManager):
         # TODO Perturb with some noise.
         # Compute a proposed new vehicle pose, and check if it's allowed before moving officially.
         veh_pose_proposed = PoseMeters()
-        veh_pose_proposed.x = self.veh_pose_true.x + lin * cos(self.veh_pose_true.yaw)
-        veh_pose_proposed.y = self.veh_pose_true.y + lin * sin(self.veh_pose_true.yaw)
+        veh_pose_proposed.x = self.veh_pose_true_meters.x + lin * cos(self.veh_pose_true_meters.yaw)
+        veh_pose_proposed.y = self.veh_pose_true_meters.y + lin * sin(self.veh_pose_true_meters.yaw)
         # Clamp the vehicle pose to remain inside the map bounds.
         veh_pose_proposed.x = clamp(veh_pose_proposed.x, self.map_x_min_meters, self.map_x_max_meters)
         veh_pose_proposed.y = clamp(veh_pose_proposed.y, self.map_y_min_meters, self.map_y_max_meters)
         # Keep yaw normalized to (-pi, pi).
-        veh_pose_proposed.yaw = remainder(self.veh_pose_true.yaw + ang, tau)
+        veh_pose_proposed.yaw = remainder(self.veh_pose_true_meters.yaw + ang, tau)
         return veh_pose_proposed
 
     def propagate_with_dist(self, lin:float, ang:float):
@@ -462,11 +482,13 @@ class Simulator(MapFrameManager):
         # Determine if this vehicle pose is allowed.
         if not self.allow_motion_through_occupied_cells and self.veh_pose_m_in_collision(veh_pose_proposed):
             rospy.logwarn("SIM: Command would move vehicle to invalid pose. Only allowing angular motion.")
-            self.veh_pose_true.yaw = veh_pose_proposed.yaw
+            self.veh_pose_true_meters.yaw = veh_pose_proposed.yaw
         else:
-            self.veh_pose_true = veh_pose_proposed
+            self.veh_pose_true_meters = veh_pose_proposed
             if self.verbose:
-                rospy.loginfo("SIM: Allowing command. Veh pose is now " + str(self.veh_pose_true))
+                rospy.loginfo("SIM: Allowing command. Veh pose is now " + str(self.veh_pose_true_meters))
+        # Update the pixels representation as well.
+        self.veh_pose_true_px = self.transform_pose_m_to_px(self.veh_pose_true_meters)
 
     def propagate_with_discrete_motion(self, action:str):
         """
@@ -474,19 +496,27 @@ class Simulator(MapFrameManager):
         @param action - one of "move_forward", "turn_left", "turn_right"
         """
         if action == "turn_left":
-            self.veh_pose_true.yaw = remainder(self.veh_pose_true.yaw + pi/2, tau)
+            self.veh_pose_true_px.yaw = remainder(self.veh_pose_true_px.yaw + pi/2, tau)
         elif action == "turn_right":
-            self.veh_pose_true.yaw = remainder(self.veh_pose_true.yaw - pi/2, tau)
+            self.veh_pose_true_px.yaw = remainder(self.veh_pose_true_px.yaw - pi/2, tau)
         elif action == "move_forward":
-            # Move forward one pixel.
-            self.propagate_with_dist(self.map_resolution_desired, 0)
+            # Move forward one pixel, if the pixel we would move to is free.
+            agent_dir = self.veh_pose_true_px.get_direction()
+            dr = {"east" : 0, "west" : 0, "north" : -1, "south" : 1}
+            dc = {"east" : 1, "west" : -1, "north" : 0, "south" : 0}
+            proposed_new_pose = PosePixels(self.veh_pose_true_px.r + dr[agent_dir], self.veh_pose_true_px.c + dc[agent_dir], self.veh_pose_true_px.yaw)
+            if not self.veh_pose_px_in_collision(proposed_new_pose):
+                self.veh_pose_true_px = proposed_new_pose
+            # self.propagate_with_dist(self.map_resolution_desired, 0)
+        # Update the meters representation as well.
+        self.veh_pose_true_meters = self.transform_pose_px_to_m(self.veh_pose_true_px)
 
     def get_true_observation(self):
         """
         @return the ground-truth observation, using our ground-truth map and vehicle pose.
         """
         # Use more general utilities class to generate the observation, using the known true vehicle pose.
-        return self.extract_observation_region(self.veh_pose_true)
+        return self.extract_observation_region(self.veh_pose_true_px, False)
 
     def agent_is_facing_wall(self) -> bool:
         """

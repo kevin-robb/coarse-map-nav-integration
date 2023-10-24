@@ -118,7 +118,7 @@ class CoarseMapNavInterface():
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
                 # Also save the ground truth pose for viz.
-                self.visualizer.veh_pose_true = self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true)
+                self.visualizer.veh_pose_true_meters = self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true_meters)
 
         if not self.use_discrete_space:
             # Run the continuous version of the project.
@@ -132,7 +132,7 @@ class CoarseMapNavInterface():
         else:
             # NOTE CMN requires knowing the robot yaw. If we have the ground truth, use that.
             if self.enable_sim:
-                agent_yaw = self.map_frame_manager.veh_pose_true.yaw
+                agent_yaw = self.map_frame_manager.veh_pose_true_meters.yaw
             else:
                 agent_yaw = self.current_agent_pose.yaw # This is just whatever we initialized it to...
                 # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
@@ -152,7 +152,7 @@ class CoarseMapNavInterface():
             # Perform localization and choose the next action to take.
             plan_from_true_pose:bool = False
             if self.enable_sim and plan_from_true_pose:
-                action = self.cmn_node.choose_next_action(agent_yaw, self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true))
+                action = self.cmn_node.choose_next_action(agent_yaw, self.map_frame_manager.transform_pose_m_to_px(self.map_frame_manager.veh_pose_true_meters))
             else:
                 action = self.cmn_node.choose_next_action(agent_yaw)
 
@@ -264,7 +264,7 @@ class CoarseMapNavInterface():
         """
         if not self.enable_localization:
             # Use the ground-truth agent pose.
-            self.current_agent_pose = self.map_frame_manager.veh_pose_true
+            self.current_agent_pose = self.map_frame_manager.veh_pose_true_meters
             return
 
         # Use the particle filter to get a localization estimate from this observation.
