@@ -12,3 +12,37 @@ alias test_motion="rostopic pub --once /locobot/mobile_base/commands/velocity ge
 # Record a bag with the standard name.
 alias record_bag="rosbag record --output-name=~/data/test_bag.bag -a"
 
+# Save and view the TF tree.
+view_tf_frames() {
+    rosrun tf view_frames
+    evince frames.pdf
+}
+
+# Setup static transforms for cartographer to work.
+setup_static_tf() {
+    rosrun tf static_transform_publisher 0 0 0 0 0 0 base_link camera_depth_frame 100 &
+    rosrun tf static_transform_publisher 0 0 0 0 0 0 base_link target_frame 100 &
+    rosrun tf static_transform_publisher 0 0 0 0 0 0 locobot/laser_frame_link laser 100 &
+    rosrun tf static_transform_publisher 0 0 0 0 0 0 locobot/laser_frame_link locobot/base_link 100 &
+}
+# Kill the static transform publishers in the background.
+alias kill_static_tf_pubs="pkill static_transform_publisher"
+# Alternatively, search for them with 
+# ps -eaf | grep static_transform_publisher
+# or
+# pgrep static_transform_publisher
+# then for each process ID, run
+# kill <process_id>
+
+# Start cartographer.
+start_cartographer() {
+    cd ~/cartographer_ws
+    source install_isolated/setup.bash
+    roslaunch cartographer_ros my_robot.launch
+}
+
+# Save and view a map being created by cartographer.
+save_map() {
+    rosrun map_server map_saver -f mapname
+    feh mapname.pgm
+}

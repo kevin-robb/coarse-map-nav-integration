@@ -141,7 +141,7 @@ rosrun tf static_transform_publisher 0 0 0 0 0 0 base_link target_frame 100
 rosrun tf static_transform_publisher 0 0 0 0 0 0 locobot/laser_frame_link laser 100
 rosrun tf static_transform_publisher 0 0 0 0 0 0 locobot/laser_frame_link locobot/base_link 100
 ```
-Note that you can analyze the tf tree by running `rosrun tf view_frames`.
+Note that you can analyze the tf tree by running `rosrun tf view_frames`. This will generate a file `frames.pdf` in the current working directory, which you can quickly view with `evince frames.pdf`.
 
 3. Now we need to control the robot to drive around the space. We can do this using the built-in turtlebot keyboard control node, or start our own node to command random/test motions. These methods are described in prior sections of this document.
 
@@ -149,6 +149,8 @@ Note that you can analyze the tf tree by running `rosrun tf view_frames`.
 ```
 rosrun map_server map_saver -f mapname
 ```
+This will save the map image as `mapname.pgm`, as well as some descriptive info to `mapname.yaml`. We can quickly view the map image with the command `feh mapname.pgm`.
+
 <p align="center">
   <img src="images/carto_first_map.png"/>
   
