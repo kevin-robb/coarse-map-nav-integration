@@ -2,7 +2,8 @@
 
 import rospy
 import numpy as np
-from scripts.basic_types import PosePixels, yaw_to_cardinal_dir
+from math import remainder, tau
+from scripts.basic_types import PosePixels, yaw_to_cardinal_dir, cardinal_dir_to_yaw
 
 class Astar:
     verbose = False
@@ -126,25 +127,8 @@ class Astar:
         if dir_to_next_cell == dir_current_yaw:
             return "move_forward"
         else:
-            # TODO actually compute best direction to turn.
-            return "turn_left"
-
-        # angle_start_to_next_cell = start_pose_px.relative_angle_to(next_cell)
-        # # Compare this to current yaw to see if we need to turn.
-        # # Use the yaw discretizer to check this.
-        # equiv_direction = yaw_to_cardinal_dir(angle_start_to_next_cell)
-        # print("equiv_direction is {:}".format(equiv_direction))
-        # if equiv_direction == "east":
-        #     # Next cell is in front of us.
-        #     return "move_forward"
-        # elif equiv_direction == "north":
-        #     return "turn_left"
-        # elif equiv_direction == "south":
-        #     return "turn_right"
-        # else:
-        #     # Next cell is behind us, so it doesn't matter which way we turn.
-        #     return "turn_left"
-
+            yaw_diff_rads = remainder(cardinal_dir_to_yaw[dir_to_next_cell] - cardinal_dir_to_yaw[dir_current_yaw], tau)
+            return "turn_left" if yaw_diff_rads > 0 else "turn_right"
 
 
 class Cell:

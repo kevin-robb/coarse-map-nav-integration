@@ -14,7 +14,6 @@ sys.path.append(os.path.abspath(os.path.join(__file__, "../..")))
 sys.path.append(os.path.abspath(os.path.join(__file__, "../../..")))
 
 # CMN related
-from scripts.cmn.tree_search import TreeNode, BFTree
 from scripts.cmn.topo_map import TopoMap, compute_similarity_iou, up_scale_grid, compute_similarity_mse
 
 from scripts.cmn.cmn_visualizer import CoarseMapNavVisualizer
@@ -79,7 +78,6 @@ class CoarseMapNavDiscrete:
     agent_pose_estimate_px:PosePixels = None # Current localization estimate of the robot pose on the coarse map in pixels. Its yaw is whatever was passed into run_one_iter.
 
     visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
-    use_astar:bool = True # Flag to use A* instead of original CMN planner.
     astar = Astar() # For path planning.
 
 
@@ -213,13 +211,13 @@ class CoarseMapNavDiscrete:
 
             # Determine the weights for predicted vs observation belief maps.
             # Belief will be computed as this * pred + (1 - this) * obs.
-            rel_weight_pred_vs_obs:float = 0.001
+            rel_weight_pred_vs_obs:float = 0.5
             if action == "move_forward" and facing_a_wall:
                 # If this happens, it means our localization estimate is probably wrong, since we would never plan to move into a wall.
                 # So, blank it out on the predictive belief map.
                 self.predictive_belief_map[self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] = 0
                 # So, lower the weight of the existing/predicted belief, and increase the belief from current observation.
-                rel_weight_pred_vs_obs = 0.1
+                # rel_weight_pred_vs_obs = 0.1
 
             # Full Bayesian update with weights for both update stages.
             log_belief = np.log((1 - rel_weight_pred_vs_obs) * self.observation_prob_map + 1e-8) + np.log(rel_weight_pred_vs_obs * self.predictive_belief_map + 1e-8)
@@ -237,7 +235,7 @@ class CoarseMapNavDiscrete:
 
     def predictive_update_func(self, agent_act:str, agent_dir:str):
         """
-        Update the grid-based beliefs using the roll function in python
+        Update the grid-based beliefs using the roll function in python. 
         @param agent_act: Action commanded to the robot.
         @param agent_dir: String representation of a cardinal direction for the robot orientation.
         """
@@ -286,6 +284,9 @@ class CoarseMapNavDiscrete:
 
         # Update the belief map.
         self.predictive_belief_map = pred_belief
+
+        # Update the current localization estimate as well.
+        self.agent_pose_estimate_px.apply_action(agent_act)
 
 
     def measurement_update_func(self):
@@ -376,32 +377,30 @@ class CoarseMapNavDiscrete:
 
     def cmn_localizer(self, agent_yaw:float):
         """
-        Perform localization (discrete bayesian filter) using belief map.
-        For localization result, return 3-tuple of:
+        Perform localization (discrete bayesian filter) using belief map. Save result to member variable agent_pose_estimate_px.
         @param agent_yaw - Orientation of agent in radians; will be saved as part of localization estimate.
-        @return int: index of agent cell in local map.
-        @return Tuple[int]: cell location in local map, (r, c).
-        @return local occupancy grid map.
         """
         # Find all the locations with max estimated probability
         candidates = np.where(self.agent_belief_map == self.agent_belief_map.max())
         candidates = [[r, c] for r, c in zip(candidates[0].tolist(), candidates[1].tolist())]
 
-        # Randomly sample one as the estimate
-        rnd_idx = np.random.randint(low=0, high=len(candidates))
-        local_map_loc = tuple(candidates[rnd_idx])
+        # If the current estimate is still among the max likelihood candidates, keep using it.
+        current_est_still_good = self.agent_pose_estimate_px is not None and [self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] in candidates
 
-        # Save this localization result for the viz and planner to use.
-        self.agent_pose_estimate_px = PosePixels(local_map_loc[0], local_map_loc[1], agent_yaw)
+        if not current_est_still_good:
+            # Randomly sample one as the estimate
+            rnd_idx = np.random.randint(low=0, high=len(candidates))
+            local_map_loc = tuple(candidates[rnd_idx])
+            # Save this localization result for the planner to use.
+            self.agent_pose_estimate_px = PosePixels(local_map_loc[0], local_map_loc[1], agent_yaw)
+
+        # Save this for the viz.
         self.visualizer.current_localization_estimate = self.agent_pose_estimate_px
 
         # Find its index and the 3 x 3 local occupancy grid
-        local_map_idx = self.coarse_map_graph.sampled_locations.index((local_map_loc[0], local_map_loc[1]))
-
+        # local_map_idx = self.coarse_map_graph.sampled_locations.index((local_map_loc[0], local_map_loc[1]))
         # Render the local occupancy
-        local_map_occ = self.coarse_map_graph.local_maps[local_map_idx]['map_arr']
-
-        return local_map_idx, local_map_loc, local_map_occ
+        # local_map_occ = self.coarse_map_graph.local_maps[local_map_idx]['map_arr']
 
 
     def choose_next_action(self, agent_yaw:float, true_agent_pose:PosePixels=None) -> str:
@@ -412,12 +411,12 @@ class CoarseMapNavDiscrete:
         @return next action to take. Returns "goal_reached" if the estimated robot pose matches the goal cell.
         """
         # Run localization.
-        agent_map_idx, agent_map_loc, agent_local_map = self.cmn_localizer(agent_yaw)
+        self.cmn_localizer(agent_yaw)
 
         # Check if the agent has reached the goal location.
-        print("agent pose estimate is {:}, while goal cell is {:}".format(self.agent_pose_estimate_px, self.goal_map_loc))
+        # print("agent pose estimate is {:}, while goal cell is {:}".format(self.agent_pose_estimate_px, self.goal_map_loc))
         if self.agent_pose_estimate_px.r == self.goal_map_loc[0] and self.agent_pose_estimate_px.c == self.goal_map_loc[1]:
-            if self.agent_belief_map.max() > 0.2:
+            if self.agent_belief_map.max() > 0.9:
                 # We're at the goal cell and the belief map has converged.
                 return "goal_reached"
             else:
@@ -430,10 +429,7 @@ class CoarseMapNavDiscrete:
         
         # If we aren't confident enough in any particular region, just explore a bit first.
         # This is necessary because allowing path planning while the localization estimate is jumping around leads to a lot of turning in place and no convergence.
-        print("self.agent_belief_map.max() is {:}".format(self.agent_belief_map.max()))
-        num_high_predictions = (self.agent_belief_map > 0.9 * self.agent_belief_map.max()).sum()
-        print("num_high_predictions is {:}".format(num_high_predictions))
-        # if num_high_predictions > 10:
+        # print("self.agent_belief_map.max() is {:}".format(self.agent_belief_map.max()))
         if self.agent_belief_map.max() < 0.05:
             # Explore some more before planning.
             rospy.logwarn("CMN: Localization has not converged enough, so exploring rather than planning a path to the goal.")
@@ -442,41 +438,13 @@ class CoarseMapNavDiscrete:
             else:
                 return "move_forward"
 
-        # Check which planning method to use.
-        if self.use_astar:
-            # Use the vehicle pose estimate to plan a path with A*.
-            if true_agent_pose is not None:
-                action = self.astar.get_next_discrete_action(true_agent_pose)
-            else:
-                action = self.astar.get_next_discrete_action(self.agent_pose_estimate_px)
-            # Save the path for viz.
-            self.visualizer.planned_path_to_goal = self.astar.last_path_px_reversed
-            return action
+        # Use the vehicle pose estimate to plan a path with A*.
+        if true_agent_pose is not None:
+            action = self.astar.get_next_discrete_action(true_agent_pose)
         else:
-            # Plan a path using Dijkstra's algorithm
-            path = self.coarse_map_graph.dijkstra_path(agent_map_idx, self.goal_map_idx)
-            if len(path) <= 1:
-                return np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
+            action = self.astar.get_next_discrete_action(self.agent_pose_estimate_px)
+        # Save the path for viz.
+        self.visualizer.planned_path_to_goal = self.astar.last_path_px_reversed
+        return action
 
-            # Compute the heuristic vector
-            loc_1 = agent_map_loc
-            loc_2 = self.coarse_map_graph.sampled_locations[path[1]]
-            heu_vec = compute_norm_heuristic_vec([loc_1[1], loc_1[0]],
-                                                    [loc_2[1], loc_2[0]])
-
-            # Do a k-step breadth first search based on the heuristic vector
-            root_node = TreeNode([0, 0, 0], agent_yaw)
-            breadth_first_tree = BFTree(root_node,
-                                        depth=self.forward_step_k,
-                                        agent_forward_step=self.forward_step_meters)
-            best_child_node = breadth_first_tree.find_the_best_child(heu_vec)
-
-            # retrieve the tree to get the action
-            parent = best_child_node.parent
-            while parent.parent is not None:
-                best_child_node = best_child_node.parent
-                parent = best_child_node.parent
-
-            # based on the results select the best action
-            return best_child_node.name
 

@@ -119,8 +119,6 @@ class CoarseMapNavInterface():
             # Save this observation for the viz.
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
-                # Also save the ground truth pose for viz.
-                self.visualizer.veh_pose_true_px = self.map_frame_manager.veh_pose_true_px
 
         if not self.use_discrete_space:
             # Run the continuous version of the project.
@@ -202,14 +200,6 @@ class CoarseMapNavInterface():
                     # The observation was not set yet, since we don't have ground truth. So, use predicted for viz instead.
                     self.visualizer.set_observation(self.cmn_node.current_local_map)
 
-            # If localization is running, get the veh pose estimate to use.
-            if self.cmn_node.agent_pose_estimate_px is not None:
-                # Save the localization estimate (and save in the visualizer).
-                localization_result_px = self.cmn_node.agent_pose_estimate_px
-                self.veh_pose_estimate_meters = self.map_frame_manager.transform_pose_px_to_m(localization_result_px)
-                if self.enable_viz:
-                    self.visualizer.veh_pose_estimate = localization_result_px
-
             # Command the decided action to the robot/sim.
             fwd, ang = self.motion_planner.cmd_discrete_action(action)
             # fwd, ang = self.motion_planner.cmd_random_discrete_action()
@@ -217,8 +207,18 @@ class CoarseMapNavInterface():
             if self.enable_sim:
                 # self.map_frame_manager.propagate_with_dist(fwd, ang)
                 self.map_frame_manager.propagate_with_discrete_motion(action)
-
             rospy.logwarn("CMN: Just took action {:}".format(action))
+
+            # If localization is running, get the veh pose estimate to use.
+            if self.cmn_node.agent_pose_estimate_px is not None:
+                # Save the localization estimate (and save in the visualizer).
+                localization_result_px = self.cmn_node.agent_pose_estimate_px
+                self.veh_pose_estimate_meters = self.map_frame_manager.transform_pose_px_to_m(localization_result_px)
+                if self.enable_viz:
+                    self.visualizer.veh_pose_estimate = localization_result_px
+                    # Also save the ground truth pose for viz.
+                    self.visualizer.veh_pose_true_px = self.map_frame_manager.veh_pose_true_px
+
 
         # Save all desired data for later training/evaluation.
         if self.save_training_data:

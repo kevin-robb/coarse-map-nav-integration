@@ -10,6 +10,10 @@ from math import remainder, pi, tau
 # Given a cardinal direction, this is the corresponding global orientation, assuming 0=east and CCW>0.
 cardinal_dir_to_yaw = {"east" : 0.0, "north" : pi/2, "west" : pi, "south" : -pi/2}
 
+# Maps from a direction to the necessary change to row & column to achieve a motion of one pixel in that direction.
+dr_map = {"east" : 0, "west" : 0, "north" : -1, "south" : 1}
+dc_map = {"east" : 1, "west" : -1, "north" : 0, "south" : 0}
+
 def yaw_to_cardinal_dir(yaw:float):
     """
     Discretize the yaw into the nearest cardinal direction.
@@ -136,16 +140,6 @@ class PosePixels(Pose):
         """
         return (self.r, self.c)
     
-    # def relative_angle_to(self, pose2) -> float:
-    #     """
-    #     Compute the relative angle from this pixel to another pixel.
-    #     @param pose2 - A second PosePixels object.
-    #     """
-    #     dx = pose2.c - self.c
-    #     dy = -(pose2.r - self.r)
-    #     angle_point_to_point = np.arctan2(dy, dx)
-    #     return remainder(self.yaw - angle_point_to_point, tau)
-    
     def direction_to_cell(self, pose2) -> str:
         """
         Compute the global cardinal direction from this cell to another cell.
@@ -164,3 +158,20 @@ class PosePixels(Pose):
             return "south"
         else:
             return "invalid: cell {:} is not a neighbor of {:}".format(pose2, self)
+        
+    def apply_action(self, action:str):
+        """
+        Apply the specified action to this pose.
+        @param action - String representation of the action to take. Options are "move_forward", "turn_left", "turn_right".
+        """
+        dir = self.get_direction()
+        if action == "move_forward":
+            # Update the current localization estimate as well.
+            self.r += dr_map[dir]
+            self.c += dc_map[dir]
+        elif action == "turn_left":
+            self.yaw = remainder(self.yaw + pi/2, tau)
+        elif action == "turn_right":
+            self.yaw = remainder(self.yaw - pi/2, tau)
+        else:
+            print("ERROR: PosePixels.apply_action() called with invalid action: {:}".format(action))
