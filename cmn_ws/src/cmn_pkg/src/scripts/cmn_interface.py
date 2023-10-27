@@ -216,8 +216,9 @@ class CoarseMapNavInterface():
                 self.veh_pose_estimate_meters = self.map_frame_manager.transform_pose_px_to_m(localization_result_px)
                 if self.enable_viz:
                     self.visualizer.veh_pose_estimate = localization_result_px
-                    # Also save the ground truth pose for viz.
-                    self.visualizer.veh_pose_true_px = self.map_frame_manager.veh_pose_true_px
+                    if self.enable_sim:
+                        # Also save the ground truth pose for viz.
+                        self.visualizer.veh_pose_true_px = self.map_frame_manager.veh_pose_true_px
 
 
         # Save all desired data for later training/evaluation.
