@@ -339,6 +339,16 @@ class CoarseMapNavDiscrete:
                 pred_local_occ = self.model(pano_rgb_obs_tensor)
                 # Reshape the predicted local occupancy
                 pred_local_occ = pred_local_occ.cpu().squeeze(dim=0).squeeze(dim=0).numpy()
+                # This is now a 128x128 numpy array, with values in range 0 (occupied) -- 1 (free).
+
+            crop_prediction:bool = False
+            if crop_prediction:
+                # Crop the prediction to only the center region, for which it is more accurate.
+                new_width:int = 100
+                buffer:int = (128 - new_width) // 2
+                pred_local_occ_cropped = pred_local_occ[buffer:-buffer, buffer:-buffer]
+                # Resize back up to 128x128.
+                pred_local_occ = cv2.resize(pred_local_occ_cropped, (128, 128), 0, 0, cv2.INTER_LINEAR)
 
             # If the agent yaw was not provided, this is just being used by the runner to test the model.
             if agent_yaw is None:
