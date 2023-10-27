@@ -16,9 +16,4 @@ Some methods of generating said maps for this project are:
  - Pulling building schematics for the environment in question. This will likely result in a sparser map than reality, as only permanent fixtures like walls and pillars will appear, and furniture will be absent.
  - Having a bored grad student draw a map in less than 2 minutes. This option will likely be more representative of the real space, but proportions cannot be guaranteed. Using this option also forces us to estimate the scale ourselves, since there is no assumed map <--> world transformation built in.
 
-## Running teleop with the robot
-After starting roscore & bringup on the robot, run the following on the host PC:
-```
-rosrun teleop_twist_keyboard teleop_twist_keyboard.py cmd_vel:=/locobot/mobile_base/commands/velocity
-```
 

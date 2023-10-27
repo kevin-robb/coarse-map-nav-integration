@@ -20,12 +20,13 @@ class Visualizer:
     occ_map = None # Occupancy grid map that will be displayed in the background of the main viz window.
     observation = None # Most recent observation image.
     observation_region = None # Area in front of robot being used to generate observations.
-    veh_pose_true = None # Most recent ground-truth vehicle pose.
-    veh_pose_estimate = None # Most recent localization estimate of the vehicle pose.
+    veh_pose_true_px:PosePixels = None # Most recent ground-truth vehicle pose.
+    veh_pose_estimate:PosePixels = None # Most recent localization estimate of the vehicle pose.
     particle_set = None # Set of all particles currently in the particle filter. Only set if the PF is being used. (Nx3 numpy array)
     planned_path = None # Full path being planned by the motion controller, as list of PosePixels.
-    goal_cell = None # Current goal cell in pixels. Instance of PosePixels.
+    goal_cell:PosePixels = None # Current goal cell in pixels.
     veh_pose_in_obs_region = None # Dict of veh pose details relative to observation frame. This is constant once set.
+    veh_pose_displ_len, veh_pose_displ_wid = None, None # Size to show veh pose(s) on the plot. This is constant once set.
 
     mfm = None # Reference to MapFrameManager allows access to important configs that get computed during map setup.
 
@@ -63,9 +64,14 @@ class Visualizer:
         """
         self.mfm = mfm
         # Setup the map on the figure.
-        self.occ_map = mfm.map_with_border
+        self.occ_map = mfm.map_with_border.copy()
         # Compute vehicle pose relative to observation region, now that we've set mfm and have the needed configs.
         self.set_veh_pose_in_obs_region()
+
+        # Choose size to show robot pose(s) to ensure consistency and staying in frame.
+        self.veh_pose_displ_len = 10 * self.mfm.map_resolution_desired / self.mfm.map_downscale_ratio # Must be nonzero so direction is stored, but make very small so we only see the triangle.
+        self.veh_pose_displ_wid = 0.01 * self.mfm.map_resolution_desired / self.mfm.map_downscale_ratio # This controls the size of the triangle part of the arrow (what we care about).
+
 
     def set_veh_pose_in_obs_region(self):
         """
@@ -100,12 +106,14 @@ class Visualizer:
         ax0.imshow(self.occ_map, cmap="gray", vmin=0, vmax=1)
 
         # Add the new (ground truth) vehicle pose to the viz.
-        if self.veh_pose_true is not None:
-            ax0.arrow(self.veh_pose_true.c, self.veh_pose_true.r, 0.5*cos(self.veh_pose_true.yaw), -0.5*sin(self.veh_pose_true.yaw), color="blue", width=1.0, label="True Vehicle Pose")
+        if self.veh_pose_true_px is not None:
+            ax0.scatter(self.veh_pose_true_px.c, self.veh_pose_true_px.r, color="blue", label="True Vehicle Pose")
+            ax0.arrow(self.veh_pose_true_px.c, self.veh_pose_true_px.r, self.veh_pose_displ_len*cos(self.veh_pose_true_px.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_true_px.yaw), color="blue", width=self.veh_pose_displ_wid, head_width=0.01, head_length=0.5)
 
         # Add the most recent localization estimate to the viz.
         if self.veh_pose_estimate is not None:
-            ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, 0.5*cos(self.veh_pose_estimate.yaw), -0.5*sin(self.veh_pose_estimate.yaw), color="green", width=1.0, zorder = 3, label="PF Estimate")
+            ax0.scatter(self.veh_pose_estimate.c, self.veh_pose_estimate.r, color="green", label="Vehicle Pose Estimate")
+            ax0.arrow(self.veh_pose_estimate.c, self.veh_pose_estimate.r, self.veh_pose_displ_len*cos(self.veh_pose_estimate.yaw), -self.veh_pose_displ_len*sin(self.veh_pose_estimate.yaw), color="green", width=self.veh_pose_displ_wid, zorder = 3, head_width=0.01, head_length=0.5)
 
         # Plot the set of particles in the PF.
         if self.particle_set is not None:
@@ -132,16 +140,20 @@ class Visualizer:
 
         ######### RIGHT SUBPLOT ###########
         ax1 = fig.add_subplot(1, 4, 4)
+        ax1.set_title("GT local occ\n(rel to robot east)")
         # Plot the new observation.
         if self.observation is not None:
             ax1.imshow(self.observation, cmap="gray", vmin=0, vmax=1)
-        # Plot the vehicle pose relative to the observation.
-        if self.veh_pose_in_obs_region is not None:
-            # Unpack the dictionary of its data that we computed earlier.
-            ax1.arrow(**self.veh_pose_in_obs_region, color="blue", zorder = 2)
+            # Plot the vehicle pose relative to the observation.
+            if self.veh_pose_in_obs_region is not None:
+                # Unpack the dictionary of its data that we computed earlier.
+                # ax1.arrow(**self.veh_pose_in_obs_region, color="blue", zorder = 2)
+
+                ax1.scatter(self.veh_pose_in_obs_region["x"], self.veh_pose_in_obs_region["y"], color="blue")
+                ax1.arrow(self.veh_pose_in_obs_region["x"], self.veh_pose_in_obs_region["y"], self.veh_pose_in_obs_region["dx"], self.veh_pose_in_obs_region["dy"], color="blue", width=self.veh_pose_in_obs_region["width"], zorder = 2, head_width=0.01, head_length=0.25)
 
         # Add the legend, including info from both plots.
-        ax0.legend(loc="upper left")
+        ax0.legend(loc="upper left", fontsize="x-small")
 
         # Retrieve a view on the renderer buffer
         canvas.draw()

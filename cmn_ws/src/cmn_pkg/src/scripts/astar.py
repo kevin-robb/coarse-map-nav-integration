@@ -1,37 +1,48 @@
 #!/usr/bin/env python3
 
 import rospy
-
-from scripts.basic_types import PosePixels
+import numpy as np
+from math import remainder, tau
+from scripts.basic_types import PosePixels, yaw_to_cardinal_dir, cardinal_dir_to_yaw
 
 class Astar:
     verbose = False
     include_diagonals = False
     map = None # 2D numpy array of the global map
+    goal_cell:PosePixels = None # Place to save goal cell so we don't have to pass it in every time.
     # Neighbors for comparison and avoiding re-computations.
     nbrs = [(0, -1), (0, 1), (-1, 0), (1, 0)] + ([(-1, -1), (-1, 1), (1, -1), (1, 1)] if include_diagonals else [])
 
-    def run_astar(self, start_pose_px:PosePixels, goal_pose_px:PosePixels):
+    # Last computed path. Saving it here makes it easier to get it for viz.
+    last_path_px_reversed = None
+
+    def run_astar(self, start_pose_px:PosePixels, goal_pose_px:PosePixels=None):
         """
-        Use A* to generate a path from the current pose to the goal position.
+        Use A* to generate a path from the current pose to the goal position. Must have set self.map already.
         @param start_pose_px, goal_pose_px PosePixels of start and end of path.
+        @note goal_pose_px can be omitted to use self.goal_cell instead.
         @return List of PosePixels describing the path in reverse (i.e., from goal to start).
         """
+        if self.map is None:
+            rospy.logerr("A*: Cannot run_astar since self.map is None!")
+            return
         # Define start and goal nodes as Cells.
         start_cell = Cell(start_pose_px)
+        if goal_pose_px is None:
+            goal_pose_px = self.goal_cell
         goal_cell = Cell(goal_pose_px)
         # make sure starting pose is on the map and not in collision.
-        if start_cell.r < 0 or start_cell.c < 0 or start_cell.r >= self.map.shape[0] or start_cell.c >= self.map.shape[1]:
-            rospy.logerr("AST: Starting position not within map bounds. Exiting without computing a path.")
+        if start_cell.out_of_bounds(self.map):
+            rospy.logerr("A*: Starting position not within map bounds. Exiting without computing a path.")
             return
         if start_cell.in_collision(self.map):
-            rospy.logwarn("AST: Starting position is in collision. Computing a path, and encouraging motion to free space.")
+            rospy.logwarn("A*: Starting position is in collision. Computing a path, and encouraging motion to free space.")
         # make sure goal is on the map and not in collision.
-        if goal_cell.r < 0 or goal_cell.c < 0 or goal_cell.r >= self.map.shape[0] or goal_cell.c >= self.map.shape[1]:
-            rospy.logerr("AST: Goal position not within map bounds. Exiting without computing a path.")
+        if goal_cell.out_of_bounds(self.map):
+            rospy.logerr("A*: Goal position not within map bounds. Exiting without computing a path.")
             return
         if goal_cell.in_collision(self.map):
-            rospy.logerr("AST: Goal position is in collision. Exiting without computing a path.")
+            rospy.logerr("A*: Goal position is in collision. Exiting without computing a path.")
             return
 
         # add starting node to open list.
@@ -40,7 +51,7 @@ class Astar:
         # iterate until reaching the goal or exhausting all cells.
         while len(open_list) > 0:
             if self.verbose:
-                rospy.loginfo("AST: Iteration with len(open_list)={:}, len(closed_list)={:}".format(len(open_list), len(closed_list)))
+                rospy.loginfo("A*: Iteration with len(open_list)={:}, len(closed_list)={:}".format(len(open_list), len(closed_list)))
             # move first element of open list to closed list.
             open_list.sort(key=lambda cell: cell.f)
             cur_cell = open_list.pop(0)
@@ -56,7 +67,7 @@ class Astar:
             closed_list.append(cur_cell)
             # add its unoccupied neighbors to the open list.
             for chg in self.nbrs:
-                nbr = Cell([cur_cell.r+chg[0], cur_cell.c+chg[1]], parent=cur_cell)
+                nbr = Cell(PosePixels(cur_cell.r+chg[0], cur_cell.c+chg[1]), parent=cur_cell)
                 # skip if out of bounds.
                 if nbr.r < 0 or nbr.c < 0 or nbr.r >= self.map.shape[0] or nbr.c >= self.map.shape[1]: continue
                 # skip if occluded, unless parent is occluded.
@@ -88,6 +99,37 @@ class Astar:
                 open_list.append(nbr)
 
 
+    def get_next_discrete_action(self, start_pose_px:PosePixels) -> str:
+        """
+        Use A* with the current self.map and self.goal_cell to plan a path, and determine the next action to take.
+        @param start_pose_px Current estimate of the robot pose, in pixels on self.map.
+        @return str - Next action to take, one of "move_forward", "turn_left", "turn_right".
+        """
+        if self.map is None or self.goal_cell is None:
+            rospy.logerr("A*: Cannot get_next_discrete_action unless self.map and self.goal_cell have been set!")
+            exit()
+        # Force cardinal direction movement only.
+        self.include_diagonals = False
+
+        # Generate (reverse) path with A*.
+        self.last_path_px_reversed = self.run_astar(start_pose_px)
+        # Check if we were unable to plan a path.
+        if self.last_path_px_reversed is None or len(self.last_path_px_reversed) < 1:
+            rospy.logwarn("A*: Unable to plan a path, so commanding a random discrete action.")
+            return np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
+
+        # Check which direction from the current cell we should go to next.
+        next_cell = self.last_path_px_reversed[-1]
+        dir_to_next_cell = start_pose_px.direction_to_cell(next_cell)
+        dir_current_yaw = start_pose_px.get_direction()
+        if self.verbose:
+            print("dir_to_next_cell is {:}, and dir_current_yaw is {:}".format(dir_to_next_cell, dir_current_yaw))
+        if dir_to_next_cell == dir_current_yaw:
+            return "move_forward"
+        else:
+            yaw_diff_rads = remainder(cardinal_dir_to_yaw[dir_to_next_cell] - cardinal_dir_to_yaw[dir_current_yaw], tau)
+            return "turn_left" if yaw_diff_rads > 0 else "turn_right"
+
 
 class Cell:
     """
@@ -95,13 +137,24 @@ class Cell:
     """
 
     def __init__(self, pose_px:PosePixels, parent=None):
+        if pose_px is None:
+            rospy.logerr("A*: Illegal creation of Cell; pose_px cannot be None.")
+            exit()
         self.r = int(pose_px.r)
         self.c = int(pose_px.c)
         self.parent = parent
         self.g = 0 if parent is None else parent.g + 1
         self.f = 0
 
-    def in_collision(self, map):
+    def out_of_bounds(self, map) -> bool:
+        """
+        Check if this cell is in bounds or not on the given map.
+        @param map, a 2D numpy array of the occupancy grid map.
+        @return true if it's out of bounds.
+        """
+        return self.r < 0 or self.c < 0 or self.r >= map.shape[0] or self.c >= map.shape[1]
+
+    def in_collision(self, map) -> bool:
         """
         Check if this cell is occupied on the given map.
         @param map, a 2D numpy array of the occupancy grid map.
@@ -109,7 +162,7 @@ class Cell:
         """
         return map[self.r, self.c] == 0
     
-    def parent_in_collision(self, map):
+    def parent_in_collision(self, map) -> bool:
         """
         If this cell has a parent, check if that parent is in collision.
         """

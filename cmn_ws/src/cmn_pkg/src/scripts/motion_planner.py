@@ -5,7 +5,7 @@ Functions that will be useful in more than one node in this project.
 """
 
 import rospkg, yaml, rospy
-from math import radians, pi, sqrt
+from math import radians, pi, sqrt, remainder, tau
 from random import random, randint
 from time import time
 from geometry_msgs.msg import Twist, Vector3
@@ -13,7 +13,7 @@ from geometry_msgs.msg import Twist, Vector3
 from scripts.map_handler import clamp, MapFrameManager
 from scripts.astar import Astar
 from scripts.pure_pursuit import PurePursuit
-from scripts.basic_types import PoseMeters, PosePixels
+from scripts.basic_types import PoseMeters, PosePixels, yaw_to_cardinal_dir, cardinal_dir_to_yaw
 
 """
 Ideas to try:
@@ -28,6 +28,7 @@ class MotionPlanner:
     Class to send commands to the robot.
     """
     verbose = False
+    move_goal_after_reaching:bool = False # If true, choose a new goal cell when the goal is reached.
     # Publisher that will be defined by a ROS node and set.
     cmd_vel_pub = None
 
@@ -47,7 +48,7 @@ class MotionPlanner:
     path_px_reversed = None # List of PosePixels objects.
 
     # Current robot odometry.
-    odom = (0,0,0)
+    odom = PoseMeters(0,0,0)
 
 
     def __init__(self):
@@ -67,11 +68,15 @@ class MotionPlanner:
             self.astar.verbose = self.verbose
             self.pure_pursuit.verbose = self.verbose
             # Constraints.
-            self.max_fwd_cmd = config["constraints"]["fwd"]
-            self.max_ang_cmd = config["constraints"]["ang"]
+            self.min_lin_vel = config["constraints"]["min_lin_vel"]
+            self.max_lin_vel = config["constraints"]["max_lin_vel"]
+            self.min_ang_vel = config["constraints"]["min_ang_vel"]
+            self.max_ang_vel = config["constraints"]["max_ang_vel"]
             # Path planning.
             self.do_path_planning = config["path_planning"]["do_path_planning"]
             self.pure_pursuit.use_finite_lookahead_dist = self.do_path_planning
+            # Other configs.
+            self.move_goal_after_reaching = config["move_goal_after_reaching"]
 
     def set_vel_pub(self, pub):
         """
@@ -79,24 +84,27 @@ class MotionPlanner:
         """
         self.cmd_vel_pub = pub
 
-    def set_odom(self, odom):
+    def set_odom(self, odom_pose:PoseMeters):
         """
         Update our motion progress based on a new odometry measurement.
+        @param odom_pose - pose containing x,y in meters, yaw in radians.
         """
-        self.odom = odom
+        self.odom = odom_pose
 
     def pub_velocity_cmd(self, fwd, ang):
         """
         Clamp a velocity command within valid values, and publish it to the vehicle.
         """
         # Clamp to allowed velocity ranges.
-        fwd = clamp(fwd, 0, self.max_fwd_cmd)
-        ang = clamp(ang, -self.max_ang_cmd, self.max_ang_cmd)
+        fwd = clamp(fwd, 0, self.max_lin_vel)
+        ang = clamp(ang, -self.max_ang_vel, self.max_ang_vel)
         if self.verbose:
             rospy.loginfo("MP: Publishing a command ({:}, {:})".format(fwd, ang))
-        # Create ROS message.
-        msg = Twist(Vector3(fwd, 0, 0), Vector3(0, 0, ang))
-        self.cmd_vel_pub.publish(msg)
+        
+        if self.cmd_vel_pub is not None: # May be undefined when using sim.
+            # Create ROS message.
+            msg = Twist(Vector3(fwd, 0, 0), Vector3(0, 0, ang))
+            self.cmd_vel_pub.publish(msg)
 
     def set_test_motion_type(self, type:str):
         """
@@ -117,9 +125,9 @@ class MotionPlanner:
         if self.cur_test_motion_type == "NONE":
             fwd, ang = 0.0, 0.0 # No motion.
         elif self.cur_test_motion_type == "CIRCLE":
-            fwd, ang = self.max_fwd_cmd, self.max_ang_cmd # Arc motion.
+            fwd, ang = self.max_lin_vel, self.max_ang_vel # Arc motion.
         elif self.cur_test_motion_type == "STRAIGHT":
-            fwd, ang = self.max_fwd_cmd, 0.0 # Forward-only motion.
+            fwd, ang = self.max_lin_vel, 0.0 # Forward-only motion.
         elif self.cur_test_motion_type == "RANDOM":
             rospy.logwarn("MP: Test motion type RANDOM is not yet implemented. Sending zero velocity.")
 
@@ -133,7 +141,7 @@ class MotionPlanner:
         """
         self.mfm = mfm
         # Save the map in A* to use as well.
-        self.astar.map = self.mfm.map_with_border
+        self.astar.map = self.mfm.map_with_border.copy()
 
     def set_goal_point_random(self):
         """
@@ -194,8 +202,8 @@ class MotionPlanner:
         fwd, ang = self.pure_pursuit.compute_command(veh_pose_est, path)
 
         # Keep within constraints.
-        fwd_clamped = clamp(fwd, 0, self.max_fwd_cmd)
-        ang_clamped = clamp(ang, -self.max_ang_cmd, self.max_ang_cmd)
+        fwd_clamped = clamp(fwd, 0, self.max_lin_vel)
+        ang_clamped = clamp(ang, -self.max_ang_vel, self.max_ang_vel)
         if self.verbose and (fwd != fwd_clamped or ang != ang_clamped):
             rospy.logwarn("MOT: Clamped pure pursuit output from ({:.2f}, {:.2f}) to ({:.2f}, {:.2f}).".format(fwd, ang, fwd_clamped, ang_clamped))
 
@@ -242,19 +250,49 @@ class MotionTracker:
         self.last_yaw = new_yaw
         self.ang_motion += dtheta
         return self.ang_motion
+    
 
+class PController:
+    """
+    PID wihout the I and D, to perform some extremely basic motion control.
+    """
+    # Value on previous iteration.
+    last_v:float = None
+    # P-coefficient for the filter.
+    p = 0.1
+
+    def __init__(self, init_value:float=0.0, p:float=0.1):
+        """
+        For our case (linear velocity control), we will be stationary at the start of each discrete motion.
+        @param init_value - Initial filter value.
+        @param p - P-coefficient for the filter.
+        """
+        self.last_v = init_value
+        self.p = p
+
+    def update(self, target_v:float):
+        """
+        Update the filter with a new target value.
+        """
+        self.last_v = target_v * self.p + self.last_v * (1 - self.p)
+        return self.last_v
 
 class DiscreteMotionPlanner(MotionPlanner):
     """
     Class to command discrete actions to the robot.
     """
     # Define allowable discrete actions.
-    discrete_actions = ["90_LEFT", "90_RIGHT", "FORWARD"]
+    discrete_actions = ["turn_left", "turn_right", "move_forward"]
     # Create MotionTracker instance.
     motion_tracker = MotionTracker()
     # Flag to keep publishing commands until the robot odometry indicates the motion has finished.
     # Since the sim does not publish robot odom or subscribe to these velocity commands, this is a simpler solution.
-    wait_for_motion_to_complete = True
+    wait_for_motion_to_complete:bool = True
+    # Flag to command all pivots relative to global frame, instead of relative to current yaw.
+    command_pivots_globally:bool = True
+    # When commanding a discrete motion, wait until these conditions are satisfied.
+    lin_goal_reach_deviation:float = None
+    ang_goal_reach_deviation:float = None
 
     def __init__(self):
         self.read_params()
@@ -271,12 +309,9 @@ class DiscreteMotionPlanner(MotionPlanner):
         with open(pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
             # Params for discrete actions.
-            # g_use_discrete_actions = config["actions"]["use_discrete_actions"]
             self.discrete_forward_dist = abs(config["actions"]["discrete_forward_dist"])
-            self.discrete_forward_skip_probability = config["actions"]["discrete_forward_skip_probability"]
-            if self.discrete_forward_skip_probability < 0.0 or self.discrete_forward_skip_probability > 1.0:
-                rospy.logwarn("DMP: Invalid value of discrete_forward_skip_probability. Must lie in range [0, 1]. Setting to 0.")
-                self.discrete_forward_skip_probability = 0
+            self.lin_goal_reach_deviation = abs(config["goal_reach_deviation"]["linear"])
+            self.ang_goal_reach_deviation = radians(abs(config["goal_reach_deviation"]["angular"]))
 
     def cmd_discrete_action(self, action:str):
         """
@@ -284,26 +319,27 @@ class DiscreteMotionPlanner(MotionPlanner):
         @param action - str representing a defined discrete action.
         @return fwd, ang distances moved, which will allow us to propagate our simulated robot pose.
         """
-        if action == "90_LEFT":
-            if self.wait_for_motion_to_complete:
-                # NOTE under-command the angle slightly since we tend to over-turn.
-                self.cmd_discrete_ang_motion(radians(82))
-            return 0.0, radians(90)
-        elif action == "90_RIGHT":
-            if self.wait_for_motion_to_complete:
-                self.cmd_discrete_ang_motion(radians(-82))
-            return 0.0, radians(-90)
-        elif action == "FORWARD":
-            # Forward motions have a chance to not occur when commanded.
-            if random() < self.discrete_forward_skip_probability:
-                rospy.logwarn("DMP: Fwd motion requested, but skipping.")
-                return 0.0, 0.0
-            if self.wait_for_motion_to_complete:
-                self.cmd_discrete_fwd_motion(self.discrete_forward_dist)
-            return self.discrete_forward_dist, 0.0
-        else:
-            rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))
-            return 0.0, 0.0
+        # Convert string to twist values.
+        fwd = self.discrete_forward_dist if action == "move_forward" else 0.0
+        ang = radians(-90.0 if action == "turn_right" else (90.0 if action == "turn_left" else 0.0))
+        # Only command the motion and wait for it to finish if we're using a physical robot.
+        if self.wait_for_motion_to_complete:
+            rospy.loginfo("DMP: Commanding discrete action {:}.".format(action))
+            if action in ["turn_left", "turn_right"]:
+                if self.command_pivots_globally:
+                    self.cmd_discrete_ang_motion_global(ang)
+                else:
+                    self.cmd_discrete_ang_motion_relative(ang)
+            elif action == "move_forward":
+                self.cmd_discrete_fwd_motion(fwd)
+            else:
+                rospy.logwarn("DMP: Invalid discrete action {:} cannot be commanded.".format(action))
+                fwd, ang = 0.0, 0.0
+            # When the motion has finished, send a command to stop.
+            self.pub_velocity_cmd(0, 0)
+            # Insert a small pause to help differentiate adjacent discrete motions.
+            rospy.sleep(0.5)
+        return fwd, ang
     
     def cmd_random_discrete_action(self):
         """
@@ -312,7 +348,47 @@ class DiscreteMotionPlanner(MotionPlanner):
         """
         return self.cmd_discrete_action(self.discrete_actions[randint(0,len(self.discrete_actions)-1)])
 
-    def cmd_discrete_ang_motion(self, angle:float):
+    def cmd_discrete_ang_motion_global(self, angle:float):
+        """
+        Turn the robot in-place by a discrete amount, and then stop.
+        Do our best to stay axis-locked to a cardinal direction, so modify turn angle to achieve this.
+        @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
+        """
+        # Get closest direction to current orientation.
+        current_dir:str = self.odom.get_direction()
+        # Get desired turn direction.
+        turn_dir_sign = angle / abs(angle)
+        # Get desired final orientation after the pivot.
+        final_dir:str = yaw_to_cardinal_dir(self.odom.yaw + angle)
+        # Convert this to yaw.
+        final_yaw:float = cardinal_dir_to_yaw[final_dir]
+        # Compute actual amount we will turn.
+        actual_amount_to_turn = remainder(final_yaw - self.odom.yaw, tau)
+
+        if self.verbose:
+            rospy.loginfo("DMP: Commanding a discrete pivot from {:} to {:}".format(current_dir, final_dir))
+            # rospy.loginfo("DMP: starting yaw: {:.3f}, goal yaw: {:.3f}".format(self.odom.yaw, final_yaw))
+
+        # Get desired turn direction.
+        turn_dir_sign = actual_amount_to_turn / abs(actual_amount_to_turn)
+        # Keep waiting until motion has completed.
+        remaining_turn_rads = abs(actual_amount_to_turn)
+        while remaining_turn_rads > self.ang_goal_reach_deviation:
+            # Command the max possible turn speed, in the desired direction.
+            # NOTE if we don't "ramp down" the speed, we may over-turn slightly. Since we are realigning to global coord frame each turn. this matters less.
+            abs_ang_vel_to_cmd = remaining_turn_rads / abs(actual_amount_to_turn) * self.max_ang_vel
+            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, self.min_ang_vel) # Enforce a minimum speed.
+            self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
+            rospy.sleep(0.001)
+            # Compute new remaining radians to turn.
+            rads_to_go = remainder(final_yaw - self.odom.yaw, tau)
+            remaining_turn_rads = abs(rads_to_go)
+            # Safety check for direction to goal, in case we pivoted quickly past it and didn't get a measurement in the stopping region.
+            if rads_to_go * turn_dir_sign < 0:
+                break
+            # rospy.loginfo("DMP: remaining_turn_rads is {:.3f}, with current yaw {:.3f}".format(remaining_turn_rads, self.odom.yaw))
+
+    def cmd_discrete_ang_motion_relative(self, angle:float):
         """
         Turn the robot in-place by a discrete amount, and then stop.
         @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
@@ -323,15 +399,17 @@ class DiscreteMotionPlanner(MotionPlanner):
         turn_dir_sign = angle / abs(angle)
         # Keep waiting until motion has completed.
         self.motion_tracker.reset()
-        while abs(self.motion_tracker.update_for_pivot(self.odom[2])) < abs(angle):
+        # NOTE may still need to reduce 'angle' by a factor of say, 0.8, to prevent over-turning.
+        remaining_turn_rads = abs(angle)
+        while remaining_turn_rads > self.ang_goal_reach_deviation:
             # Command the max possible turn speed, in the desired direction.
-            # NOTE since there is no "ramping down" in the speed, we may over-turn slightly.
-            self.pub_velocity_cmd(0, self.max_ang_cmd * turn_dir_sign)
+            # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
+            abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_vel
+            abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, self.min_ang_vel) # Enforce a minimum speed.
+            self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
-        # When the motion has finished, send a command to stop.
-        self.pub_velocity_cmd(0, 0)
-        # Insert a small pause to help differentiate adjacent discrete motions.
-        rospy.sleep(0.5)
+            # Compute new remaining radians to turn.
+            remaining_turn_rads = abs(angle) - abs(self.motion_tracker.update_for_pivot(self.odom.yaw))
 
     def cmd_discrete_fwd_motion(self, dist:float):
         """
@@ -344,14 +422,21 @@ class DiscreteMotionPlanner(MotionPlanner):
         motion_sign = dist / abs(dist)
         # Save the starting odom.
         init_odom = self.odom
+        # Init the p-controller, starting at 0 velocity.
+        pid = PController(0.0, 0.05)
+        ramp_threshold = 0.5 * dist # Distance threshold at which we will change the set point from max to min speed.
         # Keep waiting until motion has completed.
-        while sqrt((self.odom[0]-init_odom[0])**2 + (self.odom[1]-init_odom[1])**2) < dist:
-            # Command the max possible move speed, in the desired direction.
-            # NOTE since there is no "ramping down" in the speed, we may move slightly further than intended.
-            self.pub_velocity_cmd(self.max_fwd_cmd * motion_sign, 0)
+        remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
+        while remaining_motion > self.lin_goal_reach_deviation:
+            if remaining_motion > ramp_threshold:
+                # Ramp up during the first part of the motion.
+                v = pid.update(self.max_lin_vel)
+            else:
+                # Ramp down in the last part of the motion.
+                v = pid.update(self.min_lin_vel)
+            # Command this speed in the desired direction.
+            self.pub_velocity_cmd(v * motion_sign, 0)
             rospy.sleep(0.001)
-        # When the motion has finished, send a command to stop.
-        self.pub_velocity_cmd(0, 0)
-        # Insert a small pause to help differentiate adjacent discrete motions.
-        rospy.sleep(0.5)
+            # Compute new remaining distance to travel. NOTE we do not take absolute value, so if we pass the point we will still stop.
+            remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
 

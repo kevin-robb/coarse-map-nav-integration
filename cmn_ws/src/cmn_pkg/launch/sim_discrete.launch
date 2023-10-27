@@ -1,0 +1,17 @@
+<launch>
+    <!-- Setup some fundamental config params that change what we're trying to do. -->
+    <!-- Mode to use when running. options: discrete, discrete_random, continuous.
+        - discrete: Panoramic measurements, DBF for localization, discrete actions only.
+        - discrete_random: Same as discrete, but instead of planning, commands random actions.
+        - continuous: Single-image measurements, PF for localization, continuous velocity commands. -->
+    <arg name="run_mode" default="discrete"/>
+    <!-- Set how observations will be generated.
+        - true: treat the coarse map as ground truth and use vehicle pose on it to generate observations.
+        - false: use the ML model to generate observations from sensor data. -->
+    <arg name="use_simulator" default="true"/>
+    <!-- Set whether the live visualization will attempt to run. -->
+    <arg name="show_live_viz" default="true"/>
+
+    <!-- Start the node that drives the project -->
+    <node pkg="cmn_pkg" type="runner_node.py" name="runner_node" args="$(arg run_mode) $(arg use_simulator) $(arg show_live_viz)" output="screen" />
+</launch>
