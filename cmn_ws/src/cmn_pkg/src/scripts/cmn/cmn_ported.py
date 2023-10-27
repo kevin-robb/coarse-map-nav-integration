@@ -227,7 +227,6 @@ class CoarseMapNavDiscrete:
             self.agent_belief_map = normalized_belief.copy()
 
         # Update the visualization.
-        self.visualizer.current_predicted_local_map = self.current_local_map
         self.visualizer.predictive_belief_map = self.predictive_belief_map
         self.visualizer.observation_prob_map = self.observation_prob_map
         self.visualizer.agent_belief_map = self.agent_belief_map
@@ -339,7 +338,8 @@ class CoarseMapNavDiscrete:
                 pred_local_occ = self.model(pano_rgb_obs_tensor)
                 # Reshape the predicted local occupancy
                 pred_local_occ = pred_local_occ.cpu().squeeze(dim=0).squeeze(dim=0).numpy()
-                # This is now a 128x128 numpy array, with values in range 0 (occupied) -- 1 (free).
+                # This is now a 128x128 numpy array, with values in range 0 (free) -- 1 (occupied).
+                # TODO check the range on this, change everything in this file to use non-inverted map.
 
             crop_prediction:bool = False
             if crop_prediction:
@@ -350,36 +350,42 @@ class CoarseMapNavDiscrete:
                 # Resize back up to 128x128.
                 pred_local_occ = cv2.resize(pred_local_occ_cropped, (128, 128), 0, 0, cv2.INTER_LINEAR)
 
-            # If the agent yaw was not provided, this is just being used by the runner to test the model.
-            if agent_yaw is None:
-                return pred_local_occ
+            invert_prediction:bool = True
+            if invert_prediction:
+                # Invert the predicted local map so 0 = black = occupied and 1 = white = free.
+                pred_local_occ = 1 - pred_local_occ
         else:
             # Scale observation up to 128x128 to match the output from the model.
             pred_local_occ = up_scale_grid(gt_observation)
 
-        # Before rotating the local map, check if the cell in front of the robot (i.e., top center cell) is occupied (i.e., == 0).
-        top_center_cell_block = pred_local_occ[:pred_local_occ.shape[0]//3, pred_local_occ.shape[0]//3:2*pred_local_occ.shape[0]//3]
-        top_center_cell_mean = np.mean(top_center_cell_block)
-        # print("top_center_cell_mean is {:}".format(top_center_cell_mean))
-        self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.25
 
-        # Get cardinal direction corresponding to agent orientation.
-        agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
-        # Rotate the egocentric local occupancy to face NORTH
-        if agent_dir_str == "east":
-            pred_local_occ = np.rot90(pred_local_occ, k=-1)
-        elif agent_dir_str == "north":
-            pass
-        elif agent_dir_str == "west":
-            pred_local_occ = np.rot90(pred_local_occ, k=1)
-        elif agent_dir_str == "south":
-            pred_local_occ = np.rot90(pred_local_occ, k=2)
-        else:
-            raise Exception("Invalid agent direction")
+        # If the agent yaw was not provided, this is just being used by the runner to test the model.
+        if agent_yaw is not None:
+            # Before rotating the local map, check if the cell in front of the robot (i.e., top center cell) is occupied (i.e., == 0).
+            top_center_cell_block = pred_local_occ[:pred_local_occ.shape[0]//3, pred_local_occ.shape[0]//3:2*pred_local_occ.shape[0]//3]
+            top_center_cell_mean = np.mean(top_center_cell_block)
+            # print("top_center_cell_mean is {:}".format(top_center_cell_mean))
+            self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.25
+
+            # Get cardinal direction corresponding to agent orientation.
+            agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
+            # Rotate the egocentric local occupancy to face NORTH
+            if agent_dir_str == "east":
+                pred_local_occ = np.rot90(pred_local_occ, k=-1)
+            elif agent_dir_str == "north":
+                pass
+            elif agent_dir_str == "west":
+                pred_local_occ = np.rot90(pred_local_occ, k=1)
+            elif agent_dir_str == "south":
+                pred_local_occ = np.rot90(pred_local_occ, k=2)
+            else:
+                raise Exception("Invalid agent direction")
+
         self.current_local_map = pred_local_occ
 
         # Update the viz.
         self.visualizer.pano_rgb = pano_rgb
+        self.visualizer.current_predicted_local_map = self.current_local_map
         # If this is ground-truth, assign it to that for viz as well.
         if gt_observation is not None:
             self.visualizer.current_ground_truth_local_map = self.current_local_map
