@@ -45,40 +45,31 @@ class CoarseMapNavDiscrete:
     """
     # Instances of utility classes.
     mfm:MapFrameManager = None # For coordinate transforms between localization estimate and the map frame. Will be set after init by runner.
+    visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
+    astar:Astar = Astar() # For path planning.
     send_random_commands:bool = False # Flag to send random discrete actions instead of planning.
-    # Configs from yaml:
-    forward_step_k:int = None # Tree search param.
-    forward_step_meters:float = None # Tree search param.
-    local_occ_net_config = None # Dictionary of params for local occ net.
 
     # Coarse map itself.
-    coarse_map_arr = None # 2D numpy array of coarse map. Free=0, Occupied=1.
+    coarse_map_arr = None # 2D numpy array of coarse map. Free=1, Occupied=0.
+    goal_cell:PosePixels = None # Goal cell on the coarse map.
+    agent_pose_estimate_px:PosePixels = None # Current localization estimate of the robot pose on the coarse map in pixels. Its yaw is whatever was passed into run_one_iter.
 
     # ML model for generating observations.
+    local_occ_net_config = None # Dictionary of params for local occ net.
     device = None # torch.device
     model = None
     transformation = None
-
-    # Define the graph based on the coarse map for shortest path planning
-    coarse_map_graph = None
+    
+    coarse_map_graph = None # Graph based on coarse map. Only used to get local maps for measurement update step.
 
     # Define the variables to store the beliefs. All have same dimensions as coarse map.
     predictive_belief_map = None  # predictive prob map. Values range from 0 to 1.
-    observation_prob_map = None  # measurement prob
+    observation_prob_map = None  # measurement prob map.
     agent_belief_map = None  # current agent pose belief on the map
 
     current_local_map = None # Current predicted local occupancy map, rotated to align with global coarse map.
-    empty_cell_map = None
-    goal_map_loc = None
-    goal_map_idx = None
     noise_trans_prob = None # Randomly sampled each iteration in range [0,1]. Chance that we don't modify our estimates after commanding a forward motion. Accounts for cell-based representation that relies on scale.
-
     is_facing_a_wall_in_pred_local_occ:bool = False # Flag to store whether the predicted local occupancy has the robot facing a wall. If so, do not allow forward motion.
-
-    agent_pose_estimate_px:PosePixels = None # Current localization estimate of the robot pose on the coarse map in pixels. Its yaw is whatever was passed into run_one_iter.
-
-    visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
-    astar = Astar() # For path planning.
 
 
     def __init__(self, mfm:MapFrameManager, skip_load_model:bool=False, send_random_commands:bool=False):
@@ -95,7 +86,7 @@ class CoarseMapNavDiscrete:
         # Save reference to map frame manager.
         self.mfm = mfm
         # Load the coarse occupancy map: 1.0 for occupied cell and 0.0 for empty cell
-        self.coarse_map_arr = self.mfm.inv_map_with_border.copy()
+        self.coarse_map_arr = self.mfm.map_with_border.astype(int) # free = 1, occ = 0.
         self.astar.map = self.mfm.map_with_border.copy() # Set the map for A* as well.
         self.visualizer.coarse_map = self.mfm.map_with_border.copy() # Set the map for visualizer as well.
         # Setup filepaths using mfm's pkg path.
@@ -107,8 +98,6 @@ class CoarseMapNavDiscrete:
         with open(self.mfm.pkg_path+'/config/config.yaml', 'r') as file:
             config = yaml.safe_load(file)
             # Save as dictionary, same format as original CMN.
-            self.forward_step_k = config["path_planning"]["tree_search"]["forward_step_k"]
-            self.forward_step_meters = config["path_planning"]["tree_search"]["forward_meter"]
             device_str = config["model"]["device"]     
             self.local_occ_net_config = config["model"]["local_occ_net"]       
 
@@ -117,16 +106,13 @@ class CoarseMapNavDiscrete:
             path_to_model = os.path.join(cmn_path, "model/trained_local_occupancy_predictor_model.pt")
             self.load_ml_model(path_to_model, device_str)
 
-        # Initialize the coarse map graph for path planning
-        # Build a graph based on the coarse map for shortest path planning
+        # Initialize the coarse map graph for extracting local maps.
         self.coarse_map_graph = TopoMap(self.coarse_map_arr, self.mfm.obs_height_px, self.mfm.obs_width_px)
 
         # Initialize the coarse map grid beliefs for global localization with Bayesian filtering.
         # Initialize the belief as a uniform distribution over all empty spaces
-        init_belief = 1.0 - self.coarse_map_arr
+        init_belief = self.coarse_map_arr.copy() # free = 1, occ = 0.
         self.agent_belief_map = init_belief / init_belief.sum()
-        # record the space map:
-        self.empty_cell_map = 1 - self.coarse_map_arr
 
 
     def set_goal_cell(self, goal_cell:PosePixels):
@@ -134,11 +120,10 @@ class CoarseMapNavDiscrete:
         Set a new goal cell for CMN, A*, and the visualizer.
         @param goal_cell
         """
-        self.goal_map_loc = goal_cell.as_tuple()
-        self.goal_map_idx = self.coarse_map_graph.sampled_locations.index(tuple(self.goal_map_loc))
-        if self.coarse_map_arr[self.goal_map_loc[0], self.goal_map_loc[1]] != 0.0:
+        self.goal_cell = goal_cell
+        if self.coarse_map_arr[self.goal_cell.r, self.goal_cell.c] != 1.0:
             # Cell is not free.
-            rospy.logwarn("CMN: Goal cell given in CMN init() is not free!")
+            rospy.logwarn("CMN: Goal cell given in CMN set_goal_cell() is not free!")
         # Set this goal location in utility subclasses as well.
         self.astar.goal_cell = goal_cell
         self.visualizer.goal_cell = goal_cell
@@ -250,11 +235,12 @@ class CoarseMapNavDiscrete:
         # Apply the movement
         if agent_act == "move_forward":
             # ======= Find all cells beside walls =======
-            movable_locations = np.roll(self.empty_cell_map, shift=-shift, axis=axis)
+            # The coarse map has value 1 for free space and 0 for occupied space, so we can use it as a base for empty cells.
+            movable_locations = np.roll(self.coarse_map_arr, shift=-shift, axis=axis)
             # mask all wall locations
-            movable_locations = np.multiply(self.empty_cell_map, movable_locations)
+            movable_locations = np.multiply(self.coarse_map_arr, movable_locations)
             # Cells near the walls has value = 1.0 other has value = 2.0
-            movable_locations = movable_locations + self.empty_cell_map
+            movable_locations = movable_locations + self.coarse_map_arr
             # Find all cells beside the walls in the moving direction
             space_to_wall_cells = np.where(movable_locations == 1.0, 1.0, 0.0)
 
@@ -273,7 +259,7 @@ class CoarseMapNavDiscrete:
 
             # Update the belief: probability for moving to the next cell
             pred_move_belief = np.roll(current_belief, shift=shift, axis=axis)
-            pred_move_belief = np.multiply(pred_move_belief, self.empty_cell_map)
+            pred_move_belief = np.multiply(pred_move_belief, self.coarse_map_arr)
             pred_move_belief = pred_move_belief * noise_trans_move_prob
 
             # Update the belief: combine the two
@@ -304,7 +290,7 @@ class CoarseMapNavDiscrete:
 
             # compute the similarity between predicted map and ground truth map
             # score = compute_similarity_iou(self.current_local_map, candidate_map)
-            score = compute_similarity_mse(1 - self.current_local_map, candidate_map)
+            score = compute_similarity_mse(self.current_local_map, candidate_map)
 
             # set the observation probability based on similarity
             # still: -1 is dealing with the mismatch
@@ -339,21 +325,20 @@ class CoarseMapNavDiscrete:
                 # Reshape the predicted local occupancy
                 pred_local_occ = pred_local_occ.cpu().squeeze(dim=0).squeeze(dim=0).numpy()
                 # This is now a 128x128 numpy array, with values in range 0 (free) -- 1 (occupied).
-                # TODO check the range on this, change everything in this file to use non-inverted map.
+                # Model is trained to produce a 1.28 x 1.28 meter predicted local occupancy, so each pixel is 1 cm.
 
-            crop_prediction:bool = False
-            if crop_prediction:
-                # Crop the prediction to only the center region, for which it is more accurate.
-                new_width:int = 100
-                buffer:int = (128 - new_width) // 2
-                pred_local_occ_cropped = pred_local_occ[buffer:-buffer, buffer:-buffer]
-                # Resize back up to 128x128.
-                pred_local_occ = cv2.resize(pred_local_occ_cropped, (128, 128), 0, 0, cv2.INTER_LINEAR)
+            # Invert the predicted local map so 0 = black = occupied and 1 = white = free.
+            pred_local_occ = 1 - pred_local_occ
 
-            invert_prediction:bool = True
-            if invert_prediction:
-                # Invert the predicted local map so 0 = black = occupied and 1 = white = free.
-                pred_local_occ = 1 - pred_local_occ
+            # crop_prediction:bool = False
+            # if crop_prediction:
+            #     # Crop the prediction to only the center region, for which it seems more accurate.
+            #     new_width:int = 100
+            #     buffer:int = (128 - new_width) // 2
+            #     pred_local_occ_cropped = pred_local_occ[buffer:-buffer, buffer:-buffer]
+            #     # Resize back up to 128x128.
+            #     pred_local_occ = cv2.resize(pred_local_occ_cropped, (128, 128), 0, 0, cv2.INTER_LINEAR)
+
         else:
             # Scale observation up to 128x128 to match the output from the model.
             pred_local_occ = up_scale_grid(gt_observation)
@@ -430,14 +415,15 @@ class CoarseMapNavDiscrete:
         self.cmn_localizer(agent_yaw)
 
         # Check if the agent has reached the goal location.
-        # print("agent pose estimate is {:}, while goal cell is {:}".format(self.agent_pose_estimate_px, self.goal_map_loc))
-        if self.agent_pose_estimate_px.r == self.goal_map_loc[0] and self.agent_pose_estimate_px.c == self.goal_map_loc[1]:
+        # print("agent pose estimate is {:}, while goal cell is {:}".format(self.agent_pose_estimate_px, self.goal_cell))
+        if self.agent_pose_estimate_px.r == self.goal_cell.r and self.agent_pose_estimate_px.c == self.goal_cell.c:
             if self.agent_belief_map.max() > 0.9:
                 # We're at the goal cell and the belief map has converged.
                 return "goal_reached"
             else:
                 # We aren't confident enough in this estimate, so reset the belief map and keep going.
-                self.agent_belief_map = self.empty_cell_map / self.empty_cell_map.sum()
+                # The coarse map has value 1 for free cells and 0 for occupied, so this sets equal probability to all free cells.
+                self.agent_belief_map = self.coarse_map_arr / self.coarse_map_arr.sum()
 
         # Check if planning is enabled.
         if self.send_random_commands:

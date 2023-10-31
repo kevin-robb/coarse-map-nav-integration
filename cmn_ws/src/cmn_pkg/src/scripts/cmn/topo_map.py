@@ -16,7 +16,7 @@ class TopoMap(object):
         # TODO verify order of height, width is correct if using non-square observation region.
         self.local_occ_size = [local_occ_height, local_occ_width]
 
-        # Covert the map to binary: 0 for empty cell and 1 for occupied cell
+        # Covert the map to binary: 1 for empty cell and 0 for occupied cell
         self.map_binary_arr = map_arr
 
         # Get all empty cells: idx, location, and local occupancy 3 x 3
@@ -27,8 +27,8 @@ class TopoMap(object):
 
 
     def get_valid_locations(self):
-        # obtain all empty cells
-        loc_coords = np.where(self.map_binary_arr == 0.0)
+        # obtain all empty cells (free = 1)
+        loc_coords = np.where(self.map_binary_arr == 1.0)
         space_locs = [(r, c) for r, c in zip(loc_coords[0], loc_coords[1])]
 
         # Crop 3 x 3 occupancy grids
@@ -99,52 +99,6 @@ class TopoMap(object):
         graph = self.make_graph_from_dict(graph_dict)
 
         return graph, graph_dict, sampled_cells
-
-    # function is used to plan the shortest path between two vertex using dijkstra's algorithm
-    def dijkstra_path(self, s_node, e_node):
-        # find the shortest path
-        try:
-            shortest_path = nx.dijkstra_path(self.global_map_graph, s_node, e_node)
-        except nx.NetworkXNoPath:
-            shortest_path = []
-
-        return shortest_path
-
-    def display_graph_on_map(self):
-        # extract all nodes
-        vertices = [self.global_map_dict[key]['loc'] for key in self.global_map_dict.keys()]
-        edges = [self.global_map_dict[key]['edges'] for key in self.global_map_dict.keys()]
-
-        # plot the vertices on the map with size 10  x 10 in pixels
-        display_map = self.map_binary_arr.copy()
-
-        # plot the edges on the map
-        drawn_pair = []
-        for idx, item in enumerate(edges):
-            print(f"{idx}-{len(edges)}: {item}")
-            for sub_item in item:
-                if sub_item in drawn_pair:
-                    continue
-                else:
-                    # start and goal locations
-                    start_loc = self.sampled_locations[sub_item[0]]
-                    end_loc = self.sampled_locations[sub_item[1]]
-
-                    # align the coordinates
-                    line_from = [start_loc[1], end_loc[1]]
-                    line_to = [start_loc[0], end_loc[0]]
-                    plt.plot(start_loc[1], start_loc[0], "ro")
-                    plt.plot(end_loc[1], end_loc[0], 'ro')
-                    plt.plot(line_from, line_to, linewidth=1, color='red')
-
-                    # save the drawn pairs
-                    drawn_pair.append(sub_item)
-                    drawn_pair.append((sub_item[1], sub_item[0]))
-
-        # plot the results
-        plt.title(f"Local map size = {self.local_occ_size[0] * 2}")
-        plt.imshow(1 - display_map, cmap="gray")
-        plt.show()
 
     @staticmethod
     def make_graph_from_dict(g_dict):

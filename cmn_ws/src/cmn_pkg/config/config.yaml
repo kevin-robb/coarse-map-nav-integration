@@ -54,11 +54,7 @@ actions:
   discrete_forward_dist: 0.5 # meters forward to move for discrete motion action.
 
 path_planning:
-  do_path_planning: false # if true, use A* to compute a full path to the goal point, then use pure pursuit to choose a motion command. if false, navigate directly towards goal point.
-  tree_search: # Params for tree search in CMN.
-    forward_step_k: 2
-    forward_meter: 0.15
-
+  do_path_planning: false # if true, use A* to compute a full path to the goal point, then use pure pursuit to choose a motion command. if false, navigate directly towards goal point (only in continuous case).
 
 # Configs for running simulator node for basic testing.
 simulator:
