@@ -1,0 +1,4 @@
+<launch>
+    <!-- Start the node that reads lidar data and processes it. -->
+    <node pkg="cmn_pkg" type="locobot_interface.py" name="interface_node" output="screen" />
+</launch>

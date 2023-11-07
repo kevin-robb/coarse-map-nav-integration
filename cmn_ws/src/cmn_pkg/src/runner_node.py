@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
 """
-Main node for running the project. This should be run on the locobot itself.
+Main node for running the project. This should be run on the host PC while the locobot is connected.
 """
 
 import rospy
 from geometry_msgs.msg import Twist
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, LaserScan
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Empty, Bool
 import rospkg, yaml, sys, os
@@ -68,8 +68,10 @@ def timer_update_loop(event=None):
         else:
             # Manage the viz here.
             if sim_viz_img is not None:
+                # cv2.namedWindow('viz image', cv2.WINDOW_NORMAL)
                 cv2.imshow('viz image', sim_viz_img)
             if cmn_viz_img is not None:
+                # cv2.namedWindow('cmn viz image', cv2.WINDOW_NORMAL)
                 cv2.imshow('cmn viz image', cmn_viz_img)
             key = cv2.waitKey(int(g_dt * 1000))
             # Special keypress conditions.
@@ -214,7 +216,7 @@ def pop_from_RS_buffer():
 
     return cv_img_meas
 
-def get_RS_image(msg):
+def get_RS_image(msg:Image):
     """
     Get a measurement Image from the RealSense camera.
     Could be changed multiple times before we need a measurement, so this allows skipping measurements to prefer recency.
@@ -222,7 +224,7 @@ def get_RS_image(msg):
     global g_most_recent_realsense_measurement
     g_most_recent_realsense_measurement = msg
 
-def get_odom(msg):
+def get_odom(msg:Odometry):
     """
     Get an odometry message from the robot's mobile base.
     Parse the message to extract the desired position and orientation information.
@@ -287,6 +289,9 @@ def main():
 
     # Subscribe to robot odometry.
     rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)
+
+    # Subscribe to LiDAR data.
+    # rospy.Subscriber("/locobot/scan", LaserScan, get_lidar, queue_size=1)
 
     # Publish viz images so we can view them in rqt without messing up the run loop.
     global g_sim_viz_pub, g_cmn_viz_pub
