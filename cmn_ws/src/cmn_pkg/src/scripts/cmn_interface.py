@@ -107,11 +107,12 @@ class CoarseMapNavInterface():
             self.visualizer.goal_cell = self.motion_planner.goal_pos_px
 
 
-    def run(self, pano_rgb=None, dt:float=None):
+    def run(self, pano_rgb=None, dt:float=None, lidar_local_occ_meas=None):
         """
         Run one iteration.
         @param pano_rgb Numpy array containing four color images concatenated horizontally, (front, right, back, left).
         @param dt - Timer period in seconds representing how often commands are sent to the robot. Only used for particle filter propagation.
+        @param lidar_local_occ_meas - Equivalent local occupancy measurement obtained from crudely parsing LiDAR data from the robot.
         """
         current_local_map = None
         if self.enable_sim:
@@ -119,6 +120,10 @@ class CoarseMapNavInterface():
             # Save this observation for the viz.
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
+        else:
+            # Use the LiDAR map as "ground truth" if we have it. The param will be None if it's disabled in yaml or we haven't gotten LiDAR data.
+            # NOTE this does not mean it's perfect for our coarse map.
+            current_local_map = lidar_local_occ_meas
 
         if not self.use_discrete_space:
             # Run the continuous version of the project.

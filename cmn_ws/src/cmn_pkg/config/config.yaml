@@ -6,6 +6,8 @@ verbose: false # Show a lot more debug information.
 # When using discrete sim, can set to 0 to run only one frame at a time.
 dt: 0.1 # timer period in seconds.
 
+use_lidar_as_ground_truth: true # Flag to use the lidar to generate crude "ground truth" local occ maps.
+
 model:
   skip_loading: false # Flag to skip using the ML model.
   device: "cpu" # Where to load model. Options: "cuda:0" (requires nvidia GPU) or "cpu"

@@ -36,6 +36,7 @@ g_run_mode = None # "discrete" or "continuous"
 g_use_ground_truth_map_to_generate_observations = False
 g_show_live_viz = False
 g_verbose = False
+g_use_lidar_as_ground_truth = False
 # Data saving params.
 g_save_training_data:bool = False # Flag to save data when running on robot for later training/evaluation.
 g_training_data_dirpath:str = None # Location of directory to save data to.
@@ -95,14 +96,13 @@ def timer_update_loop(event=None):
     elif not g_use_ground_truth_map_to_generate_observations:
         pano_rgb = get_pano_meas()
 
-    # Add LiDAR local occ meas to the viz for comparison.
-    # TODO make a way to use the LiDAR meas in CMN.
+    # Get LiDAR local occ meas for comparison.
     if locobot_interface.g_lidar_local_occ_meas is not None:
         g_cmn_interface.cmn_node.visualizer.lidar_local_occ_meas = locobot_interface.g_lidar_local_occ_meas
         # TODO rotate based on robot yaw to align with global map.
         
     # Run an iteration. (It will internally run either continuous or discrete case).
-    g_cmn_interface.run(pano_rgb, g_dt)
+    g_cmn_interface.run(pano_rgb, g_dt, locobot_interface.g_lidar_local_occ_meas)
 
 
 # TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
@@ -120,11 +120,12 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(g_yaml_path, 'r') as file:
         config = yaml.safe_load(file)
-        global g_verbose, g_dt, g_enable_localization, g_enable_ml_model
+        global g_verbose, g_dt, g_enable_localization, g_enable_ml_model, g_use_lidar_as_ground_truth
         g_verbose = config["verbose"]
         g_dt = config["dt"]
         g_enable_localization = config["particle_filter"]["enable"]
         g_enable_ml_model = not config["model"]["skip_loading"]
+        g_use_lidar_as_ground_truth = config["use_lidar_as_ground_truth"]
         # Settings for interfacing with CMN.
         global g_meas_topic, g_desired_meas_shape
         g_meas_topic = config["measurements"]["topic"]
@@ -297,8 +298,9 @@ def main():
     # Subscribe to robot odometry.
     rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)
 
-    # Subscribe to LiDAR data.
-    rospy.Subscriber("/locobot/scan", LaserScan, locobot_interface.get_lidar, queue_size=1)
+    if g_use_lidar_as_ground_truth:
+        # Subscribe to LiDAR data.
+        rospy.Subscriber("/locobot/scan", LaserScan, locobot_interface.get_lidar, queue_size=1)
 
     # Publish viz images so we can view them in rqt without messing up the run loop.
     global g_sim_viz_pub, g_cmn_viz_pub

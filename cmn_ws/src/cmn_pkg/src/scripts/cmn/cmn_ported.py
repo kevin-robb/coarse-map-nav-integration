@@ -28,7 +28,7 @@ import torch
 from torchvision.transforms import Compose, Normalize, PILToTensor
 
 from scripts.map_handler import MapFrameManager
-from scripts.basic_types import yaw_to_cardinal_dir, PosePixels
+from scripts.basic_types import yaw_to_cardinal_dir, PosePixels, rotate_image_to_north
 from scripts.astar import Astar
 
 
@@ -352,19 +352,8 @@ class CoarseMapNavDiscrete:
             # print("top_center_cell_mean is {:}".format(top_center_cell_mean))
             self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.25
 
-            # Get cardinal direction corresponding to agent orientation.
-            agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
             # Rotate the egocentric local occupancy to face NORTH
-            if agent_dir_str == "east":
-                pred_local_occ = np.rot90(pred_local_occ, k=-1)
-            elif agent_dir_str == "north":
-                pass
-            elif agent_dir_str == "west":
-                pred_local_occ = np.rot90(pred_local_occ, k=1)
-            elif agent_dir_str == "south":
-                pred_local_occ = np.rot90(pred_local_occ, k=2)
-            else:
-                raise Exception("Invalid agent direction")
+            pred_local_occ = rotate_image_to_north(pred_local_occ, agent_yaw)
 
         self.current_local_map = pred_local_occ
 

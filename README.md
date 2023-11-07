@@ -17,3 +17,9 @@ Some methods of generating said maps for this project are:
  - Having a bored grad student draw a map in less than 2 minutes. This option will likely be more representative of the real space, but proportions cannot be guaranteed. Using this option also forces us to estimate the scale ourselves, since there is no assumed map <--> world transformation built in.
 
 
+## Running it
+This project includes a simulator, which can track the robot pose on a given map, and provide local occupancy measurements to the filter. This skips the first stage of the actual project, which is the panoramic RGB image which is input into a network to yield the local occupancy prediction. 
+
+
+
+

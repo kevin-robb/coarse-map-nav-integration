@@ -35,10 +35,11 @@ def get_lidar(msg:LaserScan):
         # Convert angle from meters to pixels.
         dist_px = msg.ranges[i] / resolution
         # Add the data from this ray's detection to the local occ meas.
-        r_hit = center_r - int(dist_px * np.sin(angle))
-        c_hit = center_c + int(dist_px * np.cos(angle))
-        r_max_range = center_r - int(max_range_px * np.sin(angle))
-        c_max_range = center_c + int(max_range_px * np.cos(angle))
+        # Signs are chosen s.t. the robot is facing EAST on the image.
+        r_hit = center_r + int(dist_px * np.sin(angle))
+        c_hit = center_c - int(dist_px * np.cos(angle))
+        r_max_range = center_r + int(max_range_px * np.sin(angle))
+        c_max_range = center_c - int(max_range_px * np.cos(angle))
         for cell in bresenham(r_hit, c_hit, r_max_range, c_max_range):
             # Mark all cells as occupied until leaving the bounds of the image.
             r = cell[0]; c = cell[1]
