@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Interface to publish commands to the physical locobot and parse sensor data.
+Interface to parse sensor data from the locobot.
 """
 
 
@@ -11,6 +11,8 @@ import os, cv2
 from sensor_msgs.msg import LaserScan
 from bresenham import bresenham
 
+# Last successful local occ meas from LiDAR data.
+g_lidar_local_occ_meas = None
 
 def get_lidar(msg:LaserScan):
     """
@@ -45,9 +47,13 @@ def get_lidar(msg:LaserScan):
             else:
                 break
 
-    cv2.namedWindow("LiDAR -> local occ meas", cv2.WINDOW_NORMAL)
-    cv2.imshow("LiDAR -> local occ meas", local_occ_meas)
-    cv2.waitKey(100)
+    if __name__ == '__main__':
+        cv2.namedWindow("LiDAR -> local occ meas", cv2.WINDOW_NORMAL)
+        cv2.imshow("LiDAR -> local occ meas", local_occ_meas)
+        cv2.waitKey(100)
+    else:
+        global g_lidar_local_occ_meas
+        g_lidar_local_occ_meas = local_occ_meas.copy()
 
 
 def main():

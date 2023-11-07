@@ -25,6 +25,8 @@ class CoarseMapNavVisualizer:
     current_localization_estimate:PosePixels = None
     goal_cell:PosePixels = None
     planned_path_to_goal = None
+    # Data from spoofing a local occupancy measurement from LiDAR.
+    lidar_local_occ_meas = None # 128x128 binary numpy array, with 0=free, 1=occ.
 
 
     def __init__(self):
@@ -59,9 +61,10 @@ class CoarseMapNavVisualizer:
         ax_pano_rgb = fig.add_subplot(grid[0, :])
         ax_local_occ_gt = fig.add_subplot(grid[1, 0])
         ax_local_occ_pred = fig.add_subplot(grid[1, 1])
-        ax_coarse_map = fig.add_subplot(grid[1, 2])
+        ax_lidar_local_occ = fig.add_subplot(grid[1, 2])
         # Add subplots for beliefs
-        ax_pred_update_bel = fig.add_subplot(grid[2, 0])
+        ax_coarse_map = fig.add_subplot(grid[2, 0])
+        # ax_pred_update_bel = fig.add_subplot(grid[2, 0])
         ax_obs_update_bel = fig.add_subplot(grid[2, 1])
         ax_belief = fig.add_subplot(grid[2, 2])
 
@@ -72,10 +75,12 @@ class CoarseMapNavVisualizer:
         ax_local_occ_gt.axis("off")
         ax_local_occ_pred.set_title("Pred local occ")
         ax_local_occ_pred.axis("off")
+        ax_lidar_local_occ.set_title("Predictive belief")
+        ax_lidar_local_occ.axis("off")
         ax_coarse_map.set_title("Coarse Map")
         ax_coarse_map.axis("off")
-        ax_pred_update_bel.set_title("Predictive belief")
-        ax_pred_update_bel.axis("off")
+        # ax_pred_update_bel.set_title("Predictive belief")
+        # ax_pred_update_bel.axis("off")
         ax_obs_update_bel.set_title("Obs belief")
         ax_obs_update_bel.axis("off")
         ax_belief.set_title("Belief")
@@ -92,9 +97,12 @@ class CoarseMapNavVisualizer:
         if self.current_predicted_local_map is not None:
             ax_local_occ_pred.imshow(self.current_predicted_local_map.astype('float'), cmap="gray", vmin=0, vmax=1)
 
-        if self.predictive_belief_map is not None:
-            predictive_belief = self.normalize_belief_for_visualization(self.predictive_belief_map)
-            ax_pred_update_bel.imshow(predictive_belief.astype('float'), cmap="gray", vmin=0, vmax=1)
+        if self.lidar_local_occ_meas is not None:
+            ax_lidar_local_occ.imshow(self.lidar_local_occ_meas.astype('float'), cmap="gray", vmin=0, vmax=1)
+
+        # if self.predictive_belief_map is not None:
+        #     predictive_belief = self.normalize_belief_for_visualization(self.predictive_belief_map)
+        #     ax_pred_update_bel.imshow(predictive_belief.astype('float'), cmap="gray", vmin=0, vmax=1)
 
         if self.observation_prob_map is not None:
             observation_belief = self.normalize_belief_for_visualization(self.observation_prob_map)
