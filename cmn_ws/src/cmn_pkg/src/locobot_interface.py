@@ -20,7 +20,7 @@ def get_lidar(msg:LaserScan):
     Convert it into a pseudo-local-occupancy measurement, akin to the model predictions.
     """
     # Use standard size for model predictions, i.e., 128x128 centered on the robot, with 0.01 m/px resolution.
-    local_occ_meas = np.zeros((128, 128))
+    local_occ_meas = np.ones((128, 128))
     resolution = 0.01
     center_r = local_occ_meas.shape[0] // 2
     center_c = local_occ_meas.shape[1] // 2
@@ -43,7 +43,7 @@ def get_lidar(msg:LaserScan):
             # Mark all cells as occupied until leaving the bounds of the image.
             r = cell[0]; c = cell[1]
             if r >= 0 and c >= 0 and r < local_occ_meas.shape[0] and c < local_occ_meas.shape[1]:
-                local_occ_meas[r, c] = 1
+                local_occ_meas[r, c] = 0
             else:
                 break
 
