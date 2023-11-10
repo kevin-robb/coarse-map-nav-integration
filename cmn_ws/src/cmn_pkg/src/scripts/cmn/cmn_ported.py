@@ -49,6 +49,9 @@ class CoarseMapNavDiscrete:
     astar:Astar = Astar() # For path planning.
     send_random_commands:bool = False # Flag to send random discrete actions instead of planning.
 
+    # Flag to know if we're in the simulator vs physical robot.
+    enable_sim:bool = False
+
     # Coarse map itself.
     coarse_map_arr = None # 2D numpy array of coarse map. Free=1, Occupied=0.
     goal_cell:PosePixels = None # Goal cell on the coarse map.
@@ -181,10 +184,13 @@ class CoarseMapNavDiscrete:
             # i.e., the coarse map scale may be so large that it takes several forward motions to achieve a different cell.
             # So, there is a probability here that the forward motion is not carried out in the cell representation.
             if action == "move_forward":
-                # randomly sample a p from a uniform distribution between [0, 1]
-                self.noise_trans_prob = np.random.rand()
-                # TODO for the simulator, robot will always move when commanded, so this just makes the estimate diverge from truth after finding it.
-                self.noise_trans_prob = 1
+                if not self.enable_sim:
+                    # randomly sample a p from a uniform distribution between [0, 1]
+                    self.noise_trans_prob = np.random.rand()
+                else:
+                    # For the simulator, robot will always move when commanded, and the scale for map vs local occ is guaranteed to match, 
+                    # so this just makes the estimate diverge from truth after finding it. So, set the probability of transitioning to the next state to 1.
+                    self.noise_trans_prob = 1
 
             # Check if the action is able to happen. i.e., if this commanded action will be ignored because of a wall, don't move the predictive belief.
             if action != "move_forward" or not facing_a_wall:

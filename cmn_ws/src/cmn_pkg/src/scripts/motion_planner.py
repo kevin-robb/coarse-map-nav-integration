@@ -436,7 +436,7 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Save the starting odom.
         init_odom = self.odom
         # Init the p-controller, starting at 0 velocity.
-        pid = PController(0.0, 0.005)
+        pid = PController(0.0, 0.0001)
         ramp_threshold = 0.5 * dist # Remaining distance threshold at which we will change the set point from max to min speed.
         # Keep waiting until motion has completed.
         remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
@@ -448,7 +448,8 @@ class DiscreteMotionPlanner(MotionPlanner):
                 # Ramp down in the last part of the motion.
                 v = pid.update(self.min_lin_vel)
             # Command this speed in the desired direction.
-            self.pub_velocity_cmd(v * motion_sign, 0)
+            self.pub_velocity_cmd(v * motion_sign, -0.008) # Include a small angular component to combat the robot's natural leftward drift.
+            # self.pub_velocity_cmd(v * motion_sign, 0)
             rospy.sleep(0.001)
             # Compute new remaining distance to travel. NOTE we do not take absolute value, so if we pass the point we will still stop.
             remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)

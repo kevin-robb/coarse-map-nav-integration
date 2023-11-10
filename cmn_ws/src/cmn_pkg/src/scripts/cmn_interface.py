@@ -99,6 +99,8 @@ class CoarseMapNavInterface():
             self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, not config.enable_ml_model, "random" in config.run_mode)
             # Set the goal cell.
             self.cmn_node.set_goal_cell(self.motion_planner.goal_pos_px)
+            # Set whether the sim is enabled.
+            self.cmn_node.enable_sim = self.enable_sim
 
         # Init the visualizer only if it's enabled.
         if self.enable_viz:
