@@ -350,7 +350,7 @@ class CoarseMapNavDiscrete:
             top_center_cell_block = pred_local_occ[:pred_local_occ.shape[0]//3, pred_local_occ.shape[0]//3:2*pred_local_occ.shape[0]//3]
             top_center_cell_mean = np.mean(top_center_cell_block)
             # print("top_center_cell_mean is {:}".format(top_center_cell_mean))
-            self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.25
+            self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.75
 
             # Rotate the egocentric local occupancy to face NORTH
             pred_local_occ = rotate_image_to_north(pred_local_occ, agent_yaw)

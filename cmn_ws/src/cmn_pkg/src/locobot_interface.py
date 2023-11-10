@@ -49,8 +49,8 @@ def get_lidar(msg:LaserScan):
                 break
 
     if __name__ == '__main__':
-        cv2.namedWindow("LiDAR -> local occ meas", cv2.WINDOW_NORMAL)
-        cv2.imshow("LiDAR -> local occ meas", local_occ_meas)
+        cv2.namedWindow("LiDAR -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
+        cv2.imshow("LiDAR -> local occ meas (front = right)", local_occ_meas)
         cv2.waitKey(100)
     else:
         global g_lidar_local_occ_meas

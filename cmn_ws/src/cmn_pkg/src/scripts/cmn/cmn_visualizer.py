@@ -75,7 +75,7 @@ class CoarseMapNavVisualizer:
         ax_local_occ_gt.axis("off")
         ax_local_occ_pred.set_title("Pred local occ")
         ax_local_occ_pred.axis("off")
-        ax_lidar_local_occ.set_title("Predictive belief")
+        ax_lidar_local_occ.set_title("LiDAR local occ")
         ax_lidar_local_occ.axis("off")
         ax_coarse_map.set_title("Coarse Map")
         ax_coarse_map.axis("off")

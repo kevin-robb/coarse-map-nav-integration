@@ -93,11 +93,11 @@ def timer_update_loop(event=None):
     pano_rgb = None
     if g_cmn_interface.pano_rgb is not None:
         pano_rgb = g_cmn_interface.pano_rgb
-    elif not g_use_ground_truth_map_to_generate_observations:
+    elif not g_use_ground_truth_map_to_generate_observations and not g_use_lidar_as_ground_truth:
         pano_rgb = get_pano_meas()
 
     # Get LiDAR local occ meas for comparison.
-    if locobot_interface.g_lidar_local_occ_meas is not None:
+    if not g_use_ground_truth_map_to_generate_observations and locobot_interface.g_lidar_local_occ_meas is not None:
         g_cmn_interface.cmn_node.visualizer.lidar_local_occ_meas = locobot_interface.g_lidar_local_occ_meas
         # TODO rotate based on robot yaw to align with global map.
         
@@ -298,8 +298,8 @@ def main():
     # Subscribe to robot odometry.
     rospy.Subscriber("/locobot/mobile_base/odom", Odometry, get_odom, queue_size=1)
 
-    if g_use_lidar_as_ground_truth:
-        # Subscribe to LiDAR data.
+    if g_use_lidar_as_ground_truth and not g_use_ground_truth_map_to_generate_observations:
+        # Subscribe to LiDAR data, unless we're running the sim, since it would be confusing to show unused LiDAR occ grid in the viz.
         rospy.Subscriber("/locobot/scan", LaserScan, locobot_interface.get_lidar, queue_size=1)
 
     # Publish viz images so we can view them in rqt without messing up the run loop.
