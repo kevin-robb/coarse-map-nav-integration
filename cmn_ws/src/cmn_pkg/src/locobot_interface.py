@@ -11,8 +11,8 @@ import os, cv2
 from sensor_msgs.msg import LaserScan
 from bresenham import bresenham
 
-# Last successful local occ meas from LiDAR data.
-g_lidar_local_occ_meas = None
+g_lidar_local_occ_meas = None # Last successful local occ meas from LiDAR data.
+g_lidar_detects_robot_facing_wall:bool = False # Flag if the area in front of the robot is obstructed.
 
 def get_lidar(msg:LaserScan):
     """
@@ -47,14 +47,25 @@ def get_lidar(msg:LaserScan):
                 local_occ_meas[r, c] = 0
             else:
                 break
+    
+    # Check if the area in front of the robot is occluded.
+    global g_lidar_detects_robot_facing_wall
+    # Check if the cell in front of the robot (i.e., right center cell) is occupied (i.e., == 0).
+    front_cell_block = local_occ_meas[local_occ_meas.shape[0]//3:2*local_occ_meas.shape[0]//3, 2*local_occ_meas.shape[0]//3:]
+    front_cell_mean = np.mean(front_cell_block)
+    g_lidar_detects_robot_facing_wall = front_cell_mean <= 0.75
+    # TODO make the motion planner check this in realtime (not just once per iteration) and stop a forward motion if it becomes true.
 
     if __name__ == '__main__':
         cv2.namedWindow("LiDAR -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
         cv2.imshow("LiDAR -> local occ meas (front = right)", local_occ_meas)
+        print("WALL DETECTED IN FRONT OF ROBOT?: {:}".format(g_lidar_detects_robot_facing_wall))
         cv2.waitKey(100)
     else:
+        # Save the local occ for CMN to use.
         global g_lidar_local_occ_meas
         g_lidar_local_occ_meas = local_occ_meas.copy()
+
 
 
 def main():
