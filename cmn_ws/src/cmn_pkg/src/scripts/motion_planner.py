@@ -32,6 +32,8 @@ class MotionPlanner:
     # Publisher that will be defined by a ROS node and set.
     cmd_vel_pub = None
 
+    obstacle_in_front_of_robot:bool = False # Flag that will be set when the LiDAR detects an obstacle in front of the robot, so we can immediately halt motion.
+
     # Instances of utility classes.
     astar = Astar() # For path planning.
     pure_pursuit = PurePursuit() # For path following.
@@ -440,7 +442,7 @@ class DiscreteMotionPlanner(MotionPlanner):
         ramp_threshold = 0.5 * dist # Remaining distance threshold at which we will change the set point from max to min speed.
         # Keep waiting until motion has completed.
         remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
-        while remaining_motion > self.lin_goal_reach_deviation:
+        while remaining_motion > self.lin_goal_reach_deviation and not self.obstacle_in_front_of_robot:
             if remaining_motion > ramp_threshold:
                 # Ramp up during the first part of the motion.
                 v = pid.update(self.max_lin_vel)
@@ -453,6 +455,8 @@ class DiscreteMotionPlanner(MotionPlanner):
             rospy.sleep(0.001)
             # Compute new remaining distance to travel. NOTE we do not take absolute value, so if we pass the point we will still stop.
             remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
+        
+        self.pub_velocity_cmd(0.0, 0.0) # Stop the robot.
 
         # Now that the forward motion has completed, it's possible there was some angular deviation. So, turn slightly to correct this.
         # self.cmd_pivot_to_face_direction(self.odom.get_direction())
