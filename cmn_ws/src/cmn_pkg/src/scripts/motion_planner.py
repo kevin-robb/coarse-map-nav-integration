@@ -410,9 +410,14 @@ class DiscreteMotionPlanner(MotionPlanner):
         # NOTE may still need to reduce 'angle' by a factor of say, 0.8, to prevent over-turning.
         remaining_turn_rads = abs(angle)
         while remaining_turn_rads > self.ang_goal_reach_deviation:
-            # Command the max possible turn speed, in the desired direction.
-            # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
-            abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_vel
+            if angle > 0.5:
+                # Command the max possible turn speed, in the desired direction.
+                # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
+                abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_vel
+            else:
+                # If the total amount to turn is small, this method will way over-turn. So, just command minimum speed.
+                abs_ang_vel_to_cmd = 0
+            
             abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, self.min_ang_vel) # Enforce a minimum speed.
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
@@ -431,8 +436,8 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Save the starting odom.
         init_odom = self.odom
         # Init the p-controller, starting at 0 velocity.
-        pid = PController(0.0, 0.05)
-        ramp_threshold = 0.5 * dist # Distance threshold at which we will change the set point from max to min speed.
+        pid = PController(0.0, 0.005)
+        ramp_threshold = 0.5 * dist # Remaining distance threshold at which we will change the set point from max to min speed.
         # Keep waiting until motion has completed.
         remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
         while remaining_motion > self.lin_goal_reach_deviation:
@@ -450,3 +455,6 @@ class DiscreteMotionPlanner(MotionPlanner):
 
         # Now that the forward motion has completed, it's possible there was some angular deviation. So, turn slightly to correct this.
         # self.cmd_pivot_to_face_direction(self.odom.get_direction())
+
+        # Tends to drift to the left, so correct this.
+        # self.cmd_discrete_ang_motion_relative(-0.02)
