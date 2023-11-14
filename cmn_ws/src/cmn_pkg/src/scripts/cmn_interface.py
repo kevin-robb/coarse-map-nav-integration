@@ -34,6 +34,8 @@ class CmnConfig():
     use_lidar_as_ground_truth:bool = False
     # Flag to combine local occ map from LiDAR with prediction from RGB model. Mutually exclusive with use_lidar_as_ground_truth and enable_sim. Requires enable_ml_model.
     fuse_lidar_with_rgb:bool = False
+    # Flag to use local occ map generated from RS depth data as ground truth.
+    use_depth_as_ground_truth:bool = False
 
 class CoarseMapNavInterface():
     # Overarching run modes for the project.
@@ -43,6 +45,7 @@ class CoarseMapNavInterface():
     enable_localization:bool = True # Debugging flag; if false, uses ground truth pose from sim instead of estimating pose.
     use_lidar_as_ground_truth:bool = False
     fuse_lidar_with_rgb:bool = False
+    use_depth_as_ground_truth:bool = False
 
     # Other modules which will be initialized if needed.
     cmn_node:CoarseMapNavDiscrete = None
@@ -76,6 +79,7 @@ class CoarseMapNavInterface():
         self.enable_localization = config.enable_localization and config.enable_sim
         self.use_lidar_as_ground_truth = config.use_lidar_as_ground_truth
         self.fuse_lidar_with_rgb = config.fuse_lidar_with_rgb
+        self.use_depth_as_ground_truth = config.use_depth_as_ground_truth
 
         # Init the map manager / simulator.
         if self.enable_sim:
@@ -118,7 +122,7 @@ class CoarseMapNavInterface():
             self.visualizer.goal_cell = self.motion_planner.goal_pos_px
 
 
-    def run(self, pano_rgb=None, dt:float=None, lidar_local_occ_meas=None):
+    def run(self, pano_rgb=None, dt:float=None, lidar_local_occ_meas=None, depth_local_occ_meas=None):
         """
         Run one iteration.
         @param pano_rgb Numpy array containing four color images concatenated horizontally, (front, right, back, left).
@@ -135,6 +139,9 @@ class CoarseMapNavInterface():
             # Use the LiDAR map as "ground truth" if we have it. The param will be None if we haven't gotten LiDAR data.
             # NOTE this does not mean it's perfect for our coarse map.
             current_local_map = lidar_local_occ_meas
+        elif self.use_depth_as_ground_truth:
+            # Use the depth map as "ground truth" if we have it. This param will be None if we haven't gotten depth data, or if settings conflict.
+            current_local_map = depth_local_occ_meas
 
         if not self.use_discrete_space:
             # Run the continuous version of the project.

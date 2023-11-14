@@ -9,10 +9,13 @@ dt: 0.1 # timer period in seconds.
 lidar:
   # LiDAR will run and create its version of local occ always (if it gets data on the scan topic) in order to prevent collisions. The result will only be used by CMN if the flag is true.
   use_lidar_as_ground_truth: false # Flag to use the lidar to generate crude "ground truth" local occ maps.
-  fuse_lidar_with_rgb: true # Flag to combine the local occ from lidar with prediction from rgb.
+  fuse_lidar_with_rgb: false # Flag to combine the local occ from lidar with prediction from rgb.
   local_occ_size: 128 # Number of pixels on each side of the square local occupancy grid.
   local_occ_resolution: 0.015 # Meters/pixel on the local occupancy grid.
-  save_lidar_and_rgb_prediction_for_comparison: true
+  # save_lidar_and_rgb_prediction_for_comparison: true
+
+depth:
+  use_depth_as_ground_truth: true # Flag to use the RS depth to generate crude "ground truth" local occ maps.
 
 model:
   skip_loading: false # Flag to skip using the ML model.

@@ -17,7 +17,7 @@ import cv2
 from time import strftime, time
 
 from scripts.cmn_interface import CoarseMapNavInterface, CmnConfig
-from scripts.basic_types import PoseMeters
+from scripts.basic_types import PoseMeters, rotate_image_to_north
 import locobot_interface
 
 ############ GLOBAL VARIABLES ###################
@@ -91,12 +91,16 @@ def timer_update_loop(event=None):
 
     # Only gather a pano RGB if needed.
     pano_rgb = None
+    local_occ_depth = None
     if g_cmn_interface.pano_rgb is not None:
         # The robot only turned in place, so the pano from last iteration was rotated and can now be used again.
         pano_rgb = g_cmn_interface.pano_rgb
     elif g_use_lidar_as_ground_truth:
         # Use local occ from LiDAR.
         pass
+    elif g_use_depth_as_ground_truth:
+        # Generate ground truth from depth data.
+        local_occ_depth = get_local_occ_from_depth()
     elif g_use_ground_truth_map_to_generate_observations:
         # Sim will be used inside CMN interface to generate local occ.
         pass
@@ -110,7 +114,7 @@ def timer_update_loop(event=None):
         g_cmn_interface.cmn_node.visualizer.lidar_local_occ_meas = locobot_interface.g_lidar_local_occ_meas
         
     # Run an iteration. (It will internally run either continuous or discrete case).
-    g_cmn_interface.run(pano_rgb, g_dt, locobot_interface.g_lidar_local_occ_meas)
+    g_cmn_interface.run(pano_rgb, g_dt, locobot_interface.g_lidar_local_occ_meas, local_occ_depth)
 
 
 ##################### UTILITY FUNCTIONS #######################
@@ -132,9 +136,10 @@ def read_params():
         g_enable_localization = config["particle_filter"]["enable"]
         g_enable_ml_model = not config["model"]["skip_loading"]
         # LiDAR params.
-        global g_use_lidar_as_ground_truth, g_fuse_lidar_with_rgb
+        global g_use_lidar_as_ground_truth, g_fuse_lidar_with_rgb, g_use_depth_as_ground_truth
         g_use_lidar_as_ground_truth = config["lidar"]["use_lidar_as_ground_truth"]
         g_fuse_lidar_with_rgb = config["lidar"]["fuse_lidar_with_rgb"]
+        g_use_depth_as_ground_truth = config["depth"]["use_depth_as_ground_truth"]
         locobot_interface.read_params()
         # Settings for interfacing with CMN.
         global g_meas_topic, g_desired_meas_shape
@@ -176,6 +181,7 @@ def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None
     config.enable_localization = g_enable_localization
     config.use_lidar_as_ground_truth = g_use_lidar_as_ground_truth and not use_sim
     config.fuse_lidar_with_rgb = g_fuse_lidar_with_rgb and not g_use_lidar_as_ground_truth and not use_sim and g_enable_ml_model
+    config.use_depth_as_ground_truth = g_use_depth_as_ground_truth and not g_use_lidar_as_ground_truth and not use_sim
 
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
@@ -193,8 +199,7 @@ def get_pano_meas():
     Since the robot has only a forward-facing camera, we must pivot in-place four times.
     @return panoramic image created by concatenating four individual measurements.
     """
-    if g_verbose:
-        rospy.loginfo("Attempting to generate a panoramic measurement by commanding four 90 degree pivots.")
+    rospy.loginfo("Attempting to generate a panoramic measurement by commanding four 90 degree pivots.")
     pano_meas_front = pop_from_RS_buffer()
     # Pivot in-place 90 deg CW to get another measurement.
     g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
@@ -279,9 +284,49 @@ def get_lidar(msg:LaserScan):
     """
     Get a new LiDAR measurement, process it, and update our nodes as necessary.
     """
-    locobot_interface.get_lidar(msg)
+    locobot_interface.get_local_occ_from_lidar(msg)
     # Update the motion planner instantaneously so we can stop before hitting a wall.
     g_cmn_interface.motion_planner.obstacle_in_front_of_robot = locobot_interface.g_lidar_detects_robot_facing_wall
+
+def get_RS_depth(msg:Image):
+    """
+    Get a depth image from the RealSense camera, and save it to be used when needed.
+    """
+    global g_most_recent_depth_meas
+    g_most_recent_depth_meas = msg
+
+def get_local_occ_from_depth():
+    """
+    Use depth measurements from realsense to build a local occupancy map.
+    Since the robot has only a forward-facing depth camera, we must pivot in-place four times.
+    @return local occupancy map.
+    """
+    rospy.loginfo("Attempting to generate a local occupancy measurement from depth data by commanding four 90 degree pivots.")
+    # Generate local occ from current depth view.
+    locobot_interface.get_local_occ_from_depth(g_most_recent_depth_meas)
+    local_occ_east = locobot_interface.g_depth_local_occ_meas
+    # Pivot in-place 90 deg CW to get another measurement.
+    g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
+    locobot_interface.get_local_occ_from_depth(g_most_recent_depth_meas)
+    local_occ_south = locobot_interface.g_depth_local_occ_meas
+    g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
+    locobot_interface.get_local_occ_from_depth(g_most_recent_depth_meas)
+    local_occ_west = locobot_interface.g_depth_local_occ_meas
+    g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
+    locobot_interface.get_local_occ_from_depth(g_most_recent_depth_meas)
+    local_occ_north = locobot_interface.g_depth_local_occ_meas
+    g_cmn_interface.motion_planner.cmd_discrete_action("turn_right")
+    # Vehicle should now be facing forwards again (its original direction).
+
+    # Fake the robot angle so we can use the existing function and get it to rotate how we need.
+    rotated_local_occ_south = rotate_image_to_north(local_occ_south, 0)
+    rotated_local_occ_west = rotate_image_to_north(local_occ_west, np.pi/2)
+    rotated_local_occ_north = rotate_image_to_north(local_occ_north, np.pi)
+
+    # Combine these four partial local occupancy maps. Use min so occupied cells take priority.
+    local_occ_meas = np.min([local_occ_east, rotated_local_occ_south, rotated_local_occ_west, rotated_local_occ_north], axis=0)
+
+    return local_occ_meas
 
 
 def main():
@@ -321,6 +366,9 @@ def main():
 
     # Subscribe to LiDAR data, which will be used to avoid running into things, and may be used in place of local occ predictions.
     rospy.Subscriber("/locobot/scan", LaserScan, get_lidar, queue_size=1)
+
+    # Subscribe to depth data from RealSense.
+    rospy.Subscriber("/locobot/camera/depth/image_rect_raw", Image, get_RS_depth, queue_size=1)
 
     # Publish viz images so we can view them in rqt without messing up the run loop.
     global g_sim_viz_pub, g_cmn_viz_pub
