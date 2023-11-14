@@ -120,12 +120,15 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(g_yaml_path, 'r') as file:
         config = yaml.safe_load(file)
-        global g_verbose, g_dt, g_enable_localization, g_enable_ml_model, g_use_lidar_as_ground_truth
+        global g_verbose, g_dt, g_enable_localization, g_enable_ml_model
         g_verbose = config["verbose"]
         g_dt = config["dt"]
         g_enable_localization = config["particle_filter"]["enable"]
         g_enable_ml_model = not config["model"]["skip_loading"]
-        g_use_lidar_as_ground_truth = config["use_lidar_as_ground_truth"]
+        # LiDAR params.
+        global g_use_lidar_as_ground_truth
+        g_use_lidar_as_ground_truth = config["lidar"]["use_lidar_as_ground_truth"]
+        locobot_interface.read_params()
         # Settings for interfacing with CMN.
         global g_meas_topic, g_desired_meas_shape
         g_meas_topic = config["measurements"]["topic"]

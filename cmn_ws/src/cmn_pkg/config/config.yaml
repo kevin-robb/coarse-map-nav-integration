@@ -6,7 +6,11 @@ verbose: false # Show a lot more debug information.
 # When using discrete sim, can set to 0 to run only one frame at a time.
 dt: 0.1 # timer period in seconds.
 
-use_lidar_as_ground_truth: true # Flag to use the lidar to generate crude "ground truth" local occ maps.
+lidar:
+  use_lidar_as_ground_truth: true # Flag to use the lidar to generate crude "ground truth" local occ maps.
+  local_occ_size: 128 # Number of pixels on each side of the square local occupancy grid.
+  local_occ_resolution: 0.01 # Meters/pixel on the local occupancy grid.
+
 
 model:
   skip_loading: false # Flag to skip using the ML model.

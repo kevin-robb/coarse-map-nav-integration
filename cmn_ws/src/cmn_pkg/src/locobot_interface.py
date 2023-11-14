@@ -5,14 +5,18 @@ Interface to parse sensor data from the locobot.
 """
 
 
-import rospy
+import rospy, rospkg
 import numpy as np
-import os, cv2
+import yaml, os, cv2
 from sensor_msgs.msg import LaserScan
 from bresenham import bresenham
 
 g_lidar_local_occ_meas = None # Last successful local occ meas from LiDAR data.
 g_lidar_detects_robot_facing_wall:bool = False # Flag if the area in front of the robot is obstructed.
+# Config params.
+g_local_occ_size:int = None # Number of pixels on each side of the square local occupancy grid.
+g_local_occ_resolution:float = None # Meters/pixel on the local occupancy grid.
+
 
 def get_lidar(msg:LaserScan):
     """
@@ -20,11 +24,11 @@ def get_lidar(msg:LaserScan):
     Convert it into a pseudo-local-occupancy measurement, akin to the model predictions.
     """
     # Use standard size for model predictions, i.e., 128x128 centered on the robot, with 0.01 m/px resolution.
-    local_occ_meas = np.ones((128, 128))
-    resolution = 0.01
+    # (Size can be configured above, but it will always be centered on the robot.)
+    local_occ_meas = np.ones((g_local_occ_size, g_local_occ_size))
     center_r = local_occ_meas.shape[0] // 2
     center_c = local_occ_meas.shape[1] // 2
-    max_range_px = msg.range_max / resolution
+    max_range_px = msg.range_max / g_local_occ_resolution
     for i in range(len(msg.ranges)):
         # Only use measurements within the valid range.
         if msg.ranges[i] < msg.range_min or msg.ranges[i] > msg.range_max:
@@ -33,7 +37,7 @@ def get_lidar(msg:LaserScan):
         # TODO shift angle based on current robot yaw so this aligns with the global map.
         angle = msg.angle_min + i * msg.angle_increment
         # Convert angle from meters to pixels.
-        dist_px = msg.ranges[i] / resolution
+        dist_px = msg.ranges[i] / g_local_occ_resolution
         # Add the data from this ray's detection to the local occ meas.
         # Signs are chosen s.t. the robot is facing EAST on the image.
         r_hit = center_r + int(dist_px * np.sin(angle))
@@ -49,12 +53,12 @@ def get_lidar(msg:LaserScan):
                 break
     
     # Check if the area in front of the robot is occluded.
+    # The motion planner checks this flag in realtime (not just once per CMN iteration) and stop a forward motion if it becomes true.
     global g_lidar_detects_robot_facing_wall
     # Check if the cell in front of the robot (i.e., right center cell) is occupied (i.e., == 0).
     front_cell_block = local_occ_meas[local_occ_meas.shape[0]//3:2*local_occ_meas.shape[0]//3, 2*local_occ_meas.shape[0]//3:]
     front_cell_mean = np.mean(front_cell_block)
     g_lidar_detects_robot_facing_wall = front_cell_mean <= 0.75
-    # TODO make the motion planner check this in realtime (not just once per iteration) and stop a forward motion if it becomes true.
 
     if __name__ == '__main__':
         cv2.namedWindow("LiDAR -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
@@ -67,9 +71,28 @@ def get_lidar(msg:LaserScan):
         g_lidar_local_occ_meas = local_occ_meas.copy()
 
 
+def read_params():
+    """
+    Read configuration params from the yaml.
+    """
+    # Determine filepath.
+    rospack = rospkg.RosPack()
+    pkg_path = rospack.get_path('cmn_pkg')
+    global g_yaml_path
+    g_yaml_path = os.path.join(pkg_path, 'config/config.yaml')
+    # Open the yaml and get the relevant params.
+    with open(g_yaml_path, 'r') as file:
+        config = yaml.safe_load(file)
+        # LiDAR params.
+        global g_local_occ_size, g_local_occ_resolution
+        g_local_occ_size = config["lidar"]["local_occ_size"]
+        g_local_occ_resolution = config["lidar"]["local_occ_resolution"]
+
 
 def main():
     rospy.init_node('interface_node')
+
+    read_params()
 
     # Subscribe to LiDAR data.
     rospy.Subscriber("/locobot/scan", LaserScan, get_lidar, queue_size=1)
