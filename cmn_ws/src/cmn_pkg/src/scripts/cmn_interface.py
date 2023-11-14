@@ -30,6 +30,10 @@ class CmnConfig():
     enable_ml_model:bool = False
     # Debug flag to allow disabling localization from running, using ground truth pose for planning.
     enable_localization:bool = True
+    # Flag to use local occ map generated from LiDAR data as ground truth.
+    use_lidar_as_ground_truth:bool = False
+    # Flag to combine local occ map from LiDAR with prediction from RGB model. Mutually exclusive with use_lidar_as_ground_truth and enable_sim. Requires enable_ml_model.
+    fuse_lidar_with_rgb:bool = False
 
 class CoarseMapNavInterface():
     # Overarching run modes for the project.
@@ -37,6 +41,8 @@ class CoarseMapNavInterface():
     enable_viz:bool = False
     use_discrete_space:bool = False
     enable_localization:bool = True # Debugging flag; if false, uses ground truth pose from sim instead of estimating pose.
+    use_lidar_as_ground_truth:bool = False
+    fuse_lidar_with_rgb:bool = False
 
     # Other modules which will be initialized if needed.
     cmn_node:CoarseMapNavDiscrete = None
@@ -68,6 +74,8 @@ class CoarseMapNavInterface():
         self.use_discrete_space = "discrete" in config.run_mode
         self.enable_viz = config.enable_viz
         self.enable_localization = config.enable_localization and config.enable_sim
+        self.use_lidar_as_ground_truth = config.use_lidar_as_ground_truth
+        self.fuse_lidar_with_rgb = config.fuse_lidar_with_rgb
 
         # Init the map manager / simulator.
         if self.enable_sim:
@@ -99,8 +107,9 @@ class CoarseMapNavInterface():
             self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, not config.enable_ml_model, "random" in config.run_mode)
             # Set the goal cell.
             self.cmn_node.set_goal_cell(self.motion_planner.goal_pos_px)
-            # Set whether the sim is enabled.
+            # Set other high-level configs.
             self.cmn_node.enable_sim = self.enable_sim
+            self.cmn_node.fuse_lidar_with_rgb = self.fuse_lidar_with_rgb
 
         # Init the visualizer only if it's enabled.
         if self.enable_viz:
@@ -122,8 +131,8 @@ class CoarseMapNavInterface():
             # Save this observation for the viz.
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
-        else:
-            # Use the LiDAR map as "ground truth" if we have it. The param will be None if it's disabled in yaml or we haven't gotten LiDAR data.
+        elif self.use_lidar_as_ground_truth:
+            # Use the LiDAR map as "ground truth" if we have it. The param will be None if we haven't gotten LiDAR data.
             # NOTE this does not mean it's perfect for our coarse map.
             current_local_map = lidar_local_occ_meas
 
@@ -155,7 +164,7 @@ class CoarseMapNavInterface():
 
             # Obtain the next sensor measurement --> local observation map (self.current_local_map).
             # Predict the local occupancy from panoramic RGB images, or use the ground truth.
-            self.cmn_node.predict_local_occupancy(pano_rgb, agent_yaw, current_local_map)
+            self.cmn_node.predict_local_occupancy(pano_rgb, agent_yaw, current_local_map, lidar_local_occ_meas)
             # Perform localization and choose the next action to take.
             plan_from_true_pose:bool = False
             if self.enable_sim and plan_from_true_pose:

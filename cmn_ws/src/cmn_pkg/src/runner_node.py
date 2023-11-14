@@ -91,17 +91,15 @@ def timer_update_loop(event=None):
 
     # Only gather a pano RGB if needed.
     pano_rgb = None
-    lidar_occ = None
     if g_cmn_interface.pano_rgb is not None:
         # The robot only turned in place, so the pano from last iteration was rotated and can now be used again.
         pano_rgb = g_cmn_interface.pano_rgb
     elif g_use_lidar_as_ground_truth:
         # Use local occ from LiDAR.
-        pano_rgb = None
-        lidar_occ = locobot_interface.g_lidar_local_occ_meas
+        pass
     elif g_use_ground_truth_map_to_generate_observations:
         # Sim will be used inside CMN interface to generate local occ.
-        pano_rgb = None
+        pass
     else:
         # Pano RGB will be used to predict local occ.
         pano_rgb = get_pano_meas()
@@ -112,7 +110,7 @@ def timer_update_loop(event=None):
         g_cmn_interface.cmn_node.visualizer.lidar_local_occ_meas = locobot_interface.g_lidar_local_occ_meas
         
     # Run an iteration. (It will internally run either continuous or discrete case).
-    g_cmn_interface.run(pano_rgb, g_dt, lidar_occ)
+    g_cmn_interface.run(pano_rgb, g_dt, locobot_interface.g_lidar_local_occ_meas)
 
 
 ##################### UTILITY FUNCTIONS #######################
@@ -134,8 +132,9 @@ def read_params():
         g_enable_localization = config["particle_filter"]["enable"]
         g_enable_ml_model = not config["model"]["skip_loading"]
         # LiDAR params.
-        global g_use_lidar_as_ground_truth
+        global g_use_lidar_as_ground_truth, g_fuse_lidar_with_rgb
         g_use_lidar_as_ground_truth = config["lidar"]["use_lidar_as_ground_truth"]
+        g_fuse_lidar_with_rgb = config["lidar"]["fuse_lidar_with_rgb"]
         locobot_interface.read_params()
         # Settings for interfacing with CMN.
         global g_meas_topic, g_desired_meas_shape
@@ -175,6 +174,8 @@ def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None
     config.enable_viz = use_viz
     config.enable_ml_model = g_enable_ml_model
     config.enable_localization = g_enable_localization
+    config.use_lidar_as_ground_truth = g_use_lidar_as_ground_truth and not use_sim
+    config.fuse_lidar_with_rgb = g_fuse_lidar_with_rgb and not g_use_lidar_as_ground_truth and not use_sim and g_enable_ml_model
 
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface

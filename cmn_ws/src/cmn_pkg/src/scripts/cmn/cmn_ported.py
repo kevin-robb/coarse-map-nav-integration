@@ -48,9 +48,9 @@ class CoarseMapNavDiscrete:
     visualizer:CoarseMapNavVisualizer = CoarseMapNavVisualizer() # Visualizer for all the original CMN discrete stuff.
     astar:Astar = Astar() # For path planning.
     send_random_commands:bool = False # Flag to send random discrete actions instead of planning.
-
-    # Flag to know if we're in the simulator vs physical robot.
-    enable_sim:bool = False
+    
+    enable_sim:bool = False # Flag to know if we're in the simulator vs physical robot.
+    fuse_lidar_with_rgb:bool = False # Flag to fuse lidar local occ meas with the predicted (if lidar data exists).
 
     # Coarse map itself.
     coarse_map_arr = None # 2D numpy array of coarse map. Free=1, Occupied=0.
@@ -306,13 +306,14 @@ class CoarseMapNavDiscrete:
         self.observation_prob_map = measurement_prob_map / (np.max(measurement_prob_map) + 1e-8)
 
 
-    def predict_local_occupancy(self, pano_rgb, agent_yaw:float=None, gt_observation=None):
+    def predict_local_occupancy(self, pano_rgb, agent_yaw:float=None, gt_observation=None, lidar_local_occ_meas=None):
         """
         Use the model to predict local occupancy map.
         NOTE: Must provide either pano_rgb (sensor data to run model to generate observation) or gt_observation (ground-truth from sim).
         @param pano_rgb - Panorama of four RGB images concatenated together.
         @param agent_yaw - Agent orientation in radians.
         @param gt_observation - Ground-truth observation from simulator. If provided, use it instead of running the model.
+        @param lidar_local_occ_meas - Local occ from LiDAR data. Will be fused with prediction if config is set. Unused otherwise.
         """
         if gt_observation is None:
             if self.model is None:
@@ -352,6 +353,13 @@ class CoarseMapNavDiscrete:
 
         # If the agent yaw was not provided, this is just being used by the runner to test the model.
         if agent_yaw is not None:
+            # Fuse with lidar data if enabled.
+            if self.fuse_lidar_with_rgb and lidar_local_occ_meas is not None:
+                # LiDAR local occ has robot facing EAST.
+                lidar_occ_facing_NORTH = rotate_image_to_north(lidar_local_occ_meas, np.pi/2)
+                # Combine via elementwise averaging.
+                pred_local_occ = np.mean(np.array([pred_local_occ, lidar_occ_facing_NORTH]), axis=0)
+
             # Before rotating the local map, check if the cell in front of the robot (i.e., top center cell) is occupied (i.e., == 0).
             top_center_cell_block = pred_local_occ[:pred_local_occ.shape[0]//3, pred_local_occ.shape[0]//3:2*pred_local_occ.shape[0]//3]
             top_center_cell_mean = np.mean(top_center_cell_block)
