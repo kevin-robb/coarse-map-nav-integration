@@ -356,7 +356,7 @@ class CoarseMapNavDiscrete:
             # Fuse with lidar data if enabled.
             if self.fuse_lidar_with_rgb and lidar_local_occ_meas is not None:
                 # LiDAR local occ has robot facing EAST.
-                lidar_occ_facing_NORTH = rotate_image_to_north(lidar_local_occ_meas, np.pi/2)
+                lidar_occ_facing_NORTH = rotate_image_to_north(lidar_local_occ_meas, 0)
                 # Combine via elementwise averaging.
                 pred_local_occ = np.mean(np.array([pred_local_occ, lidar_occ_facing_NORTH]), axis=0)
 
