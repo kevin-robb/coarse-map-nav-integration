@@ -431,7 +431,8 @@ class CoarseMapNavDiscrete:
             # Explore some more before planning.
             rospy.logwarn("CMN: Localization has not converged enough, so exploring rather than planning a path to the goal.")
             if self.is_facing_a_wall_in_pred_local_occ:
-                return "turn_left"
+                # return "turn_left"
+                return np.random.choice(['turn_left', 'turn_right'], 1)[0]
             else:
                 return "move_forward"
 

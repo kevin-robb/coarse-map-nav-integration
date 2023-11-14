@@ -457,6 +457,9 @@ class DiscreteMotionPlanner(MotionPlanner):
             remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
         
         self.pub_velocity_cmd(0.0, 0.0) # Stop the robot.
+        
+        if self.obstacle_in_front_of_robot:
+            rospy.logwarn("DMP: Stopping forward motion due to obstacle.")
 
         # Now that the forward motion has completed, it's possible there was some angular deviation. So, turn slightly to correct this.
         # self.cmd_pivot_to_face_direction(self.odom.get_direction())

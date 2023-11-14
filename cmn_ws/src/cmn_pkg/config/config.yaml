@@ -8,11 +8,10 @@ dt: 0.1 # timer period in seconds.
 
 lidar:
   # LiDAR will run and create its version of local occ always (if it gets data on the scan topic) in order to prevent collisions. The result will only be used by CMN if the flag is true.
-  use_lidar_as_ground_truth: false # Flag to use the lidar to generate crude "ground truth" local occ maps.
+  use_lidar_as_ground_truth: true # Flag to use the lidar to generate crude "ground truth" local occ maps.
   local_occ_size: 128 # Number of pixels on each side of the square local occupancy grid.
-  local_occ_resolution: 0.01 # Meters/pixel on the local occupancy grid.
+  local_occ_resolution: 0.015 # Meters/pixel on the local occupancy grid.
   save_lidar_and_rgb_prediction_for_comparison: true
-
 
 model:
   skip_loading: false # Flag to skip using the ML model.
@@ -39,7 +38,7 @@ measurements:
 map:
   # fname: "building1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
   # fname: "Eudora_map_binary_arr_mpp_03.npy" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
-  fname: "exp120_v1.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
+  fname: "exp120_v3.png" # Name of the map image file to use. Image should be in cmn_pkg/config/maps/ directory.
   desired_meters_per_pixel: 0.05 # Image will be resized to fit this desired granularity.
   obstacle_balloon_radius: 0 # Number of cells to expand all occupied cells by. Expansion happens in a square, treating diagonal and adjacent distances as equivalent.
   show_images_during_pre_proc: false # If true, display map at each stage of pre-processing.

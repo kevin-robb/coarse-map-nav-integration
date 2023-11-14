@@ -115,8 +115,6 @@ def timer_update_loop(event=None):
     g_cmn_interface.run(pano_rgb, g_dt, lidar_occ)
 
 
-# TODO make intermediary control_node that receives our commanded motion and either passes it through to the robot or uses sensors to perform reactive obstacle avoidance
-
 ##################### UTILITY FUNCTIONS #######################
 def read_params():
     """
