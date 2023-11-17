@@ -99,7 +99,7 @@ def get_local_occ_from_depth(msg:Image):
     rs_range_max = 5.0 # Max feasible range of RS depth sensor, in meters.
 
     # Compress the depth information into a LiDAR-like plane.
-    ratio_to_use = 1.0 # Ignore the bottom part of the image to avoid ground.
+    ratio_to_use = 1.0 # Ignore the bottom part of the image to avoid ground. Set to 1.0 to keep entire image.
     depth_img_top_half = depth_img[:int(ratio_to_use * depth_img.shape[0]), :]
     # Blank out non-detections with the mean.
     # depth_img_top_half[(depth_img_top_half < rs_range_min) | (depth_img_top_half > rs_range_max)] = np.mean(depth_img_top_half[(depth_img_top_half >= rs_range_min) & (depth_img_top_half <= rs_range_max)])
@@ -107,14 +107,19 @@ def get_local_occ_from_depth(msg:Image):
     flat_depth_meas = np.mean(depth_img_top_half, axis=0)
     # Treat this as angle range based on RS depth FOV.
     depth_fov = np.deg2rad(90)
+    half_depth_fov = depth_fov / 2
     num_rays = flat_depth_meas.shape[0]
     dtheta = depth_fov / num_rays
-    angles = [-depth_fov/2 + dtheta*i for i in range(num_rays)]
+    angles = [-half_depth_fov + dtheta*i for i in range(num_rays)]
+
+    # We seem to get erroneous depth readings on the edges of the FOV, so ignore these regions.
+    ignore_edge_regions_area = np.deg2rad(0.0) # Degrees to ignore on each side of the FOV. Set 0 to use whole image.
+    angle_upper_mag_to_keep = half_depth_fov - ignore_edge_regions_area
     
     for i in range(num_rays):
         angle = angles[i]
         # We seem to get erroneous depth readings on the edges of the FOV, so ignore these regions.
-        if angle < np.deg2rad(-40.0) or angle > np.deg2rad(40.0):
+        if angle < -angle_upper_mag_to_keep or angle > angle_upper_mag_to_keep:
             continue
 
         depth = flat_depth_meas[i] * 0.001 # Convert from mm to meters.

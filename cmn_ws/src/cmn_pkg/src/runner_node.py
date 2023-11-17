@@ -28,6 +28,7 @@ g_cmn_interface:CoarseMapNavInterface = None
 # RealSense measurements buffer.
 g_most_recent_realsense_measurement = None
 g_desired_meas_shape = None # Shape (h, w, c) to resize each color image from RS to.
+g_most_recent_depth_meas = None
 # Odom measurements.
 g_first_odom:PoseMeters = None # Used to offset odom frame to always have origin at start pose.
 # Configs.
@@ -226,7 +227,7 @@ def pop_from_RS_buffer():
     """
     global g_most_recent_realsense_measurement
     while g_most_recent_realsense_measurement is None:
-        rospy.logwarn("Waiting on measurement from RealSense!")
+        rospy.logwarn("Waiting on RGB measurement from RealSense!")
         rospy.sleep(0.01)
     # Convert from ROS Image message to an OpenCV image.
     cv_img_meas = g_cv_bridge.imgmsg_to_cv2(g_most_recent_realsense_measurement, desired_encoding='passthrough')
@@ -302,6 +303,9 @@ def get_local_occ_from_depth():
     @return local occupancy map.
     """
     rospy.loginfo("Attempting to generate a local occupancy measurement from depth data by commanding four 90 degree pivots.")
+    while g_most_recent_depth_meas is None:
+        rospy.logwarn("Waiting on depth measurement from RealSense!")
+        rospy.sleep(0.01)
     # Generate local occ from current depth view.
     locobot_interface.get_local_occ_from_depth(g_most_recent_depth_meas)
     local_occ_east = locobot_interface.g_depth_local_occ_meas
