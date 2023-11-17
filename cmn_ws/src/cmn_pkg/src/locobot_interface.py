@@ -9,7 +9,7 @@ import rospy, rospkg
 import numpy as np
 import yaml, os, cv2
 from cv_bridge import CvBridge
-from sensor_msgs.msg import LaserScan, Image
+from sensor_msgs.msg import LaserScan, Image, PointCloud2
 from bresenham import bresenham
 
 g_cv_bridge = CvBridge()
@@ -147,6 +147,13 @@ def get_local_occ_from_depth(msg:Image):
     g_depth_local_occ_meas = local_occ_meas.copy()
 
 
+def get_local_occ_from_pointcloud(msg:PointCloud2):
+    """
+    Process a pointcloud message containing depth data.
+    """
+    rospy.loginfo("Got a pointcloud!")
+
+
 def read_params():
     """
     Read configuration params from the yaml.
@@ -175,6 +182,9 @@ def main():
 
     # Subscribe to depth data from RealSense.
     rospy.Subscriber("/locobot/camera/depth/image_rect_raw", Image, get_local_occ_from_depth, queue_size=1)
+
+    # Subscribe to depth cloud processed from depth image.
+    rospy.Subscriber("/locobot/camera/depth/points", PointCloud2, get_local_occ_from_pointcloud, queue_size=1)
 
     rospy.spin()
 
