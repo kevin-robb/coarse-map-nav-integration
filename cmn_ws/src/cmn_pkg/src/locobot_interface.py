@@ -85,7 +85,7 @@ def get_local_occ_from_depth(msg:Image):
     Process a depth image to get a local occupancy measurement.
     """
     # Convert message to cv2 image type.
-    depth_img = g_cv_bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+    depth_img = g_cv_bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough').copy()
 
     # Use standard size for model predictions, i.e., 128x128 centered on the robot, with 0.01 m/px resolution.
     # (Size can be configured above, but it will always be centered on the robot.)
@@ -93,24 +93,33 @@ def get_local_occ_from_depth(msg:Image):
     center_r = local_occ_meas.shape[0] // 2
     center_c = local_occ_meas.shape[1] // 2
     max_range_px = g_local_occ_size # Ray from center can never be this long, so this is a safe upper bound.
+    range_max = max_range_px * g_local_occ_resolution
+
+    rs_range_min = 0.1 # Min feasible range of RS depth sensor, in meters.
+    rs_range_max = 5.0 # Max feasible range of RS depth sensor, in meters.
 
     # Compress the depth information into a LiDAR-like plane.
-    ratio_to_use = 0.7 # Ignore the bottom part of the image to avoid ground.
-    flat_depth_meas = np.mean(depth_img[:int(ratio_to_use * depth_img.shape[0]), :], axis=0)
+    ratio_to_use = 1.0 # Ignore the bottom part of the image to avoid ground.
+    depth_img_top_half = depth_img[:int(ratio_to_use * depth_img.shape[0]), :]
+    # Blank out non-detections with the mean.
+    # depth_img_top_half[(depth_img_top_half < rs_range_min) | (depth_img_top_half > rs_range_max)] = np.mean(depth_img_top_half[(depth_img_top_half >= rs_range_min) & (depth_img_top_half <= rs_range_max)])
+    depth_img_top_half[depth_img_top_half < rs_range_min] = np.mean(depth_img_top_half[depth_img_top_half >= rs_range_min])
+    flat_depth_meas = np.mean(depth_img_top_half, axis=0)
     # Treat this as angle range based on RS depth FOV.
     depth_fov = np.deg2rad(90)
     num_rays = flat_depth_meas.shape[0]
     dtheta = depth_fov / num_rays
     angles = [-depth_fov/2 + dtheta*i for i in range(num_rays)]
-
-    range_min = 0.1
-    range_max = max_range_px * g_local_occ_resolution
     
     for i in range(num_rays):
         angle = angles[i]
+        # We seem to get erroneous depth readings on the edges of the FOV, so ignore these regions.
+        if angle < np.deg2rad(-40.0) or angle > np.deg2rad(40.0):
+            continue
+
         depth = flat_depth_meas[i] * 0.001 # Convert from mm to meters.
         # Only use measurements within the valid range.
-        if depth < range_min or depth > range_max:
+        if depth < rs_range_min or depth > range_max:
             continue
         # Convert measurement from meters to pixels.
         dist_px = depth / g_local_occ_resolution

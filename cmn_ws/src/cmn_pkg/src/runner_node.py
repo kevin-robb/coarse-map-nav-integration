@@ -320,11 +320,18 @@ def get_local_occ_from_depth():
 
     # Fake the robot angle so we can use the existing function and get it to rotate how we need.
     rotated_local_occ_south = rotate_image_to_north(local_occ_south, 0)
-    rotated_local_occ_west = rotate_image_to_north(local_occ_west, np.pi/2)
+    rotated_local_occ_west = rotate_image_to_north(local_occ_west, -np.pi/2)
     rotated_local_occ_north = rotate_image_to_north(local_occ_north, np.pi)
 
     # Combine these four partial local occupancy maps. Use min so occupied cells take priority.
     local_occ_meas = np.min([local_occ_east, rotated_local_occ_south, rotated_local_occ_west, rotated_local_occ_north], axis=0)
+
+    cv2.imshow('local_occ_east', local_occ_east)
+    cv2.imshow('rotated_local_occ_south', rotated_local_occ_south)
+    cv2.imshow('rotated_local_occ_west', rotated_local_occ_west)
+    cv2.imshow('rotated_local_occ_north', rotated_local_occ_north)
+    cv2.imshow('local_occ_meas', local_occ_meas)
+    cv2.waitKey(0)
 
     return local_occ_meas
 
