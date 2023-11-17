@@ -28,7 +28,7 @@ import torch
 from torchvision.transforms import Compose, Normalize, PILToTensor
 
 from scripts.map_handler import MapFrameManager
-from scripts.basic_types import yaw_to_cardinal_dir, PosePixels, rotate_image_to_north
+from scripts.basic_types import yaw_to_cardinal_dir, PosePixels, rotate_image_to_north, cardinal_dir_to_yaw
 from scripts.astar import Astar
 
 
@@ -51,6 +51,9 @@ class CoarseMapNavDiscrete:
     
     enable_sim:bool = False # Flag to know if we're in the simulator vs physical robot.
     fuse_lidar_with_rgb:bool = False # Flag to fuse lidar local occ meas with the predicted (if lidar data exists).
+    assume_yaw_is_known:bool = True # If false, CMN will estimate cardinal direction in addition to position.
+    # When estimating yaw, it will be easiest to map indexes to orientations.
+    ind_to_orientation = ["north", "east", "south", "west"]
 
     # Coarse map itself.
     coarse_map_arr = None # 2D numpy array of coarse map. Free=1, Occupied=0.
@@ -75,7 +78,7 @@ class CoarseMapNavDiscrete:
     is_facing_a_wall_in_pred_local_occ:bool = False # Flag to store whether the predicted local occupancy has the robot facing a wall. If so, do not allow forward motion.
 
 
-    def __init__(self, mfm:MapFrameManager, skip_load_model:bool=False, send_random_commands:bool=False):
+    def __init__(self, mfm:MapFrameManager, skip_load_model:bool=False, send_random_commands:bool=False, assume_yaw_is_known:bool=True):
         """
         Initialize the CMN instance.
         @param mfm - Reference to MapFrameManager which has already loaded in the coarse map and processed it by adding a border.
@@ -117,6 +120,11 @@ class CoarseMapNavDiscrete:
         init_belief = self.coarse_map_arr.copy() # free = 1, occ = 0.
         self.agent_belief_map = init_belief / init_belief.sum()
 
+        self.assume_yaw_is_known = assume_yaw_is_known
+        # If we will have to estimate yaw as well, expand the belief map to four layers, one per orientation.
+        if not self.assume_yaw_is_known:
+            self.agent_belief_map = np.repeat(self.agent_belief_map[:, :, np.newaxis], 4, axis=2)
+            # Now this is r by c by 4.
 
     def set_goal_cell(self, goal_cell:PosePixels):
         """
@@ -175,8 +183,8 @@ class CoarseMapNavDiscrete:
         """
         # If this is the first iteration, just set up the belief maps and return.
         if self.predictive_belief_map is None:
-            self.predictive_belief_map = self.agent_belief_map.copy() #np.zeros_like(self.coarse_map_arr)  # predictive probability
-            self.observation_prob_map = np.zeros_like(self.coarse_map_arr)  # observation probability
+            self.predictive_belief_map = self.agent_belief_map.copy() # predictive probability
+            self.observation_prob_map = np.zeros_like(self.agent_belief_map)  # observation probability
 
         else:
             # When we command a forward motion, the actual robot will always be commanded to move.
@@ -195,10 +203,30 @@ class CoarseMapNavDiscrete:
             # Check if the action is able to happen. i.e., if this commanded action will be ignored because of a wall, don't move the predictive belief.
             if action != "move_forward" or not facing_a_wall:
                 # Run the predictive update stage.
-                self.predictive_update_func(action, yaw_to_cardinal_dir(agent_yaw))
+                if self.assume_yaw_is_known:
+                    self.predictive_update_func(action, yaw_to_cardinal_dir(agent_yaw))
+                    # Update the current localization estimate as well.
+                    self.agent_pose_estimate_px.apply_action(action)
+                else:
+                    if action == "move_forward":
+                        for i, dir in enumerate(self.ind_to_orientation):
+                            self.predictive_update_func(action, dir, i)
+                    else:
+                        # Apply a rotation by cycling the layers of the predictive update map.
+                        shift = 1 if action == "turn_right" else -1
+                        self.predictive_belief_map = np.roll(self.predictive_belief_map, shift=shift, axis=2)
+
 
             # Run the measurement update stage.
-            self.measurement_update_func()
+            if self.assume_yaw_is_known:
+                measurement_prob_map = self.measurement_update_func()
+                # Normalize it to [0, 1], and save to member var.
+                self.observation_prob_map = measurement_prob_map / (np.max(measurement_prob_map) + 1e-8)
+            else:
+                for i in range(4):
+                    self.observation_prob_map[:,:,i] = self.measurement_update_func()
+                    # Rotate the local occupancy by 90 degrees for the next orientation estimate.
+                    self.current_local_map = np.rot90(self.current_local_map, k=1)
 
             # Determine the weights for predicted vs observation belief maps.
             # Belief will be computed as this * pred + (1 - this) * obs.
@@ -206,9 +234,10 @@ class CoarseMapNavDiscrete:
             if action == "move_forward" and facing_a_wall:
                 # If this happens, it means our localization estimate is probably wrong, since we would never plan to move into a wall.
                 # So, blank it out on the predictive belief map.
-                self.predictive_belief_map[self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] = 0
+                # self.predictive_belief_map[self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] = 0
                 # So, lower the weight of the existing/predicted belief, and increase the belief from current observation.
                 # rel_weight_pred_vs_obs = 0.1
+                pass
 
             # Full Bayesian update with weights for both update stages.
             log_belief = np.log((1 - rel_weight_pred_vs_obs) * self.observation_prob_map + 1e-8) + np.log(rel_weight_pred_vs_obs * self.predictive_belief_map + 1e-8)
@@ -223,11 +252,12 @@ class CoarseMapNavDiscrete:
         self.visualizer.agent_belief_map = self.agent_belief_map
 
 
-    def predictive_update_func(self, agent_act:str, agent_dir:str):
+    def predictive_update_func(self, agent_act:str, agent_dir:str, dir_ind:int=None):
         """
         Update the grid-based beliefs using the roll function in python. 
         @param agent_act: Action commanded to the robot.
         @param agent_dir: String representation of a cardinal direction for the robot orientation.
+        @param dir_ind (optional): If we're estimating yaw, this is the index for the channel in the belief map.
         """
         trans_dir_dict = {
             'east': {'shift': 1, 'axis': 1},
@@ -247,12 +277,15 @@ class CoarseMapNavDiscrete:
             movable_locations = np.multiply(self.coarse_map_arr, movable_locations)
             # Cells near the walls has value = 1.0 other has value = 2.0
             movable_locations = movable_locations + self.coarse_map_arr
-            # Find all cells beside the walls in the moving direction
+            # Find all cells beside the wallself.predictive_belief_maps in the moving direction
             space_to_wall_cells = np.where(movable_locations == 1.0, 1.0, 0.0)
 
             # ======= Update the belief =======
             # Obtain the current belief
-            current_belief = self.agent_belief_map.copy()
+            if self.assume_yaw_is_known:
+                current_belief = self.agent_belief_map.copy()
+            else:
+                current_belief = self.agent_belief_map[:,:,dir_ind].copy()
 
             # Compute the move prob and stay prob
             noise_trans_move_prob = self.noise_trans_prob
@@ -270,19 +303,25 @@ class CoarseMapNavDiscrete:
 
             # Update the belief: combine the two
             pred_belief = pred_stay_belief + pred_move_belief
-        else:
-            pred_belief = self.agent_belief_map.copy()
+        else: # Pivot.
+            if self.assume_yaw_is_known:
+                # No change, since yaw is not estimated.
+                pred_belief = self.agent_belief_map.copy()
+            else:
+                # Apply a rotation by cycling the layers of the predictive update map.
+                pred_belief = self.agent_belief_map[dir_ind].copy()
 
         # Update the belief map.
-        self.predictive_belief_map = pred_belief
+        if self.assume_yaw_is_known:
+            self.predictive_belief_map = pred_belief
+        else:
+            self.predictive_belief_map[:,:,dir_ind] = pred_belief
 
-        # Update the current localization estimate as well.
-        self.agent_pose_estimate_px.apply_action(agent_act)
 
-
-    def measurement_update_func(self):
+    def measurement_update_func(self) -> np.ndarray:
         """
         Use the current local map from generated observation to update our beliefs.
+        @return r by c array of probabilities.
         """
         # Define the measurement probability map
         measurement_prob_map = np.zeros_like(self.coarse_map_arr).astype(float)
@@ -302,8 +341,7 @@ class CoarseMapNavDiscrete:
             # still: -1 is dealing with the mismatch
             measurement_prob_map[candidate_loc[0], candidate_loc[1]] = score
 
-        # Normalize it to [0, 1], and save to member var.
-        self.observation_prob_map = measurement_prob_map / (np.max(measurement_prob_map) + 1e-8)
+        return measurement_prob_map #/ (np.max(measurement_prob_map) + 1e-8)
 
 
     def predict_local_occupancy(self, pano_rgb, agent_yaw:float=None, gt_observation=None, lidar_local_occ_meas=None):
@@ -352,7 +390,7 @@ class CoarseMapNavDiscrete:
 
 
         # If the agent yaw was not provided, this is just being used by the runner to test the model.
-        if agent_yaw is not None:
+        if agent_yaw is not None or not self.assume_yaw_is_known:
             # Fuse with lidar data if enabled.
             if self.fuse_lidar_with_rgb and lidar_local_occ_meas is not None:
                 # LiDAR local occ has robot facing EAST.
@@ -366,8 +404,12 @@ class CoarseMapNavDiscrete:
             # print("top_center_cell_mean is {:}".format(top_center_cell_mean))
             self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.75
 
-            # Rotate the egocentric local occupancy to face NORTH
-            pred_local_occ = rotate_image_to_north(pred_local_occ, agent_yaw)
+            if self.assume_yaw_is_known:
+                # Rotate the egocentric local occupancy to face NORTH
+                pred_local_occ = rotate_image_to_north(pred_local_occ, agent_yaw)
+            else:
+                # Leave the local map relative to robot, with robot orientation UP.
+                pass
 
         self.current_local_map = pred_local_occ
 
@@ -384,27 +426,35 @@ class CoarseMapNavDiscrete:
         Perform localization (discrete bayesian filter) using belief map. Save result to member variable agent_pose_estimate_px.
         @param agent_yaw - Orientation of agent in radians; will be saved as part of localization estimate.
         """
-        # Find all the locations with max estimated probability
-        candidates = np.where(self.agent_belief_map == self.agent_belief_map.max())
-        candidates = [[r, c] for r, c in zip(candidates[0].tolist(), candidates[1].tolist())]
-
-        # If the current estimate is still among the max likelihood candidates, keep using it.
-        current_est_still_good = self.agent_pose_estimate_px is not None and [self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] in candidates
+        if self.assume_yaw_is_known:
+            # Find all the locations with max estimated probability
+            candidates = np.where(self.agent_belief_map == self.agent_belief_map.max())
+            candidates = [[r, c] for r, c in zip(candidates[0].tolist(), candidates[1].tolist())]
+            # If the current estimate is still among the max likelihood candidates, keep using it.
+            current_est_still_good:bool = self.agent_pose_estimate_px is not None and [self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c] in candidates
+        else:
+            # Find all the locations with max estimated probability
+            candidates = np.where(self.agent_belief_map == self.agent_belief_map.max())
+            candidates = [[r, c, i] for r, c, i in zip(candidates[0].tolist(), candidates[1].tolist(), candidates[2].tolist())]
+            # If the current estimate is still among the max likelihood candidates, keep using it.
+            current_est_still_good:bool = False
+            if self.agent_pose_estimate_px is not None:
+                cur_est_yaw_index = self.ind_to_orientation.index(self.agent_pose_estimate_px.get_direction())
+                current_est_still_good = [self.agent_pose_estimate_px.r, self.agent_pose_estimate_px.c, cur_est_yaw_index] in candidates
 
         if not current_est_still_good:
             # Randomly sample one as the estimate
             rnd_idx = np.random.randint(low=0, high=len(candidates))
             local_map_loc = tuple(candidates[rnd_idx])
             # Save this localization result for the planner to use.
-            self.agent_pose_estimate_px = PosePixels(local_map_loc[0], local_map_loc[1], agent_yaw)
+            if self.assume_yaw_is_known:
+                self.agent_pose_estimate_px = PosePixels(local_map_loc[0], local_map_loc[1], agent_yaw)
+            else:
+                agent_yaw = cardinal_dir_to_yaw[self.ind_to_orientation[local_map_loc[2]]]
+                self.agent_pose_estimate_px = PosePixels(local_map_loc[0], local_map_loc[1], agent_yaw)
 
         # Save this for the viz.
         self.visualizer.current_localization_estimate = self.agent_pose_estimate_px
-
-        # Find its index and the 3 x 3 local occupancy grid
-        # local_map_idx = self.coarse_map_graph.sampled_locations.index((local_map_loc[0], local_map_loc[1]))
-        # Render the local occupancy
-        # local_map_occ = self.coarse_map_graph.local_maps[local_map_idx]['map_arr']
 
 
     def choose_next_action(self, agent_yaw:float, true_agent_pose:PosePixels=None) -> str:

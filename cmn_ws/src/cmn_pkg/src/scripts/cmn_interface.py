@@ -36,6 +36,10 @@ class CmnConfig():
     fuse_lidar_with_rgb:bool = False
     # Flag to use local occ map generated from RS depth data as ground truth.
     use_depth_as_ground_truth:bool = False
+    # Original CMN does not estimate yaw, so we need to track it manually to uphold this assumption.
+    # Setting this flag to False will change the CMN localizer to estimate between the four cardinal directions.
+    assume_yaw_is_known:bool = True
+
 
 class CoarseMapNavInterface():
     # Overarching run modes for the project.
@@ -46,6 +50,8 @@ class CoarseMapNavInterface():
     use_lidar_as_ground_truth:bool = False
     fuse_lidar_with_rgb:bool = False
     use_depth_as_ground_truth:bool = False
+
+    assume_yaw_is_known:bool = True # Original CMN does not estimate yaw, so we need to track it manually to uphold this assumption.
 
     # Other modules which will be initialized if needed.
     cmn_node:CoarseMapNavDiscrete = None
@@ -80,6 +86,7 @@ class CoarseMapNavInterface():
         self.use_lidar_as_ground_truth = config.use_lidar_as_ground_truth
         self.fuse_lidar_with_rgb = config.fuse_lidar_with_rgb
         self.use_depth_as_ground_truth = config.use_depth_as_ground_truth
+        self.assume_yaw_is_known = config.assume_yaw_is_known
 
         # Init the map manager / simulator.
         if self.enable_sim:
@@ -108,7 +115,7 @@ class CoarseMapNavInterface():
         if self.use_discrete_space or not self.enable_sim:
             # Create Coarse Map Navigator (CMN) node.
             # NOTE For continuous, only need it to process sensor data into local occupancy map.
-            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, not config.enable_ml_model, "random" in config.run_mode)
+            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, not config.enable_ml_model, "random" in config.run_mode, self.assume_yaw_is_known)
             # Set the goal cell.
             self.cmn_node.set_goal_cell(self.motion_planner.goal_pos_px)
             # Set other high-level configs.
@@ -153,16 +160,21 @@ class CoarseMapNavInterface():
             self.run_particle_filter(current_local_map)
             self.command_motion_continuous(dt)
         else:
-            # NOTE CMN requires knowing the robot yaw. If we have the ground truth, use that.
-            if self.enable_sim:
-                agent_yaw = self.map_frame_manager.veh_pose_true_px.yaw
-            else:
-                agent_yaw = self.veh_pose_estimate_meters.yaw # This is just whatever we initialized it to...
-                # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
-
             if current_local_map is not None:
                 # Ground-truth observation is relative to robot, with robot facing east, so rotate to global north for CMN convention.
                 current_local_map = np.rot90(current_local_map, k=1)
+
+            if self.assume_yaw_is_known:
+                # NOTE Original CMN version requires knowing the robot yaw.
+                # If we have the ground truth, use that.
+                if self.enable_sim:
+                    agent_yaw = self.map_frame_manager.veh_pose_true_px.yaw
+                else:
+                    agent_yaw = self.veh_pose_estimate_meters.yaw # This is just whatever we initialized it to...
+                    # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
+            else:
+                # CMN will estimate yaw in addition to position.
+                agent_yaw = None
 
             # Run discrete CMN.
             if not ((pano_rgb is None) ^ (current_local_map is None)):

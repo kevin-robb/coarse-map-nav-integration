@@ -96,15 +96,15 @@ def timer_update_loop(event=None):
     if g_cmn_interface.pano_rgb is not None:
         # The robot only turned in place, so the pano from last iteration was rotated and can now be used again.
         pano_rgb = g_cmn_interface.pano_rgb
+    elif g_use_ground_truth_map_to_generate_observations:
+        # Sim will be used inside CMN interface to generate local occ.
+        pass
     elif g_use_lidar_as_ground_truth:
         # Use local occ from LiDAR.
         pass
     elif g_use_depth_as_ground_truth:
         # Generate ground truth from depth data.
         local_occ_depth = get_local_occ_from_depth()
-    elif g_use_ground_truth_map_to_generate_observations:
-        # Sim will be used inside CMN interface to generate local occ.
-        pass
     else:
         # Pano RGB will be used to predict local occ.
         pano_rgb = get_pano_meas()
@@ -131,11 +131,12 @@ def read_params():
     # Open the yaml and get the relevant params.
     with open(g_yaml_path, 'r') as file:
         config = yaml.safe_load(file)
-        global g_verbose, g_dt, g_enable_localization, g_enable_ml_model
+        global g_verbose, g_dt, g_enable_localization, g_enable_ml_model, g_discrete_assume_yaw_is_known
         g_verbose = config["verbose"]
         g_dt = config["dt"]
         g_enable_localization = config["particle_filter"]["enable"]
         g_enable_ml_model = not config["model"]["skip_loading"]
+        g_discrete_assume_yaw_is_known = config["discrete_assume_yaw_is_known"]
         # LiDAR params.
         global g_use_lidar_as_ground_truth, g_fuse_lidar_with_rgb, g_use_depth_as_ground_truth
         g_use_lidar_as_ground_truth = config["lidar"]["use_lidar_as_ground_truth"]
@@ -183,6 +184,7 @@ def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None
     config.use_lidar_as_ground_truth = g_use_lidar_as_ground_truth and not use_sim
     config.fuse_lidar_with_rgb = g_fuse_lidar_with_rgb and not g_use_lidar_as_ground_truth and not use_sim and g_enable_ml_model
     config.use_depth_as_ground_truth = g_use_depth_as_ground_truth and not g_use_lidar_as_ground_truth and not use_sim
+    config.assume_yaw_is_known = g_discrete_assume_yaw_is_known and "discrete" in g_run_mode
 
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
