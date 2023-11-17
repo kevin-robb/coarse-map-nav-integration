@@ -10,6 +10,7 @@ import numpy as np
 import yaml, os, cv2
 from cv_bridge import CvBridge
 from sensor_msgs.msg import LaserScan, Image, PointCloud2
+import sensor_msgs.point_cloud2 as pc2
 from bresenham import bresenham
 
 g_cv_bridge = CvBridge()
@@ -152,6 +153,10 @@ def get_local_occ_from_pointcloud(msg:PointCloud2):
     Process a pointcloud message containing depth data.
     """
     rospy.loginfo("Got a pointcloud!")
+    gen = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z"))
+    for pt in gen:
+        pass
+        # print(pt)
 
 
 def read_params():
