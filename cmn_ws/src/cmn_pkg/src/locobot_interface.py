@@ -12,21 +12,44 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import LaserScan, Image, PointCloud2
 import sensor_msgs.point_cloud2 as pc2
 from bresenham import bresenham
+from typing import Tuple
 
 g_cv_bridge = CvBridge()
 
 g_lidar_local_occ_meas = None # Last successful local occ meas from LiDAR data.
 g_lidar_detects_robot_facing_wall:bool = False # Flag if the area in front of the robot is obstructed.
-g_depth_local_occ_meas = None # Last successful local occ meas from RS depth data.
+g_depth_local_occ_meas = None # Last successful local occ meas from RS depth image.
+g_pointcloud_local_occ_meas = None # Last successful local occ meas from RS depth pointcloud.
 # Config params.
 g_local_occ_size:int = None # Number of pixels on each side of the square local occupancy grid.
 g_local_occ_resolution:float = None # Meters/pixel on the local occupancy grid.
+
+
+def show_images(event=None):
+    """
+    When running this as a standalone node, the result images are displayed.
+    """
+    if __name__ == '__main__':
+        cv2.namedWindow("LiDAR -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
+        cv2.imshow("LiDAR -> local occ meas (front = right)", g_lidar_local_occ_meas)
+        # print("WALL DETECTED IN FRONT OF ROBOT?: {:}".format(g_lidar_detects_robot_facing_wall))
+        
+        if g_depth_local_occ_meas is not None:
+            cv2.namedWindow("Depth Img -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
+            cv2.imshow("Depth Img -> local occ meas (front = right)", g_depth_local_occ_meas)
+
+        if g_pointcloud_local_occ_meas is not None:
+            cv2.namedWindow("Pointcloud -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
+            cv2.imshow("Pointcloud -> local occ meas (front = right)", g_pointcloud_local_occ_meas)
+
+        cv2.waitKey(100)
 
 
 def get_local_occ_from_lidar(msg:LaserScan):
     """
     Get a scan message from the robot's LiDAR.
     Convert it into a pseudo-local-occupancy measurement, akin to the model predictions.
+    @param msg - Scan from the 360 degree planar LiDAR.
     """
     # Use standard size for model predictions, i.e., 128x128 centered on the robot, with 0.01 m/px resolution.
     # (Size can be configured above, but it will always be centered on the robot.)
@@ -39,7 +62,7 @@ def get_local_occ_from_lidar(msg:LaserScan):
         if msg.ranges[i] < msg.range_min or msg.ranges[i] > msg.range_max:
             continue
         # Compute angle for this ray based on its index and the given angle range.
-        # TODO shift angle based on current robot yaw so this aligns with the global map.
+        # NOTE we could potentially shift angle here based on current robot yaw so this aligns with the global map.
         angle = msg.angle_min + i * msg.angle_increment
         # Convert angle from meters to pixels.
         dist_px = msg.ranges[i] / g_local_occ_resolution
@@ -69,21 +92,11 @@ def get_local_occ_from_lidar(msg:LaserScan):
     global g_lidar_local_occ_meas
     g_lidar_local_occ_meas = local_occ_meas.copy()
 
-    if __name__ == '__main__':
-        cv2.namedWindow("LiDAR -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
-        cv2.imshow("LiDAR -> local occ meas (front = right)", g_lidar_local_occ_meas)
-        # print("WALL DETECTED IN FRONT OF ROBOT?: {:}".format(g_lidar_detects_robot_facing_wall))
-        
-        if g_depth_local_occ_meas is not None:
-            cv2.namedWindow("Depth -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
-            cv2.imshow("Depth -> local occ meas (front = right)", g_depth_local_occ_meas)
-
-        cv2.waitKey(100)
-
 
 def get_local_occ_from_depth(msg:Image):
     """
     Process a depth image to get a local occupancy measurement.
+    @param msg - Raw rectified depth image from the RealSense.
     """
     # Convert message to cv2 image type.
     depth_img = g_cv_bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough').copy()
@@ -151,12 +164,40 @@ def get_local_occ_from_depth(msg:Image):
 def get_local_occ_from_pointcloud(msg:PointCloud2):
     """
     Process a pointcloud message containing depth data.
+    @param msg - Pointcloud from the RealSense depth data.
     """
-    rospy.loginfo("Got a pointcloud!")
     gen = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z"))
+
+    # Use standard size for model predictions, i.e., 128x128 centered on the robot, with 0.01 m/px resolution.
+    # (Size can be configured above, but it will always be centered on the robot.)
+    local_occ_meas = np.ones((g_local_occ_size, g_local_occ_size))
+    center_r = local_occ_meas.shape[0] // 2
+    center_c = local_occ_meas.shape[1] // 2
+    max_range_px = g_local_occ_size # Ray from center can never be this long, so this is a safe upper bound.
+
     for pt in gen:
-        pass
-        # print(pt)
+        # Flatten the point onto the local occupancy grid (ignore z).
+        # Signs are chosen s.t. the robot is facing EAST on the image.
+        dc = pt[0] / g_local_occ_resolution
+        dr = -pt[1] / g_local_occ_resolution
+        r_hit = center_r + dr
+        c_hit = center_c + dc
+
+        # We want to mark not only this cell as occupied, but also all cells behind it.
+        angle = np.arctan2(dr, dc)
+        r_max_range = center_r + int(max_range_px * np.sin(angle))
+        c_max_range = center_c + int(max_range_px * np.cos(angle))
+        for cell in bresenham(r_hit, c_hit, r_max_range, c_max_range):
+            # Mark all cells as occupied until leaving the bounds of the image.
+            r = cell[0]; c = cell[1]
+            if r >= 0 and c >= 0 and r < local_occ_meas.shape[0] and c < local_occ_meas.shape[1]:
+                local_occ_meas[r, c] = 0
+            else:
+                break
+    
+    # Save the local occ for CMN to use.
+    global g_pointcloud_local_occ_meas
+    g_pointcloud_local_occ_meas = local_occ_meas.copy()
 
 
 def read_params():
@@ -190,6 +231,8 @@ def main():
 
     # Subscribe to depth cloud processed from depth image.
     rospy.Subscriber("/locobot/camera/depth/points", PointCloud2, get_local_occ_from_pointcloud, queue_size=1)
+
+    rospy.Timer(rospy.Duration(0.1), show_images)
 
     rospy.spin()
 
