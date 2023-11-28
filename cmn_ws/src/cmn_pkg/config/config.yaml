@@ -6,7 +6,7 @@ verbose: false # Show a lot more debug information.
 # When using discrete sim, can set to 0 to run only one frame at a time.
 dt: 0.1 # timer period in seconds.
 
-discrete_assume_yaw_is_known: false # For discrete CMN, originally yaw was assumed known. If false, estimate it in addition to position with a 3d DBF.
+discrete_assume_yaw_is_known: true # For discrete CMN, originally yaw was assumed known. If false, estimate it in addition to position with a 3d DBF.
 
 lidar:
   # LiDAR will run and create its version of local occ always (if it gets data on the scan topic) in order to prevent collisions. The result will only be used by CMN if the flag is true.

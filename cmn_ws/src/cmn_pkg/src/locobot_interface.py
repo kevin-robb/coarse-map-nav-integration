@@ -191,6 +191,9 @@ def get_local_occ_from_pointcloud(msg:PointCloud2):
         # Skip points outside max sensor range.
         if pt[0] > 5 or pt[1] > 5 or pt[2] > 5:
             continue
+        # Skip points too close to the robot.
+        if pt[2] < 0.01:
+            continue
         # print("Pt: ({:.3f}, {:.3f}, {:.3f})".format(pt[0], pt[1], pt[2]))
         # Flatten the point onto the local occupancy grid (ignore z).
         # Signs are chosen s.t. the robot is facing EAST on the image.
@@ -202,9 +205,6 @@ def get_local_occ_from_pointcloud(msg:PointCloud2):
 
         # Skip points out of bounds of the image.
         if r_hit < 0 or c_hit < 0 or r_hit >= g_local_occ_size or c_hit >= g_local_occ_size:
-            continue
-        # Skip points too close to the robot.
-        if dc < 3:
             continue
 
         # We want to mark not only this cell as occupied, but also all cells behind it.

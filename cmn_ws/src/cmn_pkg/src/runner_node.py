@@ -259,6 +259,31 @@ def get_pano_meas():
         # Combine these four partial local occupancy maps. Use min so occupied cells take priority.
         local_occ_meas = np.min([local_occ_east, rotated_local_occ_south, rotated_local_occ_west, rotated_local_occ_north], axis=0)
 
+        # Check if the corner gaps should be occupied, despite being outside FOV.
+        div = 3 # Number of groups to divide each side into.
+        one_third = local_occ_meas.shape[0]//div
+        two_thirds = (1-div)*local_occ_meas.shape[0]//div
+        occ_thresh = 0.1 # threshold proportion of cells in this region that are occupied.
+        top_left_block = local_occ_meas[:one_third, :one_third]
+        top_left_occ_percent = 1 - np.mean(top_left_block)
+        if top_left_occ_percent >= occ_thresh:
+            local_occ_meas[:one_third, :one_third] = 0
+
+        top_right_block = local_occ_meas[:one_third, two_thirds:]
+        top_right_occ_percent = 1 - np.mean(top_right_block)
+        if top_right_occ_percent >= occ_thresh:
+            local_occ_meas[:one_third, two_thirds:] = 0
+
+        bot_right_block = local_occ_meas[two_thirds:, two_thirds:]
+        bot_right_occ_percent = 1 - np.mean(bot_right_block)
+        if bot_right_occ_percent >= occ_thresh:
+            local_occ_meas[two_thirds:, two_thirds:] = 0
+
+        bot_left_block = local_occ_meas[two_thirds:, :one_third]
+        bot_left_occ_percent = 1 - np.mean(bot_left_block)
+        if bot_left_occ_percent >= occ_thresh:
+            local_occ_meas[two_thirds:, :one_third] = 0
+
     return pano_rgb, local_occ_meas
 
 def pop_from_RGB_buffer():
