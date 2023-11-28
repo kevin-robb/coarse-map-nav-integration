@@ -106,6 +106,7 @@ def get_local_occ_from_depth(msg:Image):
     """
     Process a depth image to get a local occupancy measurement.
     @param msg - Raw rectified depth image from the RealSense.
+    @return local occupancy grid created from this data. (Note only the EAST quadrant will be meaningful, since other regions are outside the FOV.)
     """
     # Convert message to cv2 image type.
     depth_img = g_cv_bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough').copy()
@@ -168,12 +169,14 @@ def get_local_occ_from_depth(msg:Image):
     # Save the local occ for CMN to use.
     global g_depth_local_occ_meas
     g_depth_local_occ_meas = local_occ_meas.copy()
+    return local_occ_meas
 
 
 def get_local_occ_from_pointcloud(msg:PointCloud2):
     """
     Process a pointcloud message containing depth data.
     @param msg - Pointcloud from the RealSense depth data.
+    @return local occupancy grid created from this data. (Note only the EAST quadrant will be meaningful, since other regions are outside the FOV.)
     """
     gen = pc2.read_points(msg, skip_nans=True, field_names=("x", "y", "z"))
 
@@ -219,6 +222,7 @@ def get_local_occ_from_pointcloud(msg:PointCloud2):
     # Save the local occ for CMN to use.
     global g_pointcloud_local_occ_meas
     g_pointcloud_local_occ_meas = local_occ_meas.copy()
+    return local_occ_meas
 
 
 def get_pointcloud_msg(msg:PointCloud2):

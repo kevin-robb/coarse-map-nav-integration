@@ -10,7 +10,7 @@ from math import degrees
 # from skimage.transform import rotate
 import cv2, os
 
-from scripts.basic_types import PoseMeters, PosePixels
+from scripts.basic_types import PoseMeters, PosePixels, rotate_image_to_north
 from scripts.map_handler import Simulator, MapFrameManager
 from scripts.motion_planner import DiscreteMotionPlanner, MotionPlanner
 from scripts.particle_filter import ParticleFilter
@@ -65,7 +65,8 @@ class CoarseMapNavInterface():
     visualizer:Visualizer = None # Will be initialized only if enabled.
 
     veh_pose_estimate_meters:PoseMeters = PoseMeters(0,0,0) # Current estimated pose of the agent, (x, y, yaw) in meters & radians. For discrete case, assume yaw is ground truth (known).
-    pano_rgb = None # If we perform an action of turning in-place, we don't need to retake the measurement. Instead, we shift it to be centered on the new orientation, and save it here.
+    last_pano_rgb:np.ndarray = None # If we perform an action of turning in-place, we don't need to retake the measurement. Instead, we shift it to be centered on the new orientation, and save it here.
+    last_depth_local_occ:np.ndarray = None # Similarly, when we rotate in place, we can just rotate the local occ from depth data.
 
     # Params for saving training/eval data during the run.
     save_training_data:bool = False # Flag to save data when running on robot for later training/evaluation.
@@ -177,7 +178,7 @@ class CoarseMapNavInterface():
                 agent_yaw = None
 
             # Run discrete CMN.
-            if not ((pano_rgb is None) ^ (current_local_map is None)):
+            if pano_rgb is None and current_local_map is None:
                 rospy.logerr("Need pano_rgb or ground truth observation to run CMN.")
                 return
 
@@ -221,13 +222,21 @@ class CoarseMapNavInterface():
                 width_each_img = pano_rgb.shape[1] // 4
                 if action == "move_forward":
                     # Will need to retake measurement.
-                    self.pano_rgb = None
+                    self.last_pano_rgb = None
+                    self.last_depth_local_occ = None
                 elif action == "turn_right":
                     # Shift images to the left by one, so "right" becomes "front".
-                    self.pano_rgb = np.roll(pano_rgb, shift=-width_each_img, axis=1)
+                    self.last_pano_rgb = np.roll(pano_rgb, shift=-width_each_img, axis=1)
+                    # Rotate the depth local occ grid.
+                    if depth_local_occ_meas is not None:
+                        # TODO verify rotation direction.
+                        self.last_depth_local_occ = rotate_image_to_north(depth_local_occ_meas, 0)
                 elif action == "turn_left":
                     # Shift images to the right by one, so "left" becomes "front".
-                    self.pano_rgb = np.roll(pano_rgb, shift=width_each_img, axis=1)
+                    self.last_pano_rgb = np.roll(pano_rgb, shift=width_each_img, axis=1)
+                    # Rotate the depth local occ grid.
+                    if depth_local_occ_meas is not None:
+                        self.last_depth_local_occ = rotate_image_to_north(depth_local_occ_meas, np.pi)
                     
             # Save the data it computed for the visualizer.
             if self.enable_viz:

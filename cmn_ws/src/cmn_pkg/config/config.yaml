@@ -18,6 +18,7 @@ lidar:
 
 depth:
   use_depth_as_ground_truth: true # Flag to use the RS depth to generate crude "ground truth" local occ maps.
+  use_pointcloud: true # If true, must be running depth proc so pointclouds are generated, and these will be used. If false, use raw rect depth image.
 
 model:
   skip_loading: false # Flag to skip using the ML model.

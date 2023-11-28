@@ -344,6 +344,38 @@ class CoarseMapNavDiscrete:
         return measurement_prob_map #/ (np.max(measurement_prob_map) + 1e-8)
 
 
+    def prediction_to_local_map(self, pred_local_occ:np.ndarray, agent_yaw:float=None, lidar_local_occ_meas=None):
+        """
+        Process a predicted or ground truth local occ into the local occupancy grid that's aligned to the map.
+        @param pred_local_occ - Predicted or ground truth local occ, relative to robot orientation.
+        @param agent_yaw - Agent orientation in radians.
+        @param lidar_local_occ_meas - Local occ from LiDAR data. Will be fused with prediction if config is set. Unused otherwise.
+        @return aligned local occupancy grid.
+        """
+        # If the agent yaw was not provided, this is just being used by the runner to test the model.
+        if agent_yaw is not None or not self.assume_yaw_is_known:
+            # Fuse with lidar data if enabled.
+            if self.fuse_lidar_with_rgb and lidar_local_occ_meas is not None:
+                # LiDAR local occ has robot facing EAST.
+                lidar_occ_facing_NORTH = rotate_image_to_north(lidar_local_occ_meas, 0)
+                # Combine via elementwise averaging.
+                pred_local_occ = np.mean(np.array([pred_local_occ, lidar_occ_facing_NORTH]), axis=0)
+
+            # Before rotating the local map, check if the cell in front of the robot (i.e., top center cell) is occupied (i.e., == 0).
+            top_center_cell_block = pred_local_occ[:pred_local_occ.shape[0]//3, pred_local_occ.shape[0]//3:2*pred_local_occ.shape[0]//3]
+            top_center_cell_mean = np.mean(top_center_cell_block)
+            # print("top_center_cell_mean is {:}".format(top_center_cell_mean))
+            self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.75
+
+            if self.assume_yaw_is_known:
+                # Rotate the egocentric local occupancy to face NORTH
+                pred_local_occ = rotate_image_to_north(pred_local_occ, agent_yaw)
+            else:
+                # Leave the local map relative to robot, with robot orientation UP.
+                pass
+
+        return pred_local_occ
+
     def predict_local_occupancy(self, pano_rgb, agent_yaw:float=None, gt_observation=None, lidar_local_occ_meas=None):
         """
         Use the model to predict local occupancy map.
@@ -353,7 +385,7 @@ class CoarseMapNavDiscrete:
         @param gt_observation - Ground-truth observation from simulator. If provided, use it instead of running the model.
         @param lidar_local_occ_meas - Local occ from LiDAR data. Will be fused with prediction if config is set. Unused otherwise.
         """
-        if gt_observation is None:
+        if pano_rgb is not None:
             if self.model is None:
                 rospy.logerr("Cannot predict_local_occupancy() because the model was not loaded!")
                 return
@@ -384,40 +416,17 @@ class CoarseMapNavDiscrete:
             #     # Resize back up to 128x128.
             #     pred_local_occ = cv2.resize(pred_local_occ_cropped, (128, 128), 0, 0, cv2.INTER_LINEAR)
 
-        else:
+            self.current_local_map = self.prediction_to_local_map(pred_local_occ, agent_yaw, lidar_local_occ_meas)
+            # Update the viz.
+            self.visualizer.pano_rgb = pano_rgb
+            self.visualizer.current_predicted_local_map = self.current_local_map
+
+        if gt_observation is not None:
             # Scale observation up to 128x128 to match the output from the model.
             pred_local_occ = up_scale_grid(gt_observation)
-
-
-        # If the agent yaw was not provided, this is just being used by the runner to test the model.
-        if agent_yaw is not None or not self.assume_yaw_is_known:
-            # Fuse with lidar data if enabled.
-            if self.fuse_lidar_with_rgb and lidar_local_occ_meas is not None:
-                # LiDAR local occ has robot facing EAST.
-                lidar_occ_facing_NORTH = rotate_image_to_north(lidar_local_occ_meas, 0)
-                # Combine via elementwise averaging.
-                pred_local_occ = np.mean(np.array([pred_local_occ, lidar_occ_facing_NORTH]), axis=0)
-
-            # Before rotating the local map, check if the cell in front of the robot (i.e., top center cell) is occupied (i.e., == 0).
-            top_center_cell_block = pred_local_occ[:pred_local_occ.shape[0]//3, pred_local_occ.shape[0]//3:2*pred_local_occ.shape[0]//3]
-            top_center_cell_mean = np.mean(top_center_cell_block)
-            # print("top_center_cell_mean is {:}".format(top_center_cell_mean))
-            self.is_facing_a_wall_in_pred_local_occ = top_center_cell_mean <= 0.75
-
-            if self.assume_yaw_is_known:
-                # Rotate the egocentric local occupancy to face NORTH
-                pred_local_occ = rotate_image_to_north(pred_local_occ, agent_yaw)
-            else:
-                # Leave the local map relative to robot, with robot orientation UP.
-                pass
-
-        self.current_local_map = pred_local_occ
-
-        # Update the viz.
-        self.visualizer.pano_rgb = pano_rgb
-        self.visualizer.current_predicted_local_map = self.current_local_map
-        # If this is ground-truth, assign it to that for viz as well.
-        if gt_observation is not None:
+            # Replace current local map (used for localization) with provided ground truth.
+            self.current_local_map = self.prediction_to_local_map(pred_local_occ, agent_yaw)
+            # Update the viz.
             self.visualizer.current_ground_truth_local_map = self.current_local_map
 
 
