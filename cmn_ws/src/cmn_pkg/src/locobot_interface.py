@@ -16,6 +16,8 @@ from typing import Tuple
 
 g_cv_bridge = CvBridge()
 
+g_pointcloud_msg = None # Pointcloud message from RealSense depth data.
+
 g_lidar_local_occ_meas = None # Last successful local occ meas from LiDAR data.
 g_lidar_detects_robot_facing_wall:bool = False # Flag if the area in front of the robot is obstructed.
 g_depth_local_occ_meas = None # Last successful local occ meas from RS depth image.
@@ -30,15 +32,22 @@ def show_images(event=None):
     When running this as a standalone node, the result images are displayed.
     """
     if __name__ == '__main__':
-        cv2.namedWindow("LiDAR -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
-        cv2.imshow("LiDAR -> local occ meas (front = right)", g_lidar_local_occ_meas)
-        # print("WALL DETECTED IN FRONT OF ROBOT?: {:}".format(g_lidar_detects_robot_facing_wall))
+        if g_lidar_local_occ_meas is not None:
+            cv2.namedWindow("LiDAR -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
+            cv2.imshow("LiDAR -> local occ meas (front = right)", g_lidar_local_occ_meas)
+            # print("WALL DETECTED IN FRONT OF ROBOT?: {:}".format(g_lidar_detects_robot_facing_wall))
         
         if g_depth_local_occ_meas is not None:
             cv2.namedWindow("Depth Img -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
             cv2.imshow("Depth Img -> local occ meas (front = right)", g_depth_local_occ_meas)
 
-        if g_pointcloud_local_occ_meas is not None:
+        # if g_pointcloud_local_occ_meas is not None:
+        global g_pointcloud_msg
+        if g_pointcloud_msg is not None:
+            # Save it so we don't process the same pointcloud more than once.
+            pc = g_pointcloud_msg
+            g_pointcloud_msg = None
+            get_local_occ_from_pointcloud(pc)
             cv2.namedWindow("Pointcloud -> local occ meas (front = right)", cv2.WINDOW_NORMAL)
             cv2.imshow("Pointcloud -> local occ meas (front = right)", g_pointcloud_local_occ_meas)
 
@@ -176,28 +185,48 @@ def get_local_occ_from_pointcloud(msg:PointCloud2):
     max_range_px = g_local_occ_size # Ray from center can never be this long, so this is a safe upper bound.
 
     for pt in gen:
+        # Skip points outside max sensor range.
+        if pt[0] > 5 or pt[1] > 5 or pt[2] > 5:
+            continue
+        # print("Pt: ({:.3f}, {:.3f}, {:.3f})".format(pt[0], pt[1], pt[2]))
         # Flatten the point onto the local occupancy grid (ignore z).
         # Signs are chosen s.t. the robot is facing EAST on the image.
-        dc = pt[0] / g_local_occ_resolution
-        dr = -pt[1] / g_local_occ_resolution
+        # For RealSense, +x is to the right, +y is down, +z is forward.
+        dc = pt[2] / g_local_occ_resolution
+        dr = pt[0] / g_local_occ_resolution
         r_hit = center_r + dr
         c_hit = center_c + dc
 
+        # Skip points out of bounds of the image.
+        if r_hit < 0 or c_hit < 0 or r_hit >= g_local_occ_size or c_hit >= g_local_occ_size:
+            continue
+        # Skip points too close to the robot.
+        if dc < 3:
+            continue
+
         # We want to mark not only this cell as occupied, but also all cells behind it.
         angle = np.arctan2(dr, dc)
-        r_max_range = center_r + int(max_range_px * np.sin(angle))
-        c_max_range = center_c + int(max_range_px * np.cos(angle))
-        for cell in bresenham(r_hit, c_hit, r_max_range, c_max_range):
+        r_max_range = center_r + max_range_px * np.sin(angle)
+        c_max_range = center_c + max_range_px * np.cos(angle)
+        for cell in bresenham(int(r_hit), int(c_hit), int(r_max_range), int(c_max_range)):
             # Mark all cells as occupied until leaving the bounds of the image.
             r = cell[0]; c = cell[1]
             if r >= 0 and c >= 0 and r < local_occ_meas.shape[0] and c < local_occ_meas.shape[1]:
                 local_occ_meas[r, c] = 0
             else:
                 break
-    
+
     # Save the local occ for CMN to use.
     global g_pointcloud_local_occ_meas
     g_pointcloud_local_occ_meas = local_occ_meas.copy()
+
+
+def get_pointcloud_msg(msg:PointCloud2):
+    """
+    Get a pointcloud message, and save it to use.
+    """
+    global g_pointcloud_msg
+    g_pointcloud_msg = msg
 
 
 def read_params():
@@ -224,13 +253,13 @@ def main():
     read_params()
 
     # Subscribe to LiDAR data.
-    rospy.Subscriber("/locobot/scan", LaserScan, get_local_occ_from_lidar, queue_size=1)
+    # rospy.Subscriber("/locobot/scan", LaserScan, get_local_occ_from_lidar, queue_size=1)
 
     # Subscribe to depth data from RealSense.
-    rospy.Subscriber("/locobot/camera/depth/image_rect_raw", Image, get_local_occ_from_depth, queue_size=1)
+    # rospy.Subscriber("/locobot/camera/depth/image_rect_raw", Image, get_local_occ_from_depth, queue_size=1)
 
     # Subscribe to depth cloud processed from depth image.
-    rospy.Subscriber("/locobot/camera/depth/points", PointCloud2, get_local_occ_from_pointcloud, queue_size=1)
+    rospy.Subscriber("/locobot/camera/depth/points", PointCloud2, get_pointcloud_msg, queue_size=1)
 
     rospy.Timer(rospy.Duration(0.1), show_images)
 
