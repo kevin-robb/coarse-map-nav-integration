@@ -192,10 +192,10 @@ def get_local_occ_from_pointcloud(msg:PointCloud2):
         if pt[0] > 5 or pt[1] > 5 or pt[2] > 5:
             continue
         # Skip points too close to the robot.
-        if pt[2] < 0.01:
+        if pt[2] < 0.001:
             continue
         # print("Pt: ({:.3f}, {:.3f}, {:.3f})".format(pt[0], pt[1], pt[2]))
-        # Flatten the point onto the local occupancy grid (ignore z).
+        # Flatten the point onto the local occupancy grid (ignore height).
         # Signs are chosen s.t. the robot is facing EAST on the image.
         # For RealSense, +x is to the right, +y is down, +z is forward.
         dc = pt[2] / g_local_occ_resolution
@@ -257,7 +257,7 @@ def main():
     read_params()
 
     # Subscribe to LiDAR data.
-    # rospy.Subscriber("/locobot/scan", LaserScan, get_local_occ_from_lidar, queue_size=1)
+    rospy.Subscriber("/locobot/scan", LaserScan, get_local_occ_from_lidar, queue_size=1)
 
     # Subscribe to depth data from RealSense.
     # rospy.Subscriber("/locobot/camera/depth/image_rect_raw", Image, get_local_occ_from_depth, queue_size=1)
