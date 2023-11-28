@@ -6,11 +6,9 @@ Wrapper for the original CMN Habitat code from Chengguang Xu to work with my cus
 
 import rospy
 import numpy as np
-from math import degrees
-# from skimage.transform import rotate
 import cv2, os
 
-from scripts.basic_types import PoseMeters, PosePixels, rotate_image_to_north
+from scripts.basic_types import PoseMeters, PosePixels
 from scripts.map_handler import Simulator, MapFrameManager
 from scripts.motion_planner import DiscreteMotionPlanner, MotionPlanner
 from scripts.particle_filter import ParticleFilter
@@ -122,6 +120,7 @@ class CoarseMapNavInterface():
             # Set other high-level configs.
             self.cmn_node.enable_sim = self.enable_sim
             self.cmn_node.fuse_lidar_with_rgb = self.fuse_lidar_with_rgb
+            self.cmn_node.visualizer.gt_is_depth = self.use_depth_as_ground_truth
 
         # Init the visualizer only if it's enabled.
         if self.enable_viz:
@@ -229,14 +228,13 @@ class CoarseMapNavInterface():
                     self.last_pano_rgb = np.roll(pano_rgb, shift=-width_each_img, axis=1)
                     # Rotate the depth local occ grid.
                     if depth_local_occ_meas is not None:
-                        # TODO verify rotation direction.
-                        self.last_depth_local_occ = rotate_image_to_north(depth_local_occ_meas, 0)
+                        self.last_depth_local_occ = np.rot90(depth_local_occ_meas, k=1)
                 elif action == "turn_left":
                     # Shift images to the right by one, so "left" becomes "front".
                     self.last_pano_rgb = np.roll(pano_rgb, shift=width_each_img, axis=1)
                     # Rotate the depth local occ grid.
                     if depth_local_occ_meas is not None:
-                        self.last_depth_local_occ = rotate_image_to_north(depth_local_occ_meas, np.pi)
+                        self.last_depth_local_occ = np.rot90(depth_local_occ_meas, k=-1)
                     
             # Save the data it computed for the visualizer.
             if self.enable_viz:

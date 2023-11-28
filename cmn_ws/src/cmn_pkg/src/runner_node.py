@@ -262,7 +262,7 @@ def get_pano_meas():
         # Check if the corner gaps should be occupied, despite being outside FOV.
         div = 3 # Number of groups to divide each side into.
         one_third = local_occ_meas.shape[0]//div
-        two_thirds = (1-div)*local_occ_meas.shape[0]//div
+        two_thirds = (div-1)*local_occ_meas.shape[0]//div
         occ_thresh = 0.1 # threshold proportion of cells in this region that are occupied.
         top_left_block = local_occ_meas[:one_third, :one_third]
         top_left_occ_percent = 1 - np.mean(top_left_block)
@@ -283,6 +283,8 @@ def get_pano_meas():
         bot_left_occ_percent = 1 - np.mean(bot_left_block)
         if bot_left_occ_percent >= occ_thresh:
             local_occ_meas[two_thirds:, :one_third] = 0
+
+        # print("occ percents are {:.3f}, {:.3f}, {:.3f}, {:.3f}".format(top_left_occ_percent, top_right_occ_percent, bot_right_occ_percent, bot_left_occ_percent))
 
     return pano_rgb, local_occ_meas
 

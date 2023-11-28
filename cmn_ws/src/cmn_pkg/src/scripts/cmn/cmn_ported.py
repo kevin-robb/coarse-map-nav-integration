@@ -370,6 +370,9 @@ class CoarseMapNavDiscrete:
             if self.assume_yaw_is_known:
                 # Rotate the egocentric local occupancy to face NORTH
                 pred_local_occ = rotate_image_to_north(pred_local_occ, agent_yaw)
+
+                # Save the known orientation for the viz to display.
+                self.visualizer.robot_direction = yaw_to_cardinal_dir(agent_yaw)
             else:
                 # Leave the local map relative to robot, with robot orientation UP.
                 pass
