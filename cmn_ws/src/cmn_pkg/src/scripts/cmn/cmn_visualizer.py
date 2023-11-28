@@ -105,12 +105,30 @@ class CoarseMapNavVisualizer:
         #     ax_pred_update_bel.imshow(predictive_belief.astype('float'), cmap="gray", vmin=0, vmax=1)
 
         if self.observation_prob_map is not None:
-            observation_belief = self.normalize_belief_for_visualization(self.observation_prob_map)
-            ax_obs_update_bel.imshow(observation_belief.astype('float'), cmap="gray", vmin=0, vmax=1)
+            belief = self.normalize_belief_for_visualization(self.observation_prob_map)
+            # If the filter is estimating yaw as well as position, this will be 4 layers instead of 1.
+            if len(belief.shape) > 2 and belief.shape[2] == 4:
+                belief_grid = np.zeros((belief.shape[0]*2, belief.shape[1]*2), dtype=float)
+                belief_grid[:belief.shape[0], :belief.shape[1]] = belief[:,:,0]
+                belief_grid[:belief.shape[0], belief.shape[1]:] = belief[:,:,1]
+                belief_grid[belief.shape[0]:, :belief.shape[1]] = belief[:,:,2]
+                belief_grid[belief.shape[0]:, belief.shape[1]:] = belief[:,:,3]
+                ax_obs_update_bel.imshow(belief_grid.astype('float'), cmap="gray", vmin=0, vmax=1)
+            else:
+                ax_obs_update_bel.imshow(belief.astype('float'), cmap="gray", vmin=0, vmax=1)
 
         if self.agent_belief_map is not None:
             belief = self.normalize_belief_for_visualization(self.agent_belief_map)
-            ax_belief.imshow(belief.astype('float'), cmap="gray", vmin=0, vmax=1)
+            # If the filter is estimating yaw as well as position, this will be 4 layers instead of 1.
+            if len(belief.shape) > 2 and belief.shape[2] == 4:
+                belief_grid = np.zeros((belief.shape[0]*2, belief.shape[1]*2), dtype=float)
+                belief_grid[:belief.shape[0], :belief.shape[1]] = belief[:,:,0]
+                belief_grid[:belief.shape[0], belief.shape[1]:] = belief[:,:,1]
+                belief_grid[belief.shape[0]:, :belief.shape[1]] = belief[:,:,2]
+                belief_grid[belief.shape[0]:, belief.shape[1]:] = belief[:,:,3]
+                ax_belief.imshow(belief_grid.astype('float'), cmap="gray", vmin=0, vmax=1)
+            else:
+                ax_belief.imshow(belief.astype('float'), cmap="gray", vmin=0, vmax=1)
 
         if self.coarse_map is not None:
             # Convert coarse map to BGR.
