@@ -6,8 +6,6 @@ Wrapper for the original CMN Habitat code from Chengguang Xu to work with my cus
 
 import rospy
 import numpy as np
-from math import degrees
-# from skimage.transform import rotate
 import cv2, os
 
 from scripts.basic_types import PoseMeters, PosePixels
@@ -30,6 +28,19 @@ class CmnConfig():
     enable_ml_model:bool = False
     # Debug flag to allow disabling localization from running, using ground truth pose for planning.
     enable_localization:bool = True
+    # Flag to use local occ map generated from LiDAR data as ground truth.
+    use_lidar_as_ground_truth:bool = False
+    # Flag to combine local occ map from LiDAR with prediction from RGB model. Mutually exclusive with use_lidar_as_ground_truth and enable_sim. Requires enable_ml_model.
+    fuse_lidar_with_rgb:bool = False
+    # Flag to use local occ map generated from RS depth data as ground truth.
+    use_depth_as_ground_truth:bool = False
+    # Original CMN does not estimate yaw, so we need to track it manually to uphold this assumption.
+    # Setting this flag to False will change the CMN localizer to estimate between the four cardinal directions.
+    assume_yaw_is_known:bool = True
+    # Flag to use the goal cell specified in configs. If false, a random free cell on the map will be chosen.
+    manually_set_goal_cell:bool = False
+    manual_goal_cell:PosePixels = None # only provided if manually_set_goal_cell is true.
+
 
 class CoarseMapNavInterface():
     # Overarching run modes for the project.
@@ -37,6 +48,11 @@ class CoarseMapNavInterface():
     enable_viz:bool = False
     use_discrete_space:bool = False
     enable_localization:bool = True # Debugging flag; if false, uses ground truth pose from sim instead of estimating pose.
+    use_lidar_as_ground_truth:bool = False
+    fuse_lidar_with_rgb:bool = False
+    use_depth_as_ground_truth:bool = False
+
+    assume_yaw_is_known:bool = True # Original CMN does not estimate yaw, so we need to track it manually to uphold this assumption.
 
     # Other modules which will be initialized if needed.
     cmn_node:CoarseMapNavDiscrete = None
@@ -50,7 +66,8 @@ class CoarseMapNavInterface():
     visualizer:Visualizer = None # Will be initialized only if enabled.
 
     veh_pose_estimate_meters:PoseMeters = PoseMeters(0,0,0) # Current estimated pose of the agent, (x, y, yaw) in meters & radians. For discrete case, assume yaw is ground truth (known).
-    pano_rgb = None # If we perform an action of turning in-place, we don't need to retake the measurement. Instead, we shift it to be centered on the new orientation, and save it here.
+    last_pano_rgb:np.ndarray = None # If we perform an action of turning in-place, we don't need to retake the measurement. Instead, we shift it to be centered on the new orientation, and save it here.
+    last_depth_local_occ:np.ndarray = None # Similarly, when we rotate in place, we can just rotate the local occ from depth data.
 
     # Params for saving training/eval data during the run.
     save_training_data:bool = False # Flag to save data when running on robot for later training/evaluation.
@@ -68,6 +85,10 @@ class CoarseMapNavInterface():
         self.use_discrete_space = "discrete" in config.run_mode
         self.enable_viz = config.enable_viz
         self.enable_localization = config.enable_localization and config.enable_sim
+        self.use_lidar_as_ground_truth = config.use_lidar_as_ground_truth
+        self.fuse_lidar_with_rgb = config.fuse_lidar_with_rgb
+        self.use_depth_as_ground_truth = config.use_depth_as_ground_truth
+        self.assume_yaw_is_known = config.assume_yaw_is_known
 
         # Init the map manager / simulator.
         if self.enable_sim:
@@ -85,8 +106,13 @@ class CoarseMapNavInterface():
         self.motion_planner.set_map_frame_manager(self.map_frame_manager)
         # Discrete motion commands internally publish velocity commands for the robot and wait for the motion to be complete, which cannot be run without a robot (i.e., in the sim).
         self.motion_planner.wait_for_motion_to_complete = not self.enable_sim
-        # Select a random goal point.
-        self.motion_planner.set_goal_point_random()
+
+        # Choose the first goal cell.
+        if config.manually_set_goal_cell:
+            self.motion_planner.set_goal_point(config.manual_goal_cell)
+        else:
+            # Select a random goal point.
+            self.motion_planner.set_goal_point_random()
 
         if not self.use_discrete_space:
             # Init the localization module.
@@ -96,9 +122,13 @@ class CoarseMapNavInterface():
         if self.use_discrete_space or not self.enable_sim:
             # Create Coarse Map Navigator (CMN) node.
             # NOTE For continuous, only need it to process sensor data into local occupancy map.
-            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, not config.enable_ml_model, "random" in config.run_mode)
+            self.cmn_node = CoarseMapNavDiscrete(self.map_frame_manager, not config.enable_ml_model, "random" in config.run_mode, self.assume_yaw_is_known)
             # Set the goal cell.
             self.cmn_node.set_goal_cell(self.motion_planner.goal_pos_px)
+            # Set other high-level configs.
+            self.cmn_node.enable_sim = self.enable_sim
+            self.cmn_node.fuse_lidar_with_rgb = self.fuse_lidar_with_rgb
+            self.cmn_node.visualizer.gt_is_depth = self.use_depth_as_ground_truth
 
         # Init the visualizer only if it's enabled.
         if self.enable_viz:
@@ -107,11 +137,12 @@ class CoarseMapNavInterface():
             self.visualizer.goal_cell = self.motion_planner.goal_pos_px
 
 
-    def run(self, pano_rgb=None, dt:float=None):
+    def run(self, pano_rgb=None, dt:float=None, lidar_local_occ_meas=None, depth_local_occ_meas=None):
         """
         Run one iteration.
         @param pano_rgb Numpy array containing four color images concatenated horizontally, (front, right, back, left).
         @param dt - Timer period in seconds representing how often commands are sent to the robot. Only used for particle filter propagation.
+        @param lidar_local_occ_meas - Equivalent local occupancy measurement obtained from crudely parsing LiDAR data from the robot.
         """
         current_local_map = None
         if self.enable_sim:
@@ -119,6 +150,13 @@ class CoarseMapNavInterface():
             # Save this observation for the viz.
             if self.enable_viz:
                 self.visualizer.set_observation(current_local_map, rect)
+        elif self.use_lidar_as_ground_truth:
+            # Use the LiDAR map as "ground truth" if we have it. The param will be None if we haven't gotten LiDAR data.
+            # NOTE this does not mean it's perfect for our coarse map.
+            current_local_map = lidar_local_occ_meas
+        elif self.use_depth_as_ground_truth:
+            # Use the depth map as "ground truth" if we have it. This param will be None if we haven't gotten depth data, or if settings conflict.
+            current_local_map = depth_local_occ_meas
 
         if not self.use_discrete_space:
             # Run the continuous version of the project.
@@ -130,25 +168,30 @@ class CoarseMapNavInterface():
             self.run_particle_filter(current_local_map)
             self.command_motion_continuous(dt)
         else:
-            # NOTE CMN requires knowing the robot yaw. If we have the ground truth, use that.
-            if self.enable_sim:
-                agent_yaw = self.map_frame_manager.veh_pose_true_px.yaw
-            else:
-                agent_yaw = self.veh_pose_estimate_meters.yaw # This is just whatever we initialized it to...
-                # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
-
             if current_local_map is not None:
                 # Ground-truth observation is relative to robot, with robot facing east, so rotate to global north for CMN convention.
                 current_local_map = np.rot90(current_local_map, k=1)
 
+            if self.assume_yaw_is_known:
+                # NOTE Original CMN version requires knowing the robot yaw.
+                # If we have the ground truth, use that.
+                if self.enable_sim:
+                    agent_yaw = self.map_frame_manager.veh_pose_true_px.yaw
+                else:
+                    agent_yaw = self.veh_pose_estimate_meters.yaw # This is just whatever we initialized it to...
+                    # TODO ensure initialized yaw is correct, and then use robot odom propagation so we always know the ground truth cardinal direction.
+            else:
+                # CMN will estimate yaw in addition to position.
+                agent_yaw = None
+
             # Run discrete CMN.
-            if not ((pano_rgb is None) ^ (current_local_map is None)):
+            if pano_rgb is None and current_local_map is None:
                 rospy.logerr("Need pano_rgb or ground truth observation to run CMN.")
                 return
 
             # Obtain the next sensor measurement --> local observation map (self.current_local_map).
             # Predict the local occupancy from panoramic RGB images, or use the ground truth.
-            self.cmn_node.predict_local_occupancy(pano_rgb, agent_yaw, current_local_map)
+            self.cmn_node.predict_local_occupancy(pano_rgb, agent_yaw, current_local_map, lidar_local_occ_meas)
             # Perform localization and choose the next action to take.
             plan_from_true_pose:bool = False
             if self.enable_sim and plan_from_true_pose:
@@ -186,13 +229,20 @@ class CoarseMapNavInterface():
                 width_each_img = pano_rgb.shape[1] // 4
                 if action == "move_forward":
                     # Will need to retake measurement.
-                    self.pano_rgb = None
+                    self.last_pano_rgb = None
+                    self.last_depth_local_occ = None
                 elif action == "turn_right":
                     # Shift images to the left by one, so "right" becomes "front".
-                    self.pano_rgb = np.roll(pano_rgb, shift=-width_each_img, axis=1)
+                    self.last_pano_rgb = np.roll(pano_rgb, shift=-width_each_img, axis=1)
+                    # Rotate the depth local occ grid.
+                    if depth_local_occ_meas is not None:
+                        self.last_depth_local_occ = np.rot90(depth_local_occ_meas, k=1)
                 elif action == "turn_left":
                     # Shift images to the right by one, so "left" becomes "front".
-                    self.pano_rgb = np.roll(pano_rgb, shift=width_each_img, axis=1)
+                    self.last_pano_rgb = np.roll(pano_rgb, shift=width_each_img, axis=1)
+                    # Rotate the depth local occ grid.
+                    if depth_local_occ_meas is not None:
+                        self.last_depth_local_occ = np.rot90(depth_local_occ_meas, k=-1)
                     
             # Save the data it computed for the visualizer.
             if self.enable_viz:
@@ -216,8 +266,9 @@ class CoarseMapNavInterface():
                 self.veh_pose_estimate_meters = self.map_frame_manager.transform_pose_px_to_m(localization_result_px)
                 if self.enable_viz:
                     self.visualizer.veh_pose_estimate = localization_result_px
-                    # Also save the ground truth pose for viz.
-                    self.visualizer.veh_pose_true_px = self.map_frame_manager.veh_pose_true_px
+                    if self.enable_sim:
+                        # Also save the ground truth pose for viz.
+                        self.visualizer.veh_pose_true_px = self.map_frame_manager.veh_pose_true_px
 
 
         # Save all desired data for later training/evaluation.

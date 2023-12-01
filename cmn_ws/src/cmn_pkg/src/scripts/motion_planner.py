@@ -32,6 +32,8 @@ class MotionPlanner:
     # Publisher that will be defined by a ROS node and set.
     cmd_vel_pub = None
 
+    obstacle_in_front_of_robot:bool = False # Flag that will be set when the LiDAR detects an obstacle in front of the robot, so we can immediately halt motion.
+
     # Instances of utility classes.
     astar = Astar() # For path planning.
     pure_pursuit = PurePursuit() # For path following.
@@ -354,29 +356,37 @@ class DiscreteMotionPlanner(MotionPlanner):
         Do our best to stay axis-locked to a cardinal direction, so modify turn angle to achieve this.
         @param angle - the angle to turn (radians). Positive for CCW, negative for CW.
         """
-        # Get closest direction to current orientation.
-        current_dir:str = self.odom.get_direction()
-        # Get desired turn direction.
-        turn_dir_sign = angle / abs(angle)
         # Get desired final orientation after the pivot.
         final_dir:str = yaw_to_cardinal_dir(self.odom.yaw + angle)
+        # Command the robot to turn to this direction.
+        self.cmd_pivot_to_face_direction(final_dir)
+
+    def cmd_pivot_to_face_direction(self, final_dir:str):
+        """
+        Command a pivot to turn the robot in-place to align with the specified cardinal direction.
+        @param final_dir - desired cardinal direction, one of "east", "west", "north", "south".
+        """
         # Convert this to yaw.
         final_yaw:float = cardinal_dir_to_yaw[final_dir]
         # Compute actual amount we will turn.
         actual_amount_to_turn = remainder(final_yaw - self.odom.yaw, tau)
 
         if self.verbose:
-            rospy.loginfo("DMP: Commanding a discrete pivot from {:} to {:}".format(current_dir, final_dir))
-            # rospy.loginfo("DMP: starting yaw: {:.3f}, goal yaw: {:.3f}".format(self.odom.yaw, final_yaw))
+            rospy.loginfo("DMP: Commanding a discrete pivot from {:} to {:}. starting yaw: {:.3f}, goal yaw: {:.3f}".format(self.odom.get_direction(), final_dir, self.odom.yaw, final_yaw))
 
         # Get desired turn direction.
         turn_dir_sign = actual_amount_to_turn / abs(actual_amount_to_turn)
         # Keep waiting until motion has completed.
         remaining_turn_rads = abs(actual_amount_to_turn)
         while remaining_turn_rads > self.ang_goal_reach_deviation:
-            # Command the max possible turn speed, in the desired direction.
-            # NOTE if we don't "ramp down" the speed, we may over-turn slightly. Since we are realigning to global coord frame each turn. this matters less.
-            abs_ang_vel_to_cmd = remaining_turn_rads / abs(actual_amount_to_turn) * self.max_ang_vel
+            if actual_amount_to_turn > 0.5:
+                # Command the max possible turn speed, in the desired direction.
+                # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
+                abs_ang_vel_to_cmd = remaining_turn_rads / abs(actual_amount_to_turn) * self.max_ang_vel
+            else:
+                # If the total amount to turn is small, this method will way over-turn. So, just command minimum speed.
+                abs_ang_vel_to_cmd = 0
+
             abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, self.min_ang_vel) # Enforce a minimum speed.
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
@@ -402,9 +412,14 @@ class DiscreteMotionPlanner(MotionPlanner):
         # NOTE may still need to reduce 'angle' by a factor of say, 0.8, to prevent over-turning.
         remaining_turn_rads = abs(angle)
         while remaining_turn_rads > self.ang_goal_reach_deviation:
-            # Command the max possible turn speed, in the desired direction.
-            # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
-            abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_vel
+            if angle > 0.5:
+                # Command the max possible turn speed, in the desired direction.
+                # NOTE if we don't "ramp down" the speed, we may over-turn slightly.
+                abs_ang_vel_to_cmd = remaining_turn_rads / abs(angle) * self.max_ang_vel
+            else:
+                # If the total amount to turn is small, this method will way over-turn. So, just command minimum speed.
+                abs_ang_vel_to_cmd = 0
+            
             abs_ang_vel_to_cmd = max(abs_ang_vel_to_cmd, self.min_ang_vel) # Enforce a minimum speed.
             self.pub_velocity_cmd(0, abs_ang_vel_to_cmd * turn_dir_sign)
             rospy.sleep(0.001)
@@ -423,11 +438,11 @@ class DiscreteMotionPlanner(MotionPlanner):
         # Save the starting odom.
         init_odom = self.odom
         # Init the p-controller, starting at 0 velocity.
-        pid = PController(0.0, 0.05)
-        ramp_threshold = 0.5 * dist # Distance threshold at which we will change the set point from max to min speed.
+        pid = PController(0.0, 0.0001)
+        ramp_threshold = 0.5 * dist # Remaining distance threshold at which we will change the set point from max to min speed.
         # Keep waiting until motion has completed.
         remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
-        while remaining_motion > self.lin_goal_reach_deviation:
+        while remaining_motion > self.lin_goal_reach_deviation and not self.obstacle_in_front_of_robot:
             if remaining_motion > ramp_threshold:
                 # Ramp up during the first part of the motion.
                 v = pid.update(self.max_lin_vel)
@@ -435,8 +450,19 @@ class DiscreteMotionPlanner(MotionPlanner):
                 # Ramp down in the last part of the motion.
                 v = pid.update(self.min_lin_vel)
             # Command this speed in the desired direction.
-            self.pub_velocity_cmd(v * motion_sign, 0)
+            self.pub_velocity_cmd(v * motion_sign, -0.008) # Include a small angular component to combat the robot's natural leftward drift.
+            # self.pub_velocity_cmd(v * motion_sign, 0)
             rospy.sleep(0.001)
             # Compute new remaining distance to travel. NOTE we do not take absolute value, so if we pass the point we will still stop.
             remaining_motion = dist - sqrt((self.odom.x-init_odom.x)**2 + (self.odom.y-init_odom.y)**2)
+        
+        self.pub_velocity_cmd(0.0, 0.0) # Stop the robot.
+        
+        if self.obstacle_in_front_of_robot:
+            rospy.logwarn("DMP: Stopping forward motion due to obstacle.")
 
+        # Now that the forward motion has completed, it's possible there was some angular deviation. So, turn slightly to correct this.
+        # self.cmd_pivot_to_face_direction(self.odom.get_direction())
+
+        # Tends to drift to the left, so correct this.
+        # self.cmd_discrete_ang_motion_relative(-0.02)

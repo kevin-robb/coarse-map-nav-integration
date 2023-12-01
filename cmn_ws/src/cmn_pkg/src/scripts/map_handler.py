@@ -131,25 +131,27 @@ class CoarseMapProcessor:
         # Round so all cells are either completely free (1) or occluded (0).
         self.occ_map = np.round(occ_map_img)
 
-        # Expand occluded cells so path planning won't take us right next to obstacles.
-        if len(img.shape) >= 3 and img.shape[2] >= 3:
-            if self.obs_balloon_radius == 0:
-                rospy.logwarn("CMP: For some reason everything breaks if we skip the ballooning step, so running with minimal radius of 1.")
-                self.obs_balloon_radius = 1
-        # Determine index pairs to select all neighbors when ballooning obstacles.
-        nbrs = []
-        for i in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
-            for j in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
-                nbrs.append((i, j))
-        # Remove 0,0 which is just the parent cell.
-        nbrs.remove((0,0))
-        # Expand all occluded cells outwards.
-        for i in range(len(self.occ_map)):
-            for j in range(len(self.occ_map[0])):
-                if occ_map_img[i][j] != 1: # occluded.
-                    # Mark all neighbors as occluded.
-                    for chg in nbrs:
-                        self.occ_map[clamp(i+chg[0], 0, self.occ_map.shape[0]-1)][clamp(j+chg[1], 0, self.occ_map.shape[1]-1)] = 0
+        if self.obs_balloon_radius != 0:
+            # Expand occluded cells so path planning won't take us right next to obstacles.
+            if len(img.shape) >= 3 and img.shape[2] >= 3:
+                if self.obs_balloon_radius == 0:
+                    rospy.logwarn("CMP: For some reason everything breaks if we skip the ballooning step, so running with minimal radius of 1.")
+                    self.obs_balloon_radius = 1
+            # Determine index pairs to select all neighbors when ballooning obstacles.
+            nbrs = []
+            for i in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
+                for j in range(-self.obs_balloon_radius, self.obs_balloon_radius+1):
+                    nbrs.append((i, j))
+            # Remove 0,0 which is just the parent cell.
+            nbrs.remove((0,0))
+            # Expand all occluded cells outwards.
+            for i in range(len(self.occ_map)):
+                for j in range(len(self.occ_map[0])):
+                    if occ_map_img[i][j] != 1: # occluded.
+                        # Mark all neighbors as occluded.
+                        for chg in nbrs:
+                            self.occ_map[clamp(i+chg[0], 0, self.occ_map.shape[0]-1)][clamp(j+chg[1], 0, self.occ_map.shape[1]-1)] = 0
+
         self.occ_map = np.float32(np.array(self.occ_map))
         if self.show_map_images:
             cv2.imshow("Ballooned Occ Map", self.occ_map); cv2.waitKey(0); cv2.destroyAllWindows()

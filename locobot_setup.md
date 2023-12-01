@@ -95,20 +95,6 @@ rosrun teleop_twist_keyboard teleop_twist_keyboard.py cmd_vel:=/locobot/mobile_b
 ```
 You can now use the keyboard commands printed to the console to drive the locobot around.
 
-## Running my code with the robot
-The workspace with my contribution to this project is located [on GitHub](https://github.com/kevin-robb/coarse-map-turtlebot). Clone the repo onto your host PC; I recommend making a `~/dev` directory if you haven't, and cloning it there.
-
-This workspace includes my custom code for this project, which handles our overall architecture of perception, localization, and motion planning. At its most basic level, we can simply run the `test_motion.launch` file, which will send test velocity commands on the same topic the robot listens to. If everything is setup properly, this will allow us to drive the robot around.
-
-After cloning the repo (and again after making any changes requiring a new build), run
-```
-cd ~/dev/coarse-map-turtlebot/cmn_ws
-catkin_make
-source devel/setup.bash
-```
-
-Examine the available launch files in the `cmn_pkg/launch` directory, and choose one to run. Some will run the simulator on the host PC, while others will send commands to control the robot.
-
 ## Getting a "Ground Truth" Map with Cartographer-ROS
 ### Setup
 Install Cartographer on the locobot using [this guide](https://google-cartographer-ros.readthedocs.io/en/latest/compilation.html).
@@ -196,3 +182,81 @@ When attempting to run cartographer from rosbags I gathered, it seems our IMU da
 
 Note that you can analyze a rosbag in detail with the utility `rqt_bag`. Simply run `rqt_bag` in the terminal and select your bag from the "File" menu.
 
+
+---
+
+# Running this project
+## Setup
+Clone and setup this repository on your host PC.
+```
+cd ~/dev
+git clone git@github.com:kevin-robb/coarse-map-nav-integration.git
+cd coarse-map-integration
+git submodule update --init
+```
+You should also setup the conda environment to install all needed python dependencies.
+```
+conda env create -f environment.yml
+conda activate cmn_env
+```
+
+## Non-ROS runner
+The only ROS dependency is the communication to the physical robot. So, I have provided a non-ROS runner for the project running in simulation.
+```
+cd ~/dev/coarse-map-integration/cmn_ws
+python3 src/cmn_pkg/src/non_ros_runner.py -m <run_mode>
+```
+where `<run_mode>` is one of `discrete`, `discrete_random`, and `continuous`.
+
+TODO sim image.
+
+<!-- 
+<p align="center">
+  <img src="images/discrete-on-robot.png"/>
+  
+  <i>The CMN viz when running live on the physical robot.</i>
+</p> -->
+
+## Testing deep model predictions
+There is also a non-ROS runner to test the model predictions on saved panoramic RGB images.
+```
+cd ~/dev/coarse-map-integration/cmn_ws
+python3 src/cmn_pkg/src/scripts/cmn/run_model_on_saved_pano.py \
+  -m src/cmn_pkg/src/scripts/cmn/model/trained_local_occupancy_predictor_model.pt \
+  -d src/cmn_pkg/data
+```
+
+<p align="center">
+  <img src="images/chair-hallway-prediction-1.png"/>
+  
+  <i>Four RGB images making up a panorama (front, right, back, left) are read from file and run through the saved model to produce the predicted local occupancy shown. In this case, the robot is between two rows of desks with chairs, which appear in the prediction.</i>
+</p>
+
+## ROS runner
+Start bringup on the robot as described above, and set your host PC to use the locobot as ROS master. Then build and source our ROS workspace.
+```
+cd ~/dev/coarse-map-integration/cmn_ws
+catkin_make
+source devel/setup.bash
+```
+
+If using the depth pointcloud to generate local occupancy measurements, you must start the depth proc:
+```
+roslaunch cmn_pkg start_depth_proc.launch
+```
+
+To just evaluate local occupancy generation from LiDAR/depth data, use the locobot interface node:
+```
+roslaunch cmn_pkg test_lidar.launch
+```
+
+Now you can start CMN with one of the launch files in the `cmn_pkg`. These have parameters you can change as well. The primary one for running the project on the locobot is:
+```
+roslaunch cmn_pkg discrete_with_viz.launch
+```
+
+<p align="center">
+  <img src="images/discrete-on-robot.png"/>
+  
+  <i>The CMN viz when running live on the physical robot.</i>
+</p>

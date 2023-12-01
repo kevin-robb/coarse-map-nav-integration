@@ -175,3 +175,25 @@ class PosePixels(Pose):
             self.yaw = remainder(self.yaw - pi/2, tau)
         else:
             print("ERROR: PosePixels.apply_action() called with invalid action: {:}".format(action))
+
+
+def rotate_image_to_north(local_occ, agent_yaw:float):
+    """
+    Rotate a local occupancy grid to face north, based on robot yaw.
+    @param local_occ - Local occupancy grid to rotate.
+    @oaram agent_yaw - Robot's orientation in radians.
+    @return rotated local_occ.
+    """
+    # Get cardinal direction corresponding to agent orientation.
+    agent_dir_str = yaw_to_cardinal_dir(agent_yaw)
+    # Rotate the egocentric local occupancy to face NORTH
+    if agent_dir_str == "east":
+        return np.rot90(local_occ, k=-1)
+    elif agent_dir_str == "north":
+        return local_occ
+    elif agent_dir_str == "west":
+        return np.rot90(local_occ, k=1)
+    elif agent_dir_str == "south":
+        return np.rot90(local_occ, k=2)
+    else:
+        raise Exception("Invalid agent direction")

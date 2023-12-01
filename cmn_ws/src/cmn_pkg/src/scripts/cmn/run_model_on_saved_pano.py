@@ -40,10 +40,15 @@ class CmnModelRunner:
             # Read the pano RGB image.
             pano_rgb = cv2.imread(f)
             # Run the model on this measurement.
+            # This function will also save both pano_rgb and the predicted local map to the visualizer.
             local_occ = self.cmn.predict_local_occupancy(pano_rgb)
-            # Visualize these.
-            self.cmn.visualizer.pano_rgb = pano_rgb
-            self.cmn.visualizer.current_predicted_local_map = local_occ
+
+            # # Downscale the local occupancy to 3x3 to see a more high-level view.
+            # downscaled_local_occ = cv2.resize(local_occ, (3, 3), 0, 0, cv2.INTER_AREA)
+            # # Just use an existing slot for it on the viz.
+            # self.cmn.visualizer.current_ground_truth_local_map = downscaled_local_occ
+
+            # Reuse the cmn visualizer for convenience.
             cmn_viz_img = self.cmn.visualizer.get_updated_img()
             cv2.imshow('cmn viz image', cmn_viz_img)
             key = cv2.waitKey(0) # Wait forever for keypress before continuing.
