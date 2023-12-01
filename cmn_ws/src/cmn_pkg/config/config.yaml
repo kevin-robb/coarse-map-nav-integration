@@ -98,5 +98,5 @@ goal_reach_deviation:
 
 move_goal_after_reaching: false # If true, choose a new goal location after it's reached, so the run continues forever. If false, terminate the run when the goal is reached.
 manually_set_goal_cell: true # Set the goal with the following params, instead of choosing a random free cell on the map.
-goal_row: 12
-goal_col: 14
+goal_row: 14
+goal_col: 17

@@ -499,17 +499,19 @@ class CoarseMapNavDiscrete:
         if self.send_random_commands:
             return np.random.choice(['move_forward', 'turn_left', 'turn_right'], 1)[0]
         
-        # If we aren't confident enough in any particular region, just explore a bit first.
-        # This is necessary because allowing path planning while the localization estimate is jumping around leads to a lot of turning in place and no convergence.
-        # print("self.agent_belief_map.max() is {:}".format(self.agent_belief_map.max()))
-        if self.agent_belief_map.max() < 0.05:
-            # Explore some more before planning.
-            rospy.logwarn("CMN: Localization has not converged enough, so exploring rather than planning a path to the goal.")
-            if self.is_facing_a_wall_in_pred_local_occ:
-                # return "turn_left"
-                return np.random.choice(['turn_left', 'turn_right'], 1)[0]
-            else:
-                return "move_forward"
+        enable_exploration:bool = True
+        if enable_exploration:
+            # If we aren't confident enough in any particular region, just explore a bit first.
+            # This is necessary because allowing path planning while the localization estimate is jumping around leads to a lot of turning in place and no convergence.
+            # print("self.agent_belief_map.max() is {:}".format(self.agent_belief_map.max()))
+            if self.agent_belief_map.max() < 0.005:
+                # Explore some more before planning.
+                rospy.logwarn("CMN: Localization has not converged enough, so exploring rather than planning a path to the goal.")
+                if self.is_facing_a_wall_in_pred_local_occ:
+                    # return "turn_left"
+                    return np.random.choice(['turn_left', 'turn_right'], 1)[0]
+                else:
+                    return "move_forward"
 
         # Use the vehicle pose estimate to plan a path with A*.
         if true_agent_pose is not None:
@@ -518,6 +520,12 @@ class CoarseMapNavDiscrete:
             action = self.astar.get_next_discrete_action(self.agent_pose_estimate_px)
         # Save the path for viz.
         self.visualizer.planned_path_to_goal = self.astar.last_path_px_reversed
+
+        # If the localization estimate is wrong, we may get stuck commanding a forward motion that will not be executed because the robot is facing a wall.
+        if action == "move_forward" and self.is_facing_a_wall_in_pred_local_occ:
+            rospy.logwarn("CMN: A* tried to plan move_forward, but we're facing a wall, so randomly turning instead.")
+            return np.random.choice(['turn_left', 'turn_right'], 1)[0]
+
         return action
 
 
