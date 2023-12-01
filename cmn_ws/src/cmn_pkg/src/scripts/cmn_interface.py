@@ -37,6 +37,9 @@ class CmnConfig():
     # Original CMN does not estimate yaw, so we need to track it manually to uphold this assumption.
     # Setting this flag to False will change the CMN localizer to estimate between the four cardinal directions.
     assume_yaw_is_known:bool = True
+    # Flag to use the goal cell specified in configs. If false, a random free cell on the map will be chosen.
+    manually_set_goal_cell:bool = False
+    manual_goal_cell:PosePixels = None # only provided if manually_set_goal_cell is true.
 
 
 class CoarseMapNavInterface():
@@ -103,8 +106,13 @@ class CoarseMapNavInterface():
         self.motion_planner.set_map_frame_manager(self.map_frame_manager)
         # Discrete motion commands internally publish velocity commands for the robot and wait for the motion to be complete, which cannot be run without a robot (i.e., in the sim).
         self.motion_planner.wait_for_motion_to_complete = not self.enable_sim
-        # Select a random goal point.
-        self.motion_planner.set_goal_point_random()
+
+        # Choose the first goal cell.
+        if config.manually_set_goal_cell:
+            self.motion_planner.set_goal_point(config.manual_goal_cell)
+        else:
+            # Select a random goal point.
+            self.motion_planner.set_goal_point_random()
 
         if not self.use_discrete_space:
             # Init the localization module.

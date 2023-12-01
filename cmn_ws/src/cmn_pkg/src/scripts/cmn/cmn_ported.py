@@ -181,6 +181,10 @@ class CoarseMapNavDiscrete:
         @param agent_yaw - Current robot yaw in radians, with 0=east, increasing CCW. In range [-pi, pi].
         @param facing_a_wall - (optional) If we are facing a wall, we cannot move forwards. So, don't update the belief if we decide to move_forward. This shouldn't be commanded, except in random actions mode.
         """
+        # If the goal has been reached, there is no action to perform this iteration. The interface will either set a new goal, or halt.
+        if action == "goal_reached":
+            return
+
         # If this is the first iteration, just set up the belief maps and return.
         if self.predictive_belief_map is None:
             self.predictive_belief_map = self.agent_belief_map.copy() # predictive probability
@@ -482,7 +486,8 @@ class CoarseMapNavDiscrete:
         # Check if the agent has reached the goal location.
         # print("agent pose estimate is {:}, while goal cell is {:}".format(self.agent_pose_estimate_px, self.goal_cell))
         if self.agent_pose_estimate_px.r == self.goal_cell.r and self.agent_pose_estimate_px.c == self.goal_cell.c:
-            if self.agent_belief_map.max() > 0.9:
+            rospy.logwarn("CMN: Estimate matches goal cell, and confidence is {:.3f}".format(self.agent_belief_map.max()))
+            if self.agent_belief_map.max() > 0.7:
                 # We're at the goal cell and the belief map has converged.
                 return "goal_reached"
             else:

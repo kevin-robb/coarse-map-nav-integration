@@ -18,7 +18,7 @@ from time import strftime, time
 from typing import Callable
 
 from scripts.cmn_interface import CoarseMapNavInterface, CmnConfig
-from scripts.basic_types import PoseMeters, rotate_image_to_north
+from scripts.basic_types import PoseMeters, PosePixels, rotate_image_to_north
 import locobot_interface
 
 ############ GLOBAL VARIABLES ###################
@@ -40,6 +40,7 @@ g_use_ground_truth_map_to_generate_observations = False
 g_show_live_viz = False
 g_verbose = False
 g_use_lidar_as_ground_truth = False
+g_manual_goal_cell:PosePixels = None # Goal cell can be specified in the configs. If this is left as None, a random free cell will be chosen.
 # Data saving params.
 g_save_training_data:bool = False # Flag to save data when running on robot for later training/evaluation.
 g_training_data_dirpath:str = None # Location of directory to save data to.
@@ -138,6 +139,10 @@ def read_params():
         g_enable_localization = config["particle_filter"]["enable"]
         g_enable_ml_model = not config["model"]["skip_loading"]
         g_discrete_assume_yaw_is_known = config["discrete_assume_yaw_is_known"]
+        # Goal cell params.
+        if config["manually_set_goal_cell"]:
+            global g_manual_goal_cell
+            g_manual_goal_cell = PosePixels(config["goal_row"], config["goal_col"])
         # LiDAR params.
         global g_use_lidar_as_ground_truth, g_fuse_lidar_with_rgb, g_use_depth_as_ground_truth
         g_use_lidar_as_ground_truth = config["lidar"]["use_lidar_as_ground_truth"]
@@ -195,6 +200,9 @@ def set_global_params(run_mode:str, use_sim:bool, use_viz:bool, cmd_vel_pub=None
     config.fuse_lidar_with_rgb = g_fuse_lidar_with_rgb and not g_use_lidar_as_ground_truth and not use_sim and g_enable_ml_model
     config.use_depth_as_ground_truth = g_use_depth_as_ground_truth and not g_use_lidar_as_ground_truth and not use_sim
     config.assume_yaw_is_known = g_discrete_assume_yaw_is_known and "discrete" in g_run_mode
+    if g_manual_goal_cell is not None:
+        config.manually_set_goal_cell = True
+        config.manual_goal_cell = g_manual_goal_cell
 
     # Init the main (non-ROS-specific) part of the project.
     global g_cmn_interface
