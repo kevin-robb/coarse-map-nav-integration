@@ -95,7 +95,7 @@ class CoarseMapProcessor:
             # Read map image and account for possible white = transparency that cv2 will think is black.
             # https://stackoverflow.com/questions/31656366/cv2-imread-and-cv2-imshow-return-all-zeros-and-black-image/62985765#62985765
             img = cv2.imread(self.map_fpath, cv2.IMREAD_UNCHANGED)
-            if img.shape[2] == 4: # we have an alpha channel.
+            if len(img.shape) >= 3 and img.shape[2] == 4: # we have an alpha channel.
                 a1 = ~img[:,:,3] # extract and invert that alpha.
                 img = cv2.add(cv2.merge([a1,a1,a1,a1]), img) # add up values (with clipping).
                 img = cv2.cvtColor(img, cv2.COLOR_RGBA2RGB) # strip alpha channels.
@@ -228,6 +228,7 @@ class MapFrameManager(CoarseMapProcessor):
         All extra space will be assumed to be occluded cells (value = 0.0).
         """
         max_obs_dim = ceil(np.sqrt(self.obs_height_px_on_map**2 + self.obs_width_px_on_map**2))
+        max_obs_dim = 3 # DEBUG to prevent huge borders.
         self.map_with_border = cv2.copyMakeBorder(self.map_with_border, max_obs_dim, max_obs_dim, max_obs_dim, max_obs_dim, cv2.BORDER_CONSTANT, None, 0.0)
         self.initialized = True
 
