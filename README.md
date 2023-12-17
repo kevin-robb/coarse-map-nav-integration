@@ -1,4 +1,4 @@
-# Topological Localization on Course Maps
+# Topological Localization on Coarse/Hand-Drawn Maps
 This work is my Thesis project @ Northeastern University for my M.S. in Robotics, advised by Lawson Wong. My completed thesis report and slides from the defense can be found in the `docs/` folder. This folder also contains a full setup guide for the LoCoBot, the physical robot used for this project.
 
 ## Overview
